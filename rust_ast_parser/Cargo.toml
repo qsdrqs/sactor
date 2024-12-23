@@ -1,0 +1,16 @@
+[package]
+name = "rust_ast_parser"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "rust_ast_parser"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+prettyplease = "0.2.25"
+pyo3 = { version = "0.21.0", features = ["extension-module"] }
+pyo3-stub-gen = "0.6.0"
+quote = "1.0.37"
+syn = { version = "2.0.79", features = ["full", "extra-traits"] }

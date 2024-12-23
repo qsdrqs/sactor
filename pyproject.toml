@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "sactor"
+version = "0.1.0"
+description = "Structure-Aware C to Rust Translator"
+authors = ["Tianyang Zhou <qsdrqs@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+maturin = "^1.7.8"
+libclang = "^18.1.1"
+tiktoken = "^0.8.0"
+openai = "^1.58.1"
+pytest = "^8.3.4"
+pytest-cov = "^6.0.0"
+
+
+[tool.poetry.group.dev.dependencies]
+autopep8 = "^2.3.1"
+isort = "^5.13.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,5 @@
+pyrightconfig.json
+__pycache__
+
+/build
+/result
