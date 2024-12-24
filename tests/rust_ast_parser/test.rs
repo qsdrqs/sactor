@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use libc::c_int;
+
 struct Foo {
     a: i32,
     b: i32,

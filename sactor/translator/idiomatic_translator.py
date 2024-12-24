@@ -37,6 +37,12 @@ class IdiomaticTranslator(Translator):
 
     @override
     def translate_struct(self, struct_union: StructInfo, error_message=None, error_translation=None, error_tests=None, attempts=0) -> TranslationResult:
+        # Translate all the dependencies of the struct/union
+        struct_union_dependencies = struct_union.dependencies
+        for struct in struct_union_dependencies:
+            self.translate_struct(struct)
+
+        # Translate the struct/union
         self.init_failure_info("struct", struct_union.name)
         struct_save_path = os.path.join(
             self.translated_struct_path, struct_union.name + ".rs")
@@ -68,12 +74,13 @@ class IdiomaticTranslator(Translator):
 
         # Get previous translation results
         dependencies_code = []
-        for dependency in struct_union.dependencies:
+        dependency_names = [d.name for d in struct_union.dependencies]
+        for dependency_name in dependency_names:
             struct_path = os.path.join(
-                self.translated_struct_path, dependency + ".rs")
+                self.translated_struct_path, dependency_name + ".rs")
             if not os.path.exists(struct_path):
                 raise RuntimeError(
-                    f"Error: Dependency {dependency} of struct {struct_union.name} is not translated yet")
+                    f"Error: Dependency {dependency_name} of struct {struct_union.name} is not translated yet")
             with open(struct_path, "r") as file:
                 dependencies_code.append(file.read())
         joined_dependencies_code = '\n'.join(dependencies_code)
@@ -104,7 +111,7 @@ The following is the output of Crown for this struct:
 ```
 {crown_output}
 ```
-Translate the struct with the help of the Crown output.
+Analyze the Crown output firstly, then translate the struct with the help of the Crown output.
 '''
 
         if len(dependencies_code) > 0:
@@ -173,19 +180,19 @@ It failed to compile with the following error message, try to avoid this error:
         print(f"Translating function: {function.name} (attempts: {attempts})")
 
         # Get used struct, unions
-        structs_in_target = function.struct_dependencies
-        code_of_translated_structs = []
-        print(structs_in_target)
-        struct_names_in_target = [struct.name for struct in structs_in_target]
-        for struct in struct_names_in_target:
-            # FIXME: add struct dependencies
-            struct_path = os.path.join(
-                self.translated_struct_path, struct + ".rs")
-            if not os.path.exists(struct_path):
-                raise RuntimeError(
-                    f"Error: Struct {struct} is not translated yet")
-            with open(struct_path, "r") as file:
-                code_of_translated_structs.append(file.read())
+        structs_in_function = function.struct_dependencies
+        code_of_structs = []
+        for struct in structs_in_function:
+            all_structs = self.c_parser.get_all_dependent_structs(struct)
+            for struct_name in all_structs:
+                struct_path = os.path.join(
+                    self.translated_struct_path, struct_name + ".rs")
+                if not os.path.exists(struct_path):
+                    raise RuntimeError(
+                        f"Error: Struct {struct_name} is not translated yet")
+                with open(struct_path, "r") as file:
+                    code_of_structs.append(file.read())
+
 
         # Get used global variables
         # TODO: add this
@@ -257,15 +264,16 @@ The following is the output of Crown for this function:
 ```
 {crown_output}
 ```
-Translate the function with the help of the Crown output.
+Analyze the Crown output firstly, then translate the function with the help of the Crown output.
 '''
 
-        if len(code_of_translated_structs) > 0:
-            joint_structs = '\n'.join(code_of_translated_structs)
+        joint_struct_code = ''
+        if len(code_of_structs) > 0:
+            joint_struct_code = '\n'.join(code_of_structs)
             prompt += f'''
 This function uses the following structs/unions, which are already translated as (you don't need to include them in your translation, and **you can not modify them**):
 ```rust
-{joint_structs}
+{joint_struct_code}
 ```
 '''
         if len(function_depedency_signatures) > 0:
@@ -350,7 +358,9 @@ Try to avoid this error by passing the tests.
                 return self.translate_function(
                     function,
                     verify_result=(
-                        VerifyResult.COMPILE_ERROR, error_message),
+                        VerifyResult.COMPILE_ERROR,
+                        error_message,
+                    ),
                     error_translation=function_result,
                     attempts=attempts+1
                 )
@@ -359,8 +369,9 @@ Try to avoid this error by passing the tests.
         result = self.verifier.verify_function(
             function,
             function_result,
-            undiomantic_function_signature,
+            joint_struct_code,
             function_depedency_signatures,
+            undiomantic_function_signature,
             False  # TODO: check here
         )
 

@@ -30,7 +30,11 @@ class UnidiomaticTranslator(Translator):
 
     @override
     def translate_struct(self, struct_union: StructInfo) -> TranslationResult:
-        # FIXME: add dependencies translation
+        # Translate all the dependencies of the struct/union
+        struct_union_dependencies = struct_union.dependencies
+        for struct in struct_union_dependencies:
+            self.translate_struct(struct)
+
         if struct_union.is_struct:
             rust_s_u = rust_ast_parser.get_struct_definition(
                 self.c2rust_translation, struct_union.name)
@@ -90,21 +94,18 @@ class UnidiomaticTranslator(Translator):
 
         # Translate the function using LLM
         structs_in_function = function.struct_dependencies
-        code_of_function = self.c_parser.get_code_of_function(function.name)
         code_of_structs = []
-        added_structs = set()
         for struct in structs_in_function:
             all_structs = self.c_parser.get_all_dependent_structs(struct)
             for struct_name in all_structs:
-                if struct_name in added_structs:
-                    continue
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
                         f"Error: Struct {struct_name} is not translated yet")
                 with open(f"{self.translated_struct_path}/{struct_name}.rs", "r") as file:
                     code_of_struct = file.read()
                     code_of_structs.append(code_of_struct)
-                    added_structs.add(struct_name)
+
+        code_of_function = self.c_parser.get_code_of_function(function.name)
         prompt = f'''
 Translate the following C function to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.

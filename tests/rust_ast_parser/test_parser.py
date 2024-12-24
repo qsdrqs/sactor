@@ -43,3 +43,7 @@ def test_combine_struct_function():
     with open(combine_path) as f:
         expected_code = f.read()
     assert combined_code == expected_code
+
+def test_get_uses_code(code):
+    uses_code = rust_ast_parser.get_uses_code(code)
+    assert uses_code == ['use std :: collections :: HashMap ;', 'use libc :: c_int ;']

@@ -72,3 +72,11 @@ def save_code(path, code):
     os.makedirs(path_dir, exist_ok=True)
     with open(path, "w") as f:
         f.write(code)
+
+
+def print_red(s):
+    print("\033[91m {}\033[00m".format(s))
+
+
+def print_green(s):
+    print("\033[92m {}\033[00m".format(s))

@@ -1,0 +1,42 @@
+To translate the given unidiomatic Rust function into idiomatic Rust, we first need to analyze the `unsafe` blocks and the Crown output:
+
+### Unsafe Blocks Analysis
+
+1. **Null Checks**: The function checks if `student` and `newName` are null. In Rust, we can use `Option` to handle the possibility of null values safely.
+
+2. **Dereferencing Pointers**: The function uses `&mut *student` to get a mutable reference to the `Student` struct. In Rust, we can use `Option<&mut Student>` to safely handle this.
+
+3. **Memory Management**: The function uses `malloc` and `free` to manage memory for the `name` field. In Rust, we can use a `Vec<u8>` to handle dynamic memory allocation safely.
+
+4. **String Operations**: The function uses `strlen` and `strcpy` to handle C strings. In Rust, we can use `CStr` to safely convert C strings to Rust byte slices.
+
+### Crown Output Analysis
+
+- `student` is a mutable, owning pointer to a single `Student` object.
+- `newName` is a transient, mutable pointer to an array (C string).
+
+### Translation
+
+Based on the analysis, we can translate the function into idiomatic Rust by using safe Rust constructs like `Option`, `Vec<u8>`, and `CStr`. We will also ensure the function name remains unchanged to avoid compilation errors.
+
+Here is the translated function:
+
+----FUNCTION----
+```rust
+use std::ffi::CStr;
+
+pub fn updateStudentInfo(student: Option<&mut Student>, newName: Option<&CStr>, newAge: i32) {
+    if let (Some(student_ref), Some(new_name_cstr)) = (student, newName) {
+        // Update the name
+        student_ref.name = new_name_cstr.to_bytes().to_vec();
+
+        // Update the age
+        student_ref.age = newAge;
+    } else {
+        println!("Invalid input parameters");
+    }
+}
+```
+----END FUNCTION----
+
+This translation uses `Option` to handle potential null values, `CStr` to safely convert C strings, and `Vec<u8>` for dynamic memory management, thus eliminating the need for `unsafe` blocks. The function name is kept as `updateStudentInfo` to match the original signature

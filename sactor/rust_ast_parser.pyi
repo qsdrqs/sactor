@@ -17,3 +17,6 @@ def get_struct_definition(source_code:str,struct_name:str) -> str:
 def get_union_definition(source_code:str,union_name:str) -> str:
     ...
 
+def get_uses_code(code:str) -> list[str]:
+    ...
+

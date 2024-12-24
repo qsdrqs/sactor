@@ -4,6 +4,7 @@ import time
 from abc import ABC, abstractmethod
 
 import tiktoken
+from sactor import utils
 
 
 class LLM(ABC):
@@ -18,7 +19,7 @@ You are an expert in translating code from C to Rust. You will take all informat
         self.system_msg = system_msg
 
         if not encoding:
-            encoding = "o200k_base" # default encoding, for gpt-4o
+            encoding = "o200k_base"  # default encoding, for gpt-4o
 
         self.enc = tiktoken.get_encoding(encoding)
         self.total_costed_tokens = 0
@@ -34,7 +35,7 @@ You are an expert in translating code from C to Rust. You will take all informat
         if self.mock_code_file is not None:
             with open(self.mock_code_file, "r") as f:
                 return f.read()
-        print(prompt)
+        utils.print_red(prompt)
 
         start_time = time.time()
         response = self._query_impl(prompt, model)
@@ -46,9 +47,7 @@ You are an expert in translating code from C to Rust. You will take all informat
         self.last_costed_tokens = len(tokens)
         self.total_costed_tokens += self.last_costed_tokens
 
-        print('-------Response-------')
-        print(response)
-        print('----------------------')
+        utils.print_green(response)
 
         return response
 

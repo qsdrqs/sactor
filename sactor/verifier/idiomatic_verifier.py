@@ -32,7 +32,7 @@ class IdiomaticVerifier(Verifier):
         idiomatic_signature = idiomatic_signature.replace(
             function_name, f"{function_name}_idiomatic")  # FIXME: dirty code
         prompt = f'''
-Generate the harness for the function {function_name}_idiomatic with the following code pattern:
+Generate the harness for the function {function_name}_idiomatic with the following code pattern (You should **NOT** add any dummy implementation of the function or structs, as it will be provided by the verifier):
 ```rust
 {original_signature} {{
     // TODO: Add code here to Convert the input to the idiomatic format
@@ -117,20 +117,23 @@ Try to avoid this error by passing the tests.
         pass
 
     @override
-    def verify_function(self, function: FunctionInfo, idiomatic_impl, unidiomatic_signature, function_dependency_signatures, prefix=False) -> tuple[VerifyResult, str | None]:
+    def verify_function(self, function: FunctionInfo, function_code, struct_code, function_dependency_signatures, unidiomatic_signature, prefix=False) -> tuple[VerifyResult, str | None]:
+        combined_code = rust_ast_parser.combine_struct_function(
+            struct_code, function_code)
+
         # Try to compile the Rust code
         function_name = function.name
         compile_result = self._try_compile_rust_code(
-            idiomatic_impl, function_dependency_signatures)
+            combined_code, function_dependency_signatures)
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
 
-        idiomatic_signature = rust_ast_parser.get_func_signatures(idiomatic_impl)[
+        idiomatic_signature = rust_ast_parser.get_func_signatures(function_code)[
             function_name]
 
         result = self._function_generate_test_harness(
             function_name,
-            idiomatic_impl,
+            combined_code,
             unidiomatic_signature,
             idiomatic_signature
         )
@@ -139,7 +142,7 @@ Try to avoid this error by passing the tests.
 
         # We have had the test harness generated, now we need to run the tests
         test_error = self._embed_test_rust(
-            function, idiomatic_impl, function_dependency_signatures, prefix)
+            function, combined_code, function_dependency_signatures, prefix)
 
         if test_error[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to run tests for function {function_name}")

@@ -2,9 +2,10 @@ import ctypes
 import sys
 
 from clang import cindex
-from .struct_info import StructInfo
-from .function_info import FunctionInfo
+
 from .enum_info import EnumInfo
+from .function_info import FunctionInfo
+from .struct_info import StructInfo
 
 # Load the clang_Location_isInSystemHeader function from the libclang library
 cindex.conf.lib.clang_Location_isInSystemHeader.argtypes = [
@@ -19,6 +20,7 @@ class CParser:
         structs_unions_list = self._extract_structs_unions()
         self.structs_unions = dict((struct_union.name, struct_union)
                                    for struct_union in structs_unions_list)
+        self._update_structs_unions()
 
         functions_list = self._extract_functions()
         self.functions = dict((func.name, func) for func in functions_list)
@@ -43,12 +45,33 @@ class CParser:
             node, function_names)
         called_functions = set()
         for called_function_name in called_function_names:
-            if called_function_name in self.functions:
+            # Add the function to the dependencies if it exists and is not the same as the current function
+            if called_function_name in self.functions and called_function_name != function.name:
                 called_functions.add(
                     self.functions[called_function_name])
 
         function.function_dependencies = list(called_functions)
 
+    def _update_struct_dependencies(self, struct_union: StructInfo):
+        """
+        Updates the dependencies of each struct or union.
+        """
+        node = struct_union.node
+        used_struct_names = self.get_used_structs_unions(node)
+        used_structs = set()
+        for used_struct_name in used_struct_names:
+            # Add the struct to the dependencies if it exists and is not the same as the current struct
+            if used_struct_name in self.structs_unions and used_struct_name != struct_union.name:
+                used_structs.add(self.structs_unions[used_struct_name])
+
+        struct_union.dependencies = list(used_structs)
+
+    def _update_structs_unions(self):
+        """
+        Update the information of each struct or union. Needs to be called after all structs and unions are extracted.
+        """
+        for struct_union in self.structs_unions.values():
+            self._update_struct_dependencies(struct_union)
 
     def _update_functions(self):
         """
@@ -86,12 +109,7 @@ class CParser:
             name = node.spelling
             if name.find("unnamed at") == -1:  # ignore unnamed structs TODO: is this good?
                 location = f"{node.location.file}:{node.location.line}"
-                dependencies = self.get_used_structs_unions(node)
-                for dependency in dependencies:
-                    if dependency == name:
-                        # Remove self-reference
-                        dependencies.remove(dependency)
-                        break
+                dependencies = []
                 structs.append(StructInfo(node, name, location, dependencies))
         for child in node.get_children():
             structs.extend(self.get_structs_unions(child))
@@ -112,7 +130,7 @@ class CParser:
                     location = f"{node.location.file}:{node.location.line}"
 
                     # Collect functions
-                    called_functions = [] # Keep blank for now, update later
+                    called_functions = []  # Keep blank for now, update later
 
                     # Collect structs
                     used_struct_names = self.get_used_structs_unions(node)
@@ -208,7 +226,7 @@ class CParser:
         for dependency in struct_union.dependencies:
             if dependency not in result:
                 result.update(self.get_all_dependent_structs(
-                    self.structs_unions[dependency]))
+                    self.structs_unions[dependency.name]))
 
         return result
 

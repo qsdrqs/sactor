@@ -147,6 +147,20 @@ fn combine_struct_function(struct_code: &str, function_code: &str) -> PyResult<S
     Ok(prettyplease::unparse(&function_ast))
 }
 
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn get_uses_code(code: &str) -> PyResult<Vec<String>> {
+    let ast = parse_src(code)?;
+    let mut uses = vec![];
+    for item in ast.items.iter() {
+        if let syn::Item::Use(u) = item {
+            uses.push(quote!(#u).to_string());
+        }
+    }
+
+    Ok(uses)
+}
+
 
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -155,6 +169,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_struct_definition, m)?)?;
     m.add_function(wrap_pyfunction!(get_union_definition, m)?)?;
     m.add_function(wrap_pyfunction!(combine_struct_function, m)?)?;
+    m.add_function(wrap_pyfunction!(get_uses_code, m)?)?;
     Ok(())
 }
 

@@ -25,7 +25,7 @@ class Verifier(ABC):
         self.test_cmd = test_cmd
 
     @abstractmethod
-    def verify_function(self, *args, **kwargs) -> tuple[VerifyResult, str | None]:
+    def verify_function(self, function: FunctionInfo, function_code, struct_code, *args, **kwargs) -> tuple[VerifyResult, str | None]:
         pass
 
     def _try_compile_rust_code(self, rust_code, function_dependency_signatures) -> tuple[VerifyResult, str | None]:
