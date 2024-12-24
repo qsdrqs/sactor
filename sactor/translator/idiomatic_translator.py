@@ -1,17 +1,16 @@
 import os
 from typing import override
 
-import rust_ast_parser
 import sactor.translator as translator
 import sactor.verifier as verifier
-from sactor import utils
+from sactor import rust_ast_parser, utils
 from sactor.c_parser import CParser, FunctionInfo, StructInfo
 from sactor.llm import LLM
 from sactor.thirdparty import Crown, CrownType
 from sactor.verifier import VerifyResult
 
-from .translator_types import TranslationResult
 from .translator import Translator
+from .translator_types import TranslationResult
 
 
 class IdiomaticTranslator(Translator):
@@ -64,7 +63,8 @@ class IdiomaticTranslator(Translator):
             unidiomatic_struct_code = file.read()
 
         # Get results from crown
-        crown_output = self.crown_result.query(struct_union.name, CrownType.STRUCT)
+        crown_output = self.crown_result.query(
+            struct_union.name, CrownType.STRUCT)
 
         # Get previous translation results
         dependencies_code = []

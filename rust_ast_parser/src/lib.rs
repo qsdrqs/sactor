@@ -1,7 +1,7 @@
 #![feature(proc_macro_span)]
 
 use pyo3::prelude::*;
-use pyo3_stub_gen::{define_stub_info_gatherer, derive::gen_stub_pyfunction};
+use pyo3_stub_gen::{derive::gen_stub_pyfunction};
 use quote::quote;
 use std::collections::HashMap;
 use syn::{parse_quote, parse_str, spanned::Spanned, Abi, File, LitStr, Token};
@@ -158,4 +158,16 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-define_stub_info_gatherer!(stub_info);
+#[doc = r" Auto-generated function to gather information to generate stub files"]
+pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo>{
+    let manifest_path = std::process::Command::new(env!("CARGO"))
+        .arg("locate-project")
+        .arg("--workspace")
+        .arg("--message-format=plain")
+        .output()
+        .unwrap()
+        .stdout;
+    let manifest_path = std::path::Path::new(std::str::from_utf8(&manifest_path).unwrap().trim());
+    let manifest_dir = manifest_path.parent().unwrap();
+    pyo3_stub_gen::StubInfo::from_pyproject_toml(manifest_dir.join("pyproject.toml"))
+}

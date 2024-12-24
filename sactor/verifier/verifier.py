@@ -4,9 +4,7 @@ import os
 import subprocess
 from abc import ABC, abstractmethod
 
-import rust_ast_parser
-
-import sactor.utils as utils
+from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo
 
 from .verifier_types import VerifyResult

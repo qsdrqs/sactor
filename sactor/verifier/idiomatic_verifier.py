@@ -1,13 +1,12 @@
 import os
 from typing import override
 
-import rust_ast_parser
-from sactor import utils
+from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo
 from sactor.llm import LLM
 
-from .verifier_types import VerifyResult
 from .verifier import Verifier
+from .verifier_types import VerifyResult
 
 
 class IdiomaticVerifier(Verifier):
@@ -89,7 +88,9 @@ Try to avoid this error by passing the tests.
             )
 
         compile_code = '\n'.join([
-            idiomatic_impl.replace(function_name, f"{function_name}_idiomatic"), # FIXME: dirty code
+            idiomatic_impl.replace(
+                # FIXME: dirty code
+                function_name, f"{function_name}_idiomatic"),
             function_result
         ])
 
@@ -124,7 +125,8 @@ Try to avoid this error by passing the tests.
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
 
-        idiomatic_signature = rust_ast_parser.get_func_signatures(idiomatic_impl)[function_name]
+        idiomatic_signature = rust_ast_parser.get_func_signatures(idiomatic_impl)[
+            function_name]
 
         result = self._function_generate_test_harness(
             function_name,

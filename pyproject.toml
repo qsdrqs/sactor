@@ -1,3 +1,11 @@
+[project]
+name = "sactor"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+
 [tool.poetry]
 name = "sactor"
 version = "0.1.0"
@@ -22,3 +30,8 @@ isort = "^5.13.2"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.maturin]
+python-source = '.'
+module-name = "sactor.rust_ast_parser"
+features = ["pyo3/extension-module"]

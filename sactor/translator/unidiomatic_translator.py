@@ -1,16 +1,15 @@
 import os
 from typing import override
 
-import rust_ast_parser
 import sactor.translator as translator
 import sactor.verifier as verifier
-from sactor import utils
+from sactor import rust_ast_parser, utils
 from sactor.c_parser import CParser, FunctionInfo, StructInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
-from .translator_types import TranslationResult
 from .translator import Translator
+from .translator_types import TranslationResult
 
 
 class UnidiomaticTranslator(Translator):
@@ -115,6 +114,7 @@ The function is:
 ```
 '''
 
+        joint_code_of_structs: str = ''
         if len(code_of_structs) > 0:
             joint_code_of_structs = '\n'.join(code_of_structs)
             prompt += f'''
@@ -161,16 +161,6 @@ The function uses the following functions, which are already translated as (you 
 {joint_function_depedency_signatures}
 ```
 '''
-        # TODO: check if the translation includes the dependencies
-        if len(code_of_structs) > 0:
-            prompt += f'''
-Translate the structs/unions firstly. Then output the translated struct/unions into this format (wrap with the following tags):
-----STRUCTS----
-```rust
-// Your translated structs/unions here
-```
-----END STRUCTS----
-'''
 
         if function.name in translator.RESERVED_KEYWORDS:
             prompt += f'''
@@ -211,7 +201,7 @@ When running the test, it failed with the following error message, try to avoid 
 
         # result = query_llm(prompt, False, f"test.rs")
         result = self.llm.query(prompt)
-        llm_result = utils.parse_llm_result(result, "structs", "function")
+        llm_result = utils.parse_llm_result(result, "function")
         function_result = llm_result["function"]
 
         # TODO: check function signature, must use pointers, not Box, etc.
@@ -226,7 +216,7 @@ When running the test, it failed with the following error message, try to avoid 
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR,
                                error_message),
-                error_translation=structs_result+function_result,
+                error_translation=function_result,
                 attempts=attempts+1
             )
         prefix = False
@@ -241,7 +231,7 @@ When running the test, it failed with the following error message, try to avoid 
                         function,
                         verify_result=(
                             VerifyResult.COMPILE_ERROR, f"Function {name_prefix} not found in the translated code"),
-                        error_translation=structs_result+function_result,
+                        error_translation=function_result,
                         attempts=attempts+1
                     )
             else:
@@ -253,7 +243,7 @@ When running the test, it failed with the following error message, try to avoid 
                     function,
                     verify_result=(
                         VerifyResult.COMPILE_ERROR, error_message),
-                    error_translation=structs_result+function_result,
+                    error_translation=function_result,
                     attempts=attempts+1
                 )
                 # exit(f"Error: Function signature not found in the translated code for function {function.name}: {function_result_sigs}") FIXME: check here
@@ -271,18 +261,17 @@ When running the test, it failed with the following error message, try to avoid 
                 function,
                 verify_result=(
                     VerifyResult.COMPILE_ERROR, "Translated code doesn't wrap by the tags as instructed"),
-                error_translation=structs_result,
+                error_translation=function_result,
                 attempts=attempts+1
             )
 
-        print("Translated structs/unions:")
-        print(structs_result)
         print("Translated function:")
         print(function_result)
 
         result = self.verifier.verify_function(
             function,
             function_result,
+            joint_code_of_structs,
             function_depedency_signatures,
             prefix
         )
@@ -305,11 +294,11 @@ When running the test, it failed with the following error message, try to avoid 
             return self.translate_function(
                 function,
                 result,
-                error_translation=structs_result+function_result,
+                error_translation=function_result,
                 attempts=attempts+1
             )
 
-        utils.save_code(function_save_path, structs_result + function_result)
+        utils.save_code(function_save_path, function_result)
         return TranslationResult.SUCCESS
 
     def combine(self, functions, structs, global_vars):

@@ -1,6 +1,6 @@
 import pytest
 
-import rust_ast_parser
+from sactor import rust_ast_parser
 
 
 @pytest.fixture

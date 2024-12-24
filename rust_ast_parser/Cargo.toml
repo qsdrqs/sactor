@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 prettyplease = "0.2.25"
-pyo3 = { version = "0.21.0", features = ["extension-module"] }
+pyo3 = { version = "0.23.3", features = ["extension-module"] }
 pyo3-stub-gen = "0.6.0"
 quote = "1.0.37"
 syn = { version = "2.0.79", features = ["full", "extra-traits"] }
