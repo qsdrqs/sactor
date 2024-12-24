@@ -29,7 +29,7 @@ def test_unidiomatic_translator():
     with patch.object(llm, '_query_impl', return_value=mock_response_content):
         with tempfile.TemporaryDirectory() as tempdir:
             translator = UnidiomaticTranslator(
-                llm, c2rust_content, c_parser, 'ls', result_path=tempdir)
+                llm, c2rust_content, c_parser, ['python', 'tests/c_examples/course_manage_test.py'], result_path=tempdir)
 
             result = translator.translate_struct(c_parser.structs_unions['Student'])
             assert result == TranslationResult.SUCCESS

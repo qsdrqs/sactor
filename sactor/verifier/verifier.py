@@ -11,7 +11,7 @@ from .verifier_types import VerifyResult
 
 
 class Verifier(ABC):
-    def __init__(self, test_cmd, build_path=None):
+    def __init__(self, test_cmd: str | list[str], build_path=None):
         if build_path:
             self.build_path = build_path
         else:
@@ -65,7 +65,13 @@ extern "C" {{
         env = os.environ.copy()
         env["LD_LIBRARY_PATH"] = os.path.abspath(
             f"{self.embed_test_rust_dir}/target/debug")
-        res = subprocess.run([self.test_cmd, target], env=env,
+        if type(self.test_cmd) == str:
+            cmd = [self.test_cmd, target]
+        elif type(self.test_cmd) == list:
+            cmd = self.test_cmd + [target]
+        else:
+            raise ValueError(f"Invalid test command type: {type(self.test_cmd)}, expected str or list[str]")
+        res = subprocess.run(cmd, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print(res.stdout.decode())
         print(res.stderr.decode())
