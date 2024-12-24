@@ -23,8 +23,9 @@ def test_get_struct_definition(code):
 
 def test_expose_function_to_c(code):
     exposed_code = rust_ast_parser.expose_function_to_c(code)
-    assert exposed_code.count('extern "C"') == 2
-    assert exposed_code.count('#[no_mangle]') == 2
+    all_function_signatures = rust_ast_parser.get_func_signatures(exposed_code)
+    assert exposed_code.count('extern "C"') == len(all_function_signatures)
+    assert exposed_code.count('#[no_mangle]') == len(all_function_signatures)
 
 def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")

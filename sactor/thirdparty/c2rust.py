@@ -33,7 +33,6 @@ def _include_path():
 def get_c2rust_translation(filename):
     # check c2rust executable
     if not shutil.which("c2rust"):
-        print("c2rust executable not found")
         raise OSError("c2rust executable not found")
 
     with tempfile.TemporaryDirectory() as tmpdir:

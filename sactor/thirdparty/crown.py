@@ -18,11 +18,9 @@ class Crown:
     def __init__(self, build_path=None):
         # check executables
         if not shutil.which("crown"):
-            print("crown executable not found")
-            return
+            raise OSError("crown executable not found")
         if not shutil.which("rustup"):
-            print("rustup executable not found")
-            return
+            raise OSError("rustup executable not found")
 
         if build_path:
             self.build_path = build_path
