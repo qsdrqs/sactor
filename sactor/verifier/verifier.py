@@ -15,7 +15,8 @@ class Verifier(ABC):
         if build_path:
             self.build_path = build_path
         else:
-            self.build_path = os.path.join(utils.find_project_root(), 'build')
+            tmpdir = utils.get_temp_dir()
+            self.build_path = os.path.join(tmpdir, 'build')
         self.build_attempt_path = os.path.join(
             self.build_path, "build_attempt")
         self.embed_test_rust_dir = os.path.join(
@@ -109,7 +110,8 @@ extern "C" {{
         if prefix:
             signature = c_function.get_signature(c_function.name+"_") + ';'
             orig_signature = c_function.get_signature()
-            call_original = f"{c_function.name+'_'}({', '.join([arg_name for arg_name, _ in c_function.arguments])});"
+            call_original = f"{
+                c_function.name+'_'}({', '.join([arg_name for arg_name, _ in c_function.arguments])});"
             call_stmt = f"{orig_signature} {{\n    {call_original}\n}}"
         else:
             signature = c_function.get_signature() + ';'
@@ -164,9 +166,10 @@ extern "C" {{
         filename = c_function.node.location.file.name
 
         rust_code = rust_ast_parser.expose_function_to_c(rust_code)
-        joint_function_depedency_signatures = '\n'.join(
-            function_dependency_signatures)
-        rust_code = f'''
+        if len(function_dependency_signatures) > 0:
+            joint_function_depedency_signatures = '\n'.join(
+                function_dependency_signatures)
+            rust_code = f'''
 extern "C" {{
 {joint_function_depedency_signatures}
 }}

@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 
 def create_rust_lib(rust_code, lib_name, path):
@@ -33,6 +34,11 @@ def find_project_root():
     raise RuntimeError("Could not find project root")
 
 
+def get_temp_dir():
+    return '/tmp/sactor'
+    # return tempfile.mkdtemp(prefix='sactor_')
+
+
 def parse_llm_result(llm_result, *args):
     '''
     Parse the result from LLM
@@ -60,9 +66,9 @@ def parse_llm_result(llm_result, *args):
         res[arg] = arg_result
     return res
 
+
 def save_code(path, code):
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)
     with open(path, "w") as f:
         f.write(code)
-

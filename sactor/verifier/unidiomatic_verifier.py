@@ -26,7 +26,7 @@ class UnidiomaticVerifier(Verifier):
 
         # Run the tests
         test_error = self._embed_test_rust(
-            function, function_code, function_dependency_signatures, has_prefix)
+            function, combined_code, function_dependency_signatures, has_prefix)
 
         if test_error[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to run tests for function {function.name}")

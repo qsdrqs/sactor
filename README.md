@@ -10,6 +10,9 @@ SACToR is a tool that translates C code to Rust code through Large Language Mode
 - rustup
 - poetry (Python package manager)
 
+- c2rust
+- crown
+
 ## Installation
 1. Install `rust_ast_parser`
 2. Install `sactor`

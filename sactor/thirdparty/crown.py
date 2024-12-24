@@ -27,7 +27,8 @@ class Crown:
         if build_path:
             self.build_path = build_path
         else:
-            self.build_path = os.path.join(utils.find_project_root(), 'build')
+            tmpdir = utils.get_temp_dir()
+            self.build_path = os.path.join(tmpdir, 'build')
         self.analysis_build_path = os.path.join(
             self.build_path, "crown_analysis")
         self.analysis_results_path = os.path.join(
