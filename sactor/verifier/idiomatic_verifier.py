@@ -29,10 +29,13 @@ class IdiomaticVerifier(Verifier):
     ):
         # FIXME: add attempt counter
 
+        uses = rust_ast_parser.get_uses_code(idiomatic_impl)
+        joint_uses = '\n'.join(uses)
         idiomatic_signature = idiomatic_signature.replace(
-            function_name, f"{function_name}_idiomatic")  # FIXME: dirty code
+            function_name, f"{function_name}_idiomatic")
         prompt = f'''
-Generate the harness for the function {function_name}_idiomatic with the following code pattern (You should **NOT** add any dummy implementation of the function or structs, as it will be provided by the verifier):
+Generate the harness for the function {function_name}_idiomatic with the following code pattern, finish all the TODOs.
+You should **NOT** add any dummy implementation of the function or structs, as it will be provided by the verifier:
 ```rust
 {original_signature} {{
     // TODO: Add code here to Convert the input to the idiomatic format
@@ -40,6 +43,14 @@ Generate the harness for the function {function_name}_idiomatic with the followi
     // TODO: Add code here to Convert the result back to the original format
 }}
 '''
+        if len(uses) > 0:
+            prompt += f'''
+Following uses will be provied by the verifier, you should **ONLY** add uses that are not in the following list:
+```rust
+{joint_uses}
+```
+'''
+
         prompt += '''
 Output the translated function into this format (wrap with the following tags):
 ----FUNCTION----
@@ -88,9 +99,11 @@ Try to avoid this error by passing the tests.
             )
 
         compile_code = '\n'.join([
-            idiomatic_impl.replace(
-                # FIXME: dirty code
-                function_name, f"{function_name}_idiomatic"),
+            rust_ast_parser.rename_function(
+                idiomatic_impl,
+                function_name,
+                f"{function_name}_idiomatic"
+            ),
             function_result
         ])
 

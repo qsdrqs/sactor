@@ -1,10 +1,10 @@
 #![feature(proc_macro_span)]
 
 use pyo3::prelude::*;
-use pyo3_stub_gen::{derive::gen_stub_pyfunction};
+use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use quote::quote;
 use std::collections::HashMap;
-use syn::{parse_quote, parse_str, spanned::Spanned, Abi, File, LitStr, Token};
+use syn::{parse_quote, parse_str, spanned::Spanned, visit_mut::VisitMut, Abi, File, LitStr, Token};
 
 fn parse_src(source_code: &str) -> PyResult<File> {
     parse_str(source_code).map_err(|e| {
@@ -161,6 +161,48 @@ fn get_uses_code(code: &str) -> PyResult<Vec<String>> {
     Ok(uses)
 }
 
+struct RenameVisitor {
+    old_name: String,
+    new_name: String,
+}
+
+impl syn::visit_mut::VisitMut for RenameVisitor {
+    fn visit_item_fn_mut(&mut self, item_fn: &mut syn::ItemFn) {
+        // rename definition
+        if item_fn.sig.ident == self.old_name {
+            item_fn.sig.ident = syn::Ident::new(&self.new_name, item_fn.sig.ident.span());
+        }
+
+        syn::visit_mut::visit_item_fn_mut(self, item_fn);
+    }
+
+    fn visit_path_mut(&mut self, path: &mut syn::Path) {
+        if let Some(ident) = path.get_ident() {
+            if ident.to_string() == self.old_name {
+                path.segments.last_mut().unwrap().ident =
+                    syn::Ident::new(&self.new_name, ident.span());
+            }
+        }
+
+        syn::visit_mut::visit_path_mut(self, path);
+    }
+}
+
+// Need to rename both function definition and function calls
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn rename_function(code: &str, old_name: &str, new_name: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+    // Create and run our visitor
+    let mut visitor = RenameVisitor {
+        old_name: old_name.to_string(),
+        new_name: new_name.to_string(),
+    };
+    visitor.visit_file_mut(&mut ast);
+
+    // Return the modified source code
+    Ok(prettyplease::unparse(&ast))
+}
 
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -170,11 +212,12 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_union_definition, m)?)?;
     m.add_function(wrap_pyfunction!(combine_struct_function, m)?)?;
     m.add_function(wrap_pyfunction!(get_uses_code, m)?)?;
+    m.add_function(wrap_pyfunction!(rename_function, m)?)?;
     Ok(())
 }
 
 #[doc = r" Auto-generated function to gather information to generate stub files"]
-pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo>{
+pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo> {
     let manifest_path = std::process::Command::new(env!("CARGO"))
         .arg("locate-project")
         .arg("--workspace")
