@@ -29,3 +29,17 @@ def test_expose_function_to_c(code):
 def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")
     assert union_definition == 'union Bar {\n    a: i32,\n    b: i32,\n}\n'
+
+def test_combine_struct_function():
+    function_path = 'tests/rust_ast_parser/test_combine/test_function.rs'
+    struct_path = 'tests/rust_ast_parser/test_combine/test_struct.rs'
+    with open(function_path) as f:
+        function_code = f.read()
+    with open(struct_path) as f:
+        struct_code = f.read()
+    combined_code = rust_ast_parser.combine_struct_function(struct_code, function_code)
+
+    combine_path = 'tests/rust_ast_parser/test_combine/test_combine.rs'
+    with open(combine_path) as f:
+        expected_code = f.read()
+    assert combined_code == expected_code

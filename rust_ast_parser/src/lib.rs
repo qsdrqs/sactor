@@ -122,12 +122,39 @@ fn get_union_definition(source_code: &str, union_name: &str) -> PyResult<String>
     )))
 }
 
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn combine_struct_function(struct_code: &str, function_code: &str) -> PyResult<String> {
+    // Parse both input codes
+    let struct_ast = parse_src(struct_code)?;
+    let mut function_ast = parse_src(function_code)?;
+
+    // Find the last use statement index in function code
+    let mut last_use_index = 0;
+    for (index, item) in function_ast.items.iter().enumerate() {
+        if let syn::Item::Use(_) = item {
+            last_use_index = index + 1;
+        }
+    }
+
+    // Insert struct items after the last use statement
+    for struct_item in struct_ast.items {
+        function_ast.items.insert(last_use_index, struct_item);
+        last_use_index += 1;
+    }
+
+    // Return the combined code
+    Ok(prettyplease::unparse(&function_ast))
+}
+
+
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
     m.add_function(wrap_pyfunction!(get_func_signatures, m)?)?;
     m.add_function(wrap_pyfunction!(get_struct_definition, m)?)?;
     m.add_function(wrap_pyfunction!(get_union_definition, m)?)?;
+    m.add_function(wrap_pyfunction!(combine_struct_function, m)?)?;
     Ok(())
 }
 

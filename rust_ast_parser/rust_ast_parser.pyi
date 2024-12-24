@@ -2,6 +2,9 @@
 # ruff: noqa: E501, F401
 
 
+def combine_struct_function(struct_code:str,function_code:str) -> str:
+    ...
+
 def expose_function_to_c(source_code:str) -> str:
     ...
 
