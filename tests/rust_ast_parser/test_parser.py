@@ -47,3 +47,7 @@ def test_combine_struct_function():
 def test_get_uses_code(code):
     uses_code = rust_ast_parser.get_uses_code(code)
     assert uses_code == ['use std :: collections :: HashMap ;', 'use libc :: c_int ;']
+
+def test_rename_function(code):
+    new_code = rust_ast_parser.rename_function(code, "fib", "fibonacci")
+    assert code.count('fib') == new_code.count('fibonacci')

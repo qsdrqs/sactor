@@ -1,0 +1,22 @@
+ ----FUNCTION----
+```rust
+use std::os::raw::{c_char, c_int};
+
+fn updateStudentInfo(student: *mut Student, newName: *const c_char, newAge: c_int) {
+    // Convert the input to the idiomatic format
+    let student_option = unsafe { student.as_mut() };
+    let new_name_option = if newName.is_null() {
+        None
+    } else {
+        Some(unsafe { CStr::from_ptr(newName) })
+    };
+    let new_age = newAge as i32;
+
+    // Call the idiomatic function
+    let result = updateStudentInfo_idiomatic(student_option, new_name_option, new_age);
+
+    // Convert the result back to the original format
+    // Assuming the result is already in the desired format, no conversion needed
+}
+```
+----END FUNCTION----

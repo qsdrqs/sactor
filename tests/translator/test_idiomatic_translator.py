@@ -21,6 +21,9 @@ def mock_query_impl(prompt, model, original=None, llm_instance=None):
     if prompt.find('Translate the following Rust struct to idiomatic Rust') != -1 and prompt.find('struct Course') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_course') as f:
             return f.read()
+    if prompt.find('Generate the harness for the function updateStudentInfo_idiomatic') != -1:
+        with open('tests/translator/mocks/course_manage_idomatic_function_harness') as f:
+            return f.read()
     else:
         if llm_instance is not None and original is not None:
             return original(llm_instance, prompt, model)
@@ -51,7 +54,7 @@ def test_idiomatic_translator():
             c2rust_content,
             crown,
             c_parser,
-            'ls',
+            ['python', 'tests/c_examples/course_manage_test.py'],
             result_path='tests/c_examples/result',
             unidiomatic_result_path='tests/c_examples/result'
         )
