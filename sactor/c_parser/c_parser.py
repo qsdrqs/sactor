@@ -18,13 +18,29 @@ class CParser:
     def __init__(self, filename):
         self.filename = filename
         structs_unions_list = self._extract_structs_unions()
-        self.structs_unions = dict((struct_union.name, struct_union)
+        self._structs_unions = dict((struct_union.name, struct_union)
                                    for struct_union in structs_unions_list)
         self._update_structs_unions()
 
         functions_list = self._extract_functions()
-        self.functions = dict((func.name, func) for func in functions_list)
+        self._functions = dict((func.name, func) for func in functions_list)
         self._update_functions()
+
+    def get_struct_info(self, struct_name):
+        if struct_name in self._structs_unions:
+            return self._structs_unions[struct_name]
+        raise ValueError(f"Struct/Union {struct_name} not found")
+
+    def get_structs(self) -> list[StructInfo]:
+        return list(self._structs_unions.values())
+
+    def get_function_info(self, function_name):
+        if function_name in self._functions:
+            return self._functions[function_name]
+        raise ValueError(f"Function {function_name} not found")
+
+    def get_functions(self) -> list[FunctionInfo]:
+        return list(self._functions.values())
 
     def _extract_structs_unions(self) -> list[StructInfo]:
         """
@@ -41,15 +57,15 @@ class CParser:
         Updates the depedencies of each function.
         """
         node = function.node
-        function_names = set(self.functions.keys())
+        function_names = set(self._functions.keys())
         called_function_names = self._collect_function_dependencies(
             node, function_names)
         called_functions = set()
         for called_function_name in called_function_names:
             # Add the function to the dependencies if it exists and is not the same as the current function
-            if called_function_name in self.functions and called_function_name != function.name:
+            if called_function_name in self._functions and called_function_name != function.name:
                 called_functions.add(
-                    self.functions[called_function_name])
+                    self._functions[called_function_name])
 
         function.function_dependencies = list(called_functions)
 
@@ -62,8 +78,8 @@ class CParser:
         used_structs = set()
         for used_struct_name in used_struct_names:
             # Add the struct to the dependencies if it exists and is not the same as the current struct
-            if used_struct_name in self.structs_unions and used_struct_name != struct_union.name:
-                used_structs.add(self.structs_unions[used_struct_name])
+            if used_struct_name in self._structs_unions and used_struct_name != struct_union.name:
+                used_structs.add(self._structs_unions[used_struct_name])
 
         struct_union.dependencies = list(used_structs)
 
@@ -71,14 +87,14 @@ class CParser:
         """
         Update the information of each struct or union. Needs to be called after all structs and unions are extracted.
         """
-        for struct_union in self.structs_unions.values():
+        for struct_union in self._structs_unions.values():
             self._update_struct_dependencies(struct_union)
 
     def _update_functions(self):
         """
         Update the information of each function. Needs to be called after all functions are extracted.
         """
-        for function in self.functions.values():
+        for function in self._functions.values():
             self._update_function_dependencies(function)
 
     def _extract_functions(self) -> list[FunctionInfo]:
@@ -139,9 +155,9 @@ class CParser:
                         node)
                     used_structs = set()
                     for used_struct_name in used_struct_names:
-                        if used_struct_name in self.structs_unions:
+                        if used_struct_name in self._structs_unions:
                             used_structs.add(
-                                self.structs_unions[used_struct_name])
+                                self._structs_unions[used_struct_name])
 
                     # Collect global variables
                     used_global_vars = self._collect_global_variable_dependencies(
@@ -233,7 +249,7 @@ class CParser:
         for dependency in struct_union.dependencies:
             if dependency not in result:
                 result.update(self.retrieve_all_struct_dependencies(
-                    self.structs_unions[dependency.name]))
+                    self._structs_unions[dependency.name]))
 
         return result
 
@@ -284,14 +300,14 @@ class CParser:
 
     def statistic(self):
         result = ""
-        for struct_union in self.structs_unions.values():
+        for struct_union in self._structs_unions.values():
             result += f"Struct/Union Name: {struct_union.name}\n"
             result += "Dependencies:\n"
             for dependency in struct_union.dependencies:
                 result += f"  {dependency}\n"
             result += '-' * 40 + "\n"
 
-        for func in self.functions.values():
+        for func in self._functions.values():
             result += f"Function Name: {func.name}\n"
             result += f"Return Type: {func.return_type}\n"
             result += "Arguments:\n"
@@ -319,7 +335,7 @@ class CParser:
 
         result += "Function Code:\n"
         locs = []
-        for func in self.functions.values():
+        for func in self._functions.values():
             result += f"Function Name: {func.name}\n"
             code = self.extract_function_code(func.name)
             if code:
@@ -335,7 +351,7 @@ class CParser:
             result += '-' * 40 + "\n"
 
         result += "Struct/Union Code:\n"
-        for struct_union in self.structs_unions.values():
+        for struct_union in self._structs_unions.values():
             code = self.extract_struct_union_definition_code(struct_union.name)
             if code:
                 result += f"Struct/Union Name: {struct_union.name}\n"

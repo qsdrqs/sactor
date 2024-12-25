@@ -65,8 +65,8 @@ def test_idiomatic_translator(llm):
         unidiomatic_result_path='tests/c_examples/result'
     )
 
-    for struct in c_parser.functions['updateStudentInfo'].struct_dependencies:
+    for struct in c_parser.get_function_info('updateStudentInfo').struct_dependencies:
         result = translator.translate_struct(struct)
         assert result == TranslationResult.SUCCESS
-    result = translator.translate_function(c_parser.functions['updateStudentInfo'])
+    result = translator.translate_function(c_parser.get_function_info('updateStudentInfo'))
     assert result == TranslationResult.SUCCESS

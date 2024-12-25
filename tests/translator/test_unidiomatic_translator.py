@@ -36,14 +36,14 @@ def test_unidiomatic_translator(llm):
             llm, c2rust_content, c_parser, ['python', 'tests/c_examples/course_manage_test.py'], result_path=tempdir)
 
         result = translator.translate_struct(
-            c_parser.structs_unions['Student'])
+            c_parser.get_struct_info('Student'))
         assert result == TranslationResult.SUCCESS
         with open('tests/c_examples/result/translated_code_unidiomatic/structs/Student.rs') as f:
             with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Student.rs')) as f2:
                 assert f.read() == f2.read()
 
         result = translator.translate_struct(
-            c_parser.structs_unions['Course'])
+            c_parser.get_struct_info('Course'))
         assert result == TranslationResult.SUCCESS
 
         with open('tests/c_examples/result/translated_code_unidiomatic/structs/Course.rs') as f:
@@ -51,7 +51,7 @@ def test_unidiomatic_translator(llm):
                 assert f.read() == f2.read()
 
         result = translator.translate_function(
-            c_parser.functions['updateStudentInfo'])
+            c_parser.get_function_info('updateStudentInfo'))
         assert result == TranslationResult.SUCCESS
         assert os.path.exists(
             os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs'))
