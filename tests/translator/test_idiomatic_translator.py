@@ -12,7 +12,7 @@ from tests.translator.azure_llm import azure_llm
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
-    if prompt.find('unsafe fn updateStudentInfo') != -1:
+    if prompt.find('Translate the following unidiomatic Rust function into idiomatic Rust.') != -1 and prompt.find('unsafe fn updateStudentInfo') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_function') as f:
             return f.read()
     if prompt.find('''Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
