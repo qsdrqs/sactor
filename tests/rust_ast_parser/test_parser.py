@@ -52,3 +52,6 @@ def test_get_uses_code(code):
 def test_rename_function(code):
     new_code = rust_ast_parser.rename_function(code, "fib", "fibonacci")
     assert code.count('fib') == new_code.count('fibonacci')
+
+def test_count_unsafe(code):
+    assert rust_ast_parser.count_unsafe_blocks(code) == 1

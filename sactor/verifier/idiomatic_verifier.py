@@ -121,7 +121,7 @@ Try to avoid this error by passing the tests.
             )
 
         utils.save_code(
-            f"{self.function_test_harness_dir}/{function_name}.rs", function_result)
+            f"{self.function_test_harness_dir}/{function_name}.rs", compile_code)
 
         return (VerifyResult.SUCCESS, None)
 
@@ -133,6 +133,10 @@ Try to avoid this error by passing the tests.
     def verify_function(self, function: FunctionInfo, function_code, struct_code, function_dependency_signatures, unidiomatic_signature, prefix=False) -> tuple[VerifyResult, str | None]:
         combined_code = rust_ast_parser.combine_struct_function(
             struct_code, function_code)
+
+        unsafe_count = rust_ast_parser.count_unsafe_blocks(combined_code)
+        if unsafe_count > 0:
+            return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
 
         # Try to compile the Rust code
         function_name = function.name
@@ -154,8 +158,11 @@ Try to avoid this error by passing the tests.
             return result
 
         # We have had the test harness generated, now we need to run the tests
+        with open(f"{self.function_test_harness_dir}/{function_name}.rs") as f:
+            harness_code = f.read()
+
         test_error = self._embed_test_rust(
-            function, combined_code, function_dependency_signatures, prefix)
+            function, harness_code, function_dependency_signatures, prefix)
 
         if test_error[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to run tests for function {function_name}")

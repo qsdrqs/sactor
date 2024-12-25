@@ -240,7 +240,7 @@ It failed to compile with the following error message, try to avoid this error:
         prompt = f'''
 Translate the following unidiomatic Rust function into idiomatic Rust. Try to remove all the `unsafe` blocks and only use the safe Rust code or use the `unsafe` blocks only when necessary.
 Before translating, analyze the unsafe blocks one by one and how to convert them into safe Rust code.
-
+**libc may not be provided in the idiomatic code, so try to avoid using libc functions and types, and avoid using `std::ffi` module.**
 ```rust
 {unidiomatic_function_code}
 ```
@@ -264,7 +264,8 @@ The following is the output of Crown for this function:
 ```
 {crown_output}
 ```
-Analyze the Crown output firstly, then translate the function with the help of the Crown output.
+Analyze the Crown output firstly, then translate the pointers in function arguments and return values with the help of the Crown output.
+Try to avoid using pointers in the function arguments and return values if possible.
 '''
 
         joint_struct_code = ''

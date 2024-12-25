@@ -4,7 +4,17 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use quote::quote;
 use std::collections::HashMap;
-use syn::{parse_quote, parse_str, spanned::Spanned, visit_mut::VisitMut, Abi, File, LitStr, Token};
+use syn::{
+    parse_quote,
+    parse_str,
+    spanned::Spanned,
+    visit_mut::VisitMut,
+    Abi,
+    Expr,
+    File,
+    LitStr,
+    Token,
+};
 
 fn parse_src(source_code: &str) -> PyResult<File> {
     parse_str(source_code).map_err(|e| {
@@ -178,7 +188,7 @@ impl syn::visit_mut::VisitMut for RenameVisitor {
 
     fn visit_path_mut(&mut self, path: &mut syn::Path) {
         if let Some(ident) = path.get_ident() {
-            if ident.to_string() == self.old_name {
+            if ident == self.old_name.as_str() {
                 path.segments.last_mut().unwrap().ident =
                     syn::Ident::new(&self.new_name, ident.span());
             }
@@ -204,6 +214,31 @@ fn rename_function(code: &str, old_name: &str, new_name: &str) -> PyResult<Strin
     Ok(prettyplease::unparse(&ast))
 }
 
+struct UnsafeBlockCounter {
+    count: usize,
+}
+
+impl syn::visit_mut::VisitMut for UnsafeBlockCounter {
+    fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        // Check if the expression is an unsafe block
+        if let syn::Expr::Unsafe(_) = expr {
+            self.count += 1;
+        }
+
+        // Continue visiting the rest of the tree
+        syn::visit_mut::visit_expr_mut(self, expr);
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn count_unsafe_blocks(code: &str) -> PyResult<usize> {
+    let mut ast = parse_src(code)?;
+    let mut counter = UnsafeBlockCounter { count: 0 };
+    counter.visit_file_mut(&mut ast);
+    Ok(counter.count)
+}
+
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
@@ -213,6 +248,9 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(combine_struct_function, m)?)?;
     m.add_function(wrap_pyfunction!(get_uses_code, m)?)?;
     m.add_function(wrap_pyfunction!(rename_function, m)?)?;
+
+    #[allow(clippy::unsafe_removed_from_name)]
+    m.add_function(wrap_pyfunction!(count_unsafe_blocks, m)?)?;
     Ok(())
 }
 

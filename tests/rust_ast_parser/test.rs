@@ -25,6 +25,10 @@ pub fn fib(n: i32) -> i32 {
 fn main() {
     let a = 1;
     let b = 2;
+    unsafe {
+        let a_ptr = &a as *const i32;
+        *a_ptr = 3;
+    }
     let c = add(a, b);
     fib(c);
     println!("{}", c);

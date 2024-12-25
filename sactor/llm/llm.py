@@ -8,8 +8,7 @@ from sactor import utils
 
 
 class LLM(ABC):
-    def __init__(self, encoding=None, mock_code_file=None, system_msg=None):
-        self.mock_code_file = mock_code_file
+    def __init__(self, encoding=None, system_msg=None):
 
         if system_msg is None:
             system_msg = '''
@@ -32,9 +31,6 @@ You are an expert in translating code from C to Rust. You will take all informat
         pass
 
     def query(self, prompt, model=None) -> str:
-        if self.mock_code_file is not None:
-            with open(self.mock_code_file, "r") as f:
-                return f.read()
         utils.print_red(prompt)
 
         start_time = time.time()

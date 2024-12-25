@@ -17,8 +17,8 @@ class OpenAILLM(LLM):
     - OPENAI_PROJECT_ID (optional)
 
     '''
-    def __init__(self, encoding=None, mock_code_file=None, system_msg=None):
-        super().__init__(encoding, mock_code_file, system_msg)
+    def __init__(self, encoding=None, system_msg=None):
+        super().__init__(encoding, system_msg)
         try:
             api_key = os.environ["OPENAI_API_KEY"]
         except KeyError:
@@ -54,7 +54,7 @@ class OpenAILLM(LLM):
         resp = self.gpt_client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=0.2,
+            # temperature=0.2,
         )
 
         assert resp.choices[0].message.content is not None

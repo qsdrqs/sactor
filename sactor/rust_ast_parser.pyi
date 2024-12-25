@@ -5,6 +5,9 @@
 def combine_struct_function(struct_code:str,function_code:str) -> str:
     ...
 
+def count_unsafe_blocks(code:str) -> int:
+    ...
+
 def expose_function_to_c(source_code:str) -> str:
     ...
 

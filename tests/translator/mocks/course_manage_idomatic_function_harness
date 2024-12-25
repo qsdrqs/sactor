@@ -1,22 +1,23 @@
  ----FUNCTION----
 ```rust
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 
 fn updateStudentInfo(student: *mut Student, newName: *const c_char, newAge: c_int) {
-    // Convert the input to the idiomatic format
-    let student_option = unsafe { student.as_mut() };
-    let new_name_option = if newName.is_null() {
-        None
-    } else {
-        Some(unsafe { CStr::from_ptr(newName) })
-    };
-    let new_age = newAge as i32;
+    // TODO: Add code here to Convert the input to the idiomatic format
+    unsafe {
+        assert!(!student.is_null());
+        assert!(!newName.is_null());
 
-    // Call the idiomatic function
-    let result = updateStudentInfo_idiomatic(student_option, new_name_option, new_age);
+        let student = &mut *student;
+        let newName = CStr::from_ptr(newName).to_str().expect("Invalid UTF-8 string");
+        let newAge = newAge as i32;
 
-    // Convert the result back to the original format
-    // Assuming the result is already in the desired format, no conversion needed
+        // Call the idiomatic function
+        let result = updateStudentInfo_idiomatic(student, newName, newAge);
+
+        // TODO: Add code here to Convert the result back to the original format
+        // In this case, assuming the function doesn’t return anything, there is nothing to convert.
+    }
 }
-```
 ----END FUNCTION----
