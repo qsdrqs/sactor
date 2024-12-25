@@ -32,7 +32,8 @@ class CParser:
         """
         index = cindex.Index.create()
         translation_unit = index.parse(self.filename)
-        structs_unions = self.get_structs_unions(translation_unit.cursor)
+        structs_unions = self._collect_structs_and_unions(
+            translation_unit.cursor)
         return structs_unions
 
     def _update_function_dependencies(self, function: FunctionInfo):
@@ -41,7 +42,7 @@ class CParser:
         """
         node = function.node
         function_names = set(self.functions.keys())
-        called_function_names = self.get_called_functions(
+        called_function_names = self._collect_function_dependencies(
             node, function_names)
         called_functions = set()
         for called_function_name in called_function_names:
@@ -57,7 +58,7 @@ class CParser:
         Updates the dependencies of each struct or union.
         """
         node = struct_union.node
-        used_struct_names = self.get_used_structs_unions(node)
+        used_struct_names = self._collect_structs_unions_dependencies(node)
         used_structs = set()
         for used_struct_name in used_struct_names:
             # Add the struct to the dependencies if it exists and is not the same as the current struct
@@ -86,11 +87,12 @@ class CParser:
         """
         index = cindex.Index.create()
         translation_unit = index.parse(self.filename)
-        function_names = self.collect_function_names(translation_unit.cursor)
-        functions = self.get_functions(translation_unit.cursor, function_names)
+        function_names = self._collect_function_names(translation_unit.cursor)
+        functions = self._extract_function_info(
+            translation_unit.cursor, function_names)
         return functions
 
-    def collect_function_names(self, node):
+    def _collect_function_names(self, node):
         """
         Collects the names of all functions
         """
@@ -100,10 +102,10 @@ class CParser:
                 if node.location.file and node.location.file.name == self.filename:
                     names.add(node.spelling)
         for child in node.get_children():
-            names.update(self.collect_function_names(child))
+            names.update(self._collect_function_names(child))
         return names
 
-    def get_structs_unions(self, node):
+    def _collect_structs_and_unions(self, node):
         structs = []
         if (node.kind == cindex.CursorKind.STRUCT_DECL or node.kind == cindex.CursorKind.UNION_DECL) and node.is_definition():
             name = node.spelling
@@ -112,10 +114,10 @@ class CParser:
                 dependencies = []
                 structs.append(StructInfo(node, name, location, dependencies))
         for child in node.get_children():
-            structs.extend(self.get_structs_unions(child))
+            structs.extend(self._collect_structs_and_unions(child))
         return structs
 
-    def get_functions(self, node, function_names):
+    def _extract_function_info(self, node, function_names):
         """
         Recursively extracts function information from the AST.
         """
@@ -133,7 +135,8 @@ class CParser:
                     called_functions = []  # Keep blank for now, update later
 
                     # Collect structs
-                    used_struct_names = self.get_used_structs_unions(node)
+                    used_struct_names = self._collect_structs_unions_dependencies(
+                        node)
                     used_structs = set()
                     for used_struct_name in used_struct_names:
                         if used_struct_name in self.structs_unions:
@@ -141,17 +144,19 @@ class CParser:
                                 self.structs_unions[used_struct_name])
 
                     # Collect global variables
-                    used_global_vars = self.get_used_global_vars(node)
+                    used_global_vars = self._collect_global_variable_dependencies(
+                        node)
                     # Collect enums
-                    used_enums = self.get_used_enums(node)
+                    used_enums = self._collect_enum_dependencies(node)
 
                     functions.append(FunctionInfo(node, name, return_type, arguments, location,
                                      called_functions, used_structs, used_global_vars, used_enums))
         for child in node.get_children():
-            functions.extend(self.get_functions(child, function_names))
+            functions.extend(
+                self._extract_function_info(child, function_names))
         return functions
 
-    def get_called_functions(self, node, function_names):
+    def _collect_function_dependencies(self, node, function_names):
         """
         Recursively collects the names of functions called within the given node,
         excluding standard library functions.
@@ -162,7 +167,7 @@ class CParser:
                 called_func_cursor = child.referenced
                 if called_func_cursor:
                     # Exclude functions declared in system headers
-                    if called_func_cursor.location and not self.is_in_system_header(called_func_cursor):
+                    if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
                         called_functions.add(called_func_cursor.spelling)
                 else:
                     # For unresolved references, include if in function_names
@@ -170,10 +175,10 @@ class CParser:
                     if called_func_name in function_names:
                         called_functions.add(called_func_name)
             called_functions.update(
-                self.get_called_functions(child, function_names))
+                self._collect_function_dependencies(child, function_names))
         return called_functions
 
-    def get_used_structs_unions(self, node):
+    def _collect_structs_unions_dependencies(self, node):
         """
         Recursively collects the names of structs / unions used within the given node.
         """
@@ -185,10 +190,11 @@ class CParser:
                     used_structs.add(child.spelling.split(" ")[1])
                 else:
                     used_structs.add(child.spelling)
-            used_structs.update(self.get_used_structs_unions(child))
+            used_structs.update(
+                self._collect_structs_unions_dependencies(child))
         return used_structs
 
-    def get_used_global_vars(self, node):
+    def _collect_global_variable_dependencies(self, node):
         """
         Recursively collects the names of global variables used within the given node.
         """
@@ -199,10 +205,11 @@ class CParser:
                 if referenced_cursor.kind == cindex.CursorKind.VAR_DECL:
                     if referenced_cursor.storage_class == cindex.StorageClass.STATIC or referenced_cursor.linkage == cindex.LinkageKind.EXTERNAL:
                         used_global_vars.add(referenced_cursor)
-            used_global_vars.update(self.get_used_global_vars(child))
+            used_global_vars.update(
+                self._collect_global_variable_dependencies(child))
         return used_global_vars
 
-    def get_used_enums(self, node):
+    def _collect_enum_dependencies(self, node):
         """
         Recursively collects all the enum items used within the given node.
         """
@@ -214,10 +221,10 @@ class CParser:
                     enum_info = EnumInfo(referenced_cursor, referenced_cursor.spelling,
                                          referenced_cursor.enum_value, referenced_cursor.get_definition())
                     used_enums.add(enum_info)
-            used_enums.update(self.get_used_enums(child))
+            used_enums.update(self._collect_enum_dependencies(child))
         return used_enums
 
-    def get_all_dependent_structs(self, struct_union: StructInfo):
+    def retrieve_all_struct_dependencies(self, struct_union: StructInfo):
         """
         Recursively collects all dependent structs/unions of the given struct/union.
         """
@@ -225,12 +232,12 @@ class CParser:
         result.add(struct_union.name)
         for dependency in struct_union.dependencies:
             if dependency not in result:
-                result.update(self.get_all_dependent_structs(
+                result.update(self.retrieve_all_struct_dependencies(
                     self.structs_unions[dependency.name]))
 
         return result
 
-    def get_code_of_function(self, function_name):
+    def extract_function_code(self, function_name):
         """
         Extracts the code of the function with the given name from the file.
         """
@@ -246,7 +253,7 @@ class CParser:
                     return "".join(lines[start_line:end_line])
         return None
 
-    def get_code_of_struct_union_definition(self, struct_union_name):
+    def extract_struct_union_definition_code(self, struct_union_name):
         """
         Extracts the code of the struct or union definition with the given name from the file.
         handle the `typedef struct` and `struct` cases
@@ -266,7 +273,7 @@ class CParser:
 
         return None
 
-    def is_in_system_header(self, node):
+    def _is_in_system_header(self, node):
         """
         Determines if the location is in a system header.
         """
@@ -314,7 +321,7 @@ class CParser:
         locs = []
         for func in self.functions.values():
             result += f"Function Name: {func.name}\n"
-            code = self.get_code_of_function(func.name)
+            code = self.extract_function_code(func.name)
             if code:
                 result += code + "\n"
                 loc = len(code.split("\n"))
@@ -329,7 +336,7 @@ class CParser:
 
         result += "Struct/Union Code:\n"
         for struct_union in self.structs_unions.values():
-            code = self.get_code_of_struct_union_definition(struct_union.name)
+            code = self.extract_struct_union_definition_code(struct_union.name)
             if code:
                 result += f"Struct/Union Name: {struct_union.name}\n"
                 result += code + "\n"

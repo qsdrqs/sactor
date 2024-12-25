@@ -183,7 +183,7 @@ It failed to compile with the following error message, try to avoid this error:
         structs_in_function = function.struct_dependencies
         code_of_structs = []
         for struct in structs_in_function:
-            all_structs = self.c_parser.get_all_dependent_structs(struct)
+            all_structs = self.c_parser.retrieve_all_struct_dependencies(struct)
             for struct_name in all_structs:
                 struct_path = os.path.join(
                     self.translated_struct_path, struct_name + ".rs")

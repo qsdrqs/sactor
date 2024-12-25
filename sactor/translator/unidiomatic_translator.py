@@ -96,7 +96,7 @@ class UnidiomaticTranslator(Translator):
         structs_in_function = function.struct_dependencies
         code_of_structs = []
         for struct in structs_in_function:
-            all_structs = self.c_parser.get_all_dependent_structs(struct)
+            all_structs = self.c_parser.retrieve_all_struct_dependencies(struct)
             for struct_name in all_structs:
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
@@ -105,7 +105,7 @@ class UnidiomaticTranslator(Translator):
                     code_of_struct = file.read()
                     code_of_structs.append(code_of_struct)
 
-        code_of_function = self.c_parser.get_code_of_function(function.name)
+        code_of_function = self.c_parser.extract_function_code(function.name)
         prompt = f'''
 Translate the following C function to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
