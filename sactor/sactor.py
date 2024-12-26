@@ -11,12 +11,12 @@ from sactor.translator import TranslateResult, UnidiomaticTranslator
 class Sactor:
     def __init__(self, input_file: str, test_cmd: str, build_dir=None, result_dir=None, config_file=None, no_verify=False, unidiomatic_only=False):
         self.input_file = input_file
-        self.test_cmd = test_cmd
-        if build_dir is None:
-            self.build_dir = os.path.join(utils.get_temp_dir(), "build")
+        self.test_cmd = test_cmd.split()
+        self.build_dir = os.path.join(
+            utils.get_temp_dir(), "build") if build_dir is None else build_dir
 
-        if result_dir is None:
-            self.result_dir = os.path.join(utils.get_temp_dir(), "result")
+        self.result_dir = os.path.join(utils.get_temp_dir(
+        ), "result") if result_dir is None else result_dir
 
         self.config_file = config_file
         self.no_verify = no_verify
@@ -63,6 +63,7 @@ class Sactor:
             self.c2rust_translation,
             self.c_parser,
             self.test_cmd,
+            build_path=self.build_dir,
             result_path=self.result_dir,
             max_attempts=self.config['general']['max_translation_attempts'],
         )
@@ -82,7 +83,6 @@ class Sactor:
                     print(f"Failed to translate function {function}")
                     return
 
-
     def _run_idiomatic_translation(self):
         self.c2rust_translation = self.c2rust.get_c2rust_translation()
 
@@ -91,6 +91,7 @@ class Sactor:
             self.c2rust_translation,
             self.c_parser,
             self.test_cmd,
+            build_path=self.build_dir,
             result_path=self.result_dir,
             max_attempts=self.config['general']['max_translation_attempts'],
         )

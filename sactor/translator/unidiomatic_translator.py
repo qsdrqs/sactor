@@ -13,7 +13,16 @@ from .translator_types import TranslateResult
 
 
 class UnidiomaticTranslator(Translator):
-    def __init__(self, llm: LLM, c2rust_translation, c_parser: CParser, test_cmd, result_path=None, max_attempts=6) -> None:
+    def __init__(
+        self,
+        llm: LLM,
+        c2rust_translation,
+        c_parser: CParser,
+        test_cmd,
+        build_path=None,
+        result_path=None,
+        max_attempts=6,
+    ) -> None:
         super().__init__(
             llm,
             c_parser,
@@ -26,7 +35,7 @@ class UnidiomaticTranslator(Translator):
             self.result_path, "translated_code_unidiomatic/structs")
         self.translated_function_path = os.path.join(
             self.result_path, "translated_code_unidiomatic/functions")
-        self.verifier = verifier.UnidiomaticVerifier(test_cmd)
+        self.verifier = verifier.UnidiomaticVerifier(test_cmd, build_path)
 
     @override
     def _translate_struct_impl(
@@ -103,16 +112,20 @@ class UnidiomaticTranslator(Translator):
         # Translate the function using LLM
         structs_in_function = function.struct_dependencies
         code_of_structs = []
+        visited_structs = set()
         for struct in structs_in_function:
             all_structs = self.c_parser.retrieve_all_struct_dependencies(
                 struct)
             for struct_name in all_structs:
+                if struct_name in visited_structs:
+                    continue
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
                         f"Error: Struct {struct_name} is not translated yet")
                 with open(f"{self.translated_struct_path}/{struct_name}.rs", "r") as file:
                     code_of_struct = file.read()
                     code_of_structs.append(code_of_struct)
+                    visited_structs.add(struct_name)
 
         code_of_function = self.c_parser.extract_function_code(function.name)
         prompt = f'''

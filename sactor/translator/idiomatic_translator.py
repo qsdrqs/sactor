@@ -14,7 +14,18 @@ from .translator_types import TranslateResult
 
 
 class IdiomaticTranslator(Translator):
-    def __init__(self, llm: LLM, c2rust_translation, crown_result: Crown, c_parser: CParser, test_cmd, unidiomatic_result_path=None, result_path=None, max_attempts=6):
+    def __init__(
+        self,
+        llm: LLM,
+        c2rust_translation,
+        crown_result: Crown,
+        c_parser: CParser,
+        test_cmd,
+        build_path=None,
+        unidiomatic_result_path=None,
+        result_path=None,
+        max_attempts=6,
+    ):
         super().__init__(
             llm,
             c_parser,
@@ -32,7 +43,8 @@ class IdiomaticTranslator(Translator):
         else:
             self.unidiomatic_result_path = self.result_path
 
-        self.verifier = verifier.IdiomaticVerifier(test_cmd, llm)
+        self.verifier = verifier.IdiomaticVerifier(
+            test_cmd, llm, build_path=build_path)
         self.crown_result = crown_result
 
     @override
@@ -74,7 +86,8 @@ class IdiomaticTranslator(Translator):
         crown_output = self.crown_result.query(
             struct_union.name, CrownType.STRUCT)
 
-        # Get previous translation results
+        # Get previous translation results as dependencies
+        # Unlike the function, we only need to retrieve one level of dependencies
         dependencies_code = []
         dependency_names = [d.name for d in struct_union.dependencies]
         for dependency_name in dependency_names:
@@ -195,9 +208,13 @@ Try to avoid this error by passing the tests.
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
         code_of_structs = []
+        visited_structs = set()
         for struct in structs_in_function:
-            all_structs = self.c_parser.retrieve_all_struct_dependencies(struct)
+            all_structs = self.c_parser.retrieve_all_struct_dependencies(
+                struct)
             for struct_name in all_structs:
+                if struct_name in visited_structs:
+                    continue
                 struct_path = os.path.join(
                     self.translated_struct_path, struct_name + ".rs")
                 if not os.path.exists(struct_path):
@@ -205,7 +222,7 @@ Try to avoid this error by passing the tests.
                         f"Error: Struct {struct_name} is not translated yet")
                 with open(struct_path, "r") as file:
                     code_of_structs.append(file.read())
-
+                    visited_structs.add(struct_name)
 
         # Get used global variables
         # TODO: add this

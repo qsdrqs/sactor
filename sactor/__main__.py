@@ -4,7 +4,7 @@ from sactor import Sactor
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Sactor: Structure-Aware C To Rust Translator'
+        description='SACToR: Structure-Aware C To Rust Translator'
     )
 
     parser.add_argument(
