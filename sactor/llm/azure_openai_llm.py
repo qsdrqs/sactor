@@ -10,24 +10,16 @@ class AzureOpenAILLM(LLM):
     '''
     Azure OpenAI LLM
 
-    Requires the following environment variables:
-    - AZURE_OPENAI_API_KEY
-    - AZURE_OPENAI_ENDPOINT
-    - AZURE_OPENAI_API_VERSION
-    - AZURE_OPENAI_MODEL
-
     '''
-    def __init__(self, encoding=None, system_msg=None):
+    def __init__(self, config, encoding=None, system_msg=None):
         super().__init__(
-            encoding,
-            system_msg
+                config,
+            encoding=encoding,
+            system_msg=system_msg
         )
-        try:
-            api_key = os.environ["AZURE_OPENAI_API_KEY"]
-            endpoint = os.environ["AZURE_OPENAI_ENDPOINT"]
-            api_version = os.environ["AZURE_OPENAI_API_VERSION"]
-        except KeyError:
-            raise OSError("AZURE_OPENAI_API_KEY is not set")
+        api_key = config['AzureOpenAI']['api_key']
+        endpoint = config['AzureOpenAI']['endpoint']
+        api_version = config['AzureOpenAI']['api_version']
 
         self.gpt_client = AzureOpenAI(
             api_key=api_key,
@@ -38,20 +30,19 @@ class AzureOpenAILLM(LLM):
     @override
     def _query_impl(self, prompt, model) -> str:
         if model is None:
-            try:
-                model = os.environ["AZURE_OPENAI_MODEL"]
-            except KeyError:
-                raise OSError("AZURE_OPENAI_MODEL is not set")
+            model = self.config['AzureOpenAI']['model']
 
         messages = []
         if self.system_msg is not None:
             messages.append({"role": "system", "content": self.system_msg})
         messages.append({"role": "user", "content": f"{prompt}"})
 
+        temperature =  self.config['AzureOpenAI'].get('temperature') # default is 1 if not set
+
         resp = self.gpt_client.chat.completions.create(
             model=model,
             messages=messages,
-            # temperature=0.2,
+            temperature=temperature,
         )
 
         assert resp.choices[0].message.content is not None

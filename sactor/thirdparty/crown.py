@@ -44,10 +44,12 @@ class Crown(ThirdParty):
         self.env = env
 
     @override
-    def check_dependency() -> bool:
-        result = True
-        result = result and bool(shutil.which("rustup"))
-        result = result and bool(shutil.which("crown"))
+    def check_requirements() -> list[str]:
+        result = []
+        if not shutil.which("crown"):
+            result.append("crown")
+        if not shutil.which("rustup"):
+            result.append("rustup")
         return result
 
     def analyze(self, target_c2rust_code):

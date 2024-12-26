@@ -1,14 +1,11 @@
 import os
 import tempfile
-from unittest.mock import patch
 
 import pytest
 
 from sactor.c_parser import CParser
-from sactor.llm import AzureOpenAILLM
-from sactor.thirdparty.crown import Crown
 from sactor.translator import UnidiomaticTranslator
-from sactor.translator.translator_types import TranslationResult
+from sactor.translator.translator_types import TranslateResult
 from tests.translator.azure_llm import azure_llm
 
 
@@ -37,14 +34,14 @@ def test_unidiomatic_translator(llm):
 
         result = translator.translate_struct(
             c_parser.get_struct_info('Student'))
-        assert result == TranslationResult.SUCCESS
+        assert result == TranslateResult.SUCCESS
         with open('tests/c_examples/result/translated_code_unidiomatic/structs/Student.rs') as f:
             with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Student.rs')) as f2:
                 assert f.read() == f2.read()
 
         result = translator.translate_struct(
             c_parser.get_struct_info('Course'))
-        assert result == TranslationResult.SUCCESS
+        assert result == TranslateResult.SUCCESS
 
         with open('tests/c_examples/result/translated_code_unidiomatic/structs/Course.rs') as f:
             with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Course.rs')) as f2:
@@ -52,7 +49,7 @@ def test_unidiomatic_translator(llm):
 
         result = translator.translate_function(
             c_parser.get_function_info('updateStudentInfo'))
-        assert result == TranslationResult.SUCCESS
+        assert result == TranslateResult.SUCCESS
         assert os.path.exists(
             os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs'))
         with open('tests/c_examples/result/translated_code_unidiomatic/functions/updateStudentInfo.rs') as f:

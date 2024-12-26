@@ -1,6 +1,8 @@
 import os
 import tempfile
 
+import tomli as toml
+
 
 def create_rust_lib(rust_code, lib_name, path):
     os.makedirs(path, exist_ok=True)
@@ -80,3 +82,49 @@ def print_red(s):
 
 def print_green(s):
     print("\033[92m {}\033[00m".format(s))
+
+def _merge_configs(config, default_config):
+    config_out = {}
+
+    for key, default_value in default_config.items():
+        if key in config:
+            if isinstance(config[key], dict) and isinstance(default_value, dict):
+                config_out[key] = _merge_configs(config[key], default_value)
+            elif isinstance(config[key], dict) or isinstance(default_value, dict):
+                raise TypeError(f"Type mismatch for key '{key}': "
+                                f"config has {type(config[key])}, default_config has {type(default_value)}")
+            # Otherwise, config[key] takes precedence
+            else:
+                config_out[key] = config[key]
+        else:
+            config_out[key] = default_value
+
+    # Add keys that are only in config
+    for key, value in config.items():
+        if key not in default_config:
+            config_out[key] = value
+
+    return config_out
+
+def try_load_config(config_file=None):
+    proj_root = find_project_root()
+    # load default config
+    if not os.path.exists(os.path.join(proj_root, "sactor.default.toml")):
+        raise FileNotFoundError("Could not find sactor.default.toml")
+    with open(os.path.join(proj_root, "sactor.default.toml"), 'rb') as f:
+        default_config = toml.load(f)
+
+    if config_file is None:
+        config_file = os.path.join(proj_root, "sactor.toml")
+        if not os.path.exists(config_file):
+            raise FileNotFoundError("Could not find sactor.toml")
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(f"Could not find config file {config_file}")
+
+    with open(config_file, 'rb') as f:
+        config = toml.load(f)
+
+     # Merge default config with user config
+    config = _merge_configs(config, default_config)
+
+    return config

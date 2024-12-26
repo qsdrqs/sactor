@@ -1,4 +1,5 @@
 from sactor.divider import Divider
+from sactor.c_parser import CParser
 import pytest
 
 
@@ -12,7 +13,8 @@ class MockInfo:
 
 @pytest.fixture
 def divider():
-    return Divider('tests/c_examples/course_manage.c')
+    c_parser = CParser('tests/c_examples/course_manage.c')
+    return Divider(c_parser)
 
 def test_extract_order1(divider):
     # Test case 1: A->B, B->[C,A], C->[], D->[]

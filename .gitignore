@@ -13,5 +13,4 @@ __pycache__
 /target
 *.so
 
-# secret
-.secret.env
+sactor.toml

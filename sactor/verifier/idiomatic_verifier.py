@@ -34,7 +34,16 @@ class IdiomaticVerifier(Verifier):
         idiomatic_signature = idiomatic_signature.replace(
             function_name, f"{function_name}_idiomatic")
         prompt = f'''
-Generate the harness for the function {function_name}_idiomatic with the following code pattern, finish all the TODOs.
+This is the idiomatic translation of Rust code from C, the function signature is
+```rust
+{idiomatic_signature};
+```
+This is the unidiomatic translation of Rust code from C, the function signature is
+```rust
+{original_signature};
+```
+Generate the harness for the function {function_name}_idiomatic with the following code pattern so that it can be tested:
+Finish all the TODOs.
 You should **NOT** add any dummy implementation of the function or structs, as it will be provided by the verifier:
 ```rust
 {original_signature} {{

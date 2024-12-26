@@ -3,41 +3,45 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from sactor import utils
 from sactor.llm import AzureOpenAILLM, OpenAILLM
 
 
 @pytest.fixture
 def azure_llm():
     # patch environment variables
-    with patch.dict(os.environ, {
-        "AZURE_OPENAI_API_KEY": "mocked_value",
-        "AZURE_OPENAI_ENDPOINT": "mocked_value",
-        "AZURE_OPENAI_API_VERSION": "mocked_value",
-        "AZURE_OPENAI_MODEL": "mocked_value",
-    }):
-        llm = AzureOpenAILLM()
-        mock_gpt_client = MagicMock()
-        mock_gpt_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(content="mocked_response"))]
-        )
-        llm.gpt_client = mock_gpt_client
+    config = utils.try_load_config()
+    config["AzureOpenAI"] = {
+        "api_key": "mocked_value",
+        "endpoint": "mocked_value",
+        "api_version": "mocked_value",
+        "model": "mocked_value",
+    }
+    llm = AzureOpenAILLM(config)
+    mock_gpt_client = MagicMock()
+    mock_gpt_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="mocked_response"))]
+    )
+    llm.gpt_client = mock_gpt_client
 
-        yield llm
+    return llm
+
 
 @pytest.fixture
 def openai_llm():
-    with patch.dict(os.environ, {
-        "OPENAI_API_KEY": "mocked_value",
-        "OPENAI_MODEL": "mocked_value",
-    }):
-        llm = OpenAILLM()
-        mock_gpt_client = MagicMock()
-        mock_gpt_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(content="mocked_response"))]
-        )
-        llm.gpt_client = mock_gpt_client
+    config = utils.try_load_config()
+    config["OpenAI"] = {
+        "api_key": "mocked_value",
+        "model": "mocked_value",
+    }
+    llm = OpenAILLM(config)
+    mock_gpt_client = MagicMock()
+    mock_gpt_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="mocked_response"))]
+    )
+    llm.gpt_client = mock_gpt_client
 
-        yield llm
+    return llm
 
 
 def test_azure_llm(azure_llm):

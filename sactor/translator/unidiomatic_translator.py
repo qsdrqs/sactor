@@ -9,7 +9,7 @@ from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
 from .translator import Translator
-from .translator_types import TranslationResult
+from .translator_types import TranslateResult
 
 
 class UnidiomaticTranslator(Translator):
@@ -29,7 +29,14 @@ class UnidiomaticTranslator(Translator):
         self.verifier = verifier.UnidiomaticVerifier(test_cmd)
 
     @override
-    def translate_struct(self, struct_union: StructInfo) -> TranslationResult:
+    def _translate_struct_impl(
+        self,
+        struct_union: StructInfo,
+        verify_result: tuple[VerifyResult, str | None] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
         # Translate all the dependencies of the struct/union
         struct_union_dependencies = struct_union.dependencies
         for struct in struct_union_dependencies:
@@ -41,33 +48,34 @@ class UnidiomaticTranslator(Translator):
         else:
             rust_s_u = rust_ast_parser.get_union_definition(
                 self.c2rust_translation, struct_union.name)
-        os.makedirs(self.translated_struct_path, exist_ok=True)
-        with open(f'{self.translated_struct_path}/{struct_union.name}.rs', 'w') as f:
-            f.write(rust_s_u)
 
-        return TranslationResult.SUCCESS
+        # Save the translated struct/union
+        utils.save_code(
+            f'{self.translated_struct_path}/{struct_union.name}.rs', rust_s_u)
+
+        return TranslateResult.SUCCESS
 
     @override
-    def translate_function(
+    def _translate_function_impl(
         self,
         function: FunctionInfo,
         verify_result: tuple[VerifyResult, str | None] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
-    ) -> TranslationResult:
+    ) -> TranslateResult:
         self.init_failure_info("function", function.name)
 
         function_save_path = os.path.join(
             self.translated_function_path, function.name + ".rs")
         if os.path.exists(function_save_path):
             print(f"Function {function.name} already translated")
-            return TranslationResult.SUCCESS
+            return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
-            return TranslationResult.MAX_ATTEMPTS_EXCEEDED
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating function: {function.name} (attempts: {attempts})")
 
         function_dependencies = function.function_dependencies
@@ -96,7 +104,8 @@ class UnidiomaticTranslator(Translator):
         structs_in_function = function.struct_dependencies
         code_of_structs = []
         for struct in structs_in_function:
-            all_structs = self.c_parser.retrieve_all_struct_dependencies(struct)
+            all_structs = self.c_parser.retrieve_all_struct_dependencies(
+                struct)
             for struct_name in all_structs:
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
@@ -213,7 +222,7 @@ When running the test, it failed with the following error message, try to avoid 
             error_message = f"Error: Failed to parse the function: {e}"
             print(error_message)
             # retry the translation
-            return self.translate_function(
+            return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR,
                                error_message),
@@ -228,7 +237,7 @@ When running the test, it failed with the following error message, try to avoid 
                     function_result_sig = function_result_sigs[name_prefix]
                     prefix = True
                 else:
-                    return self.translate_function(
+                    return self._translate_function_impl(
                         function,
                         verify_result=(
                             VerifyResult.COMPILE_ERROR, f"Function {name_prefix} not found in the translated code"),
@@ -240,7 +249,7 @@ When running the test, it failed with the following error message, try to avoid 
                     function_result_sigs.keys()
                 )}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa."
                 print(error_message)
-                return self.translate_function(
+                return self._translate_function_impl(
                     function,
                     verify_result=(
                         VerifyResult.COMPILE_ERROR, error_message),
@@ -258,7 +267,7 @@ When running the test, it failed with the following error message, try to avoid 
 
         if len(function_result.strip()) == 0:
             print("Error: Empty translation")
-            return self.translate_function(
+            return self._translate_function_impl(
                 function,
                 verify_result=(
                     VerifyResult.COMPILE_ERROR, "Translated code doesn't wrap by the tags as instructed"),
@@ -292,7 +301,7 @@ When running the test, it failed with the following error message, try to avoid 
             else:
                 raise NotImplementedError(
                     f'erorr type {result[0]} not implemented')
-            return self.translate_function(
+            return self._translate_function_impl(
                 function,
                 result,
                 error_translation=function_result,
@@ -300,7 +309,7 @@ When running the test, it failed with the following error message, try to avoid 
             )
 
         utils.save_code(function_save_path, function_result)
-        return TranslationResult.SUCCESS
+        return TranslateResult.SUCCESS
 
     def combine(self, functions, structs, global_vars):
         pass

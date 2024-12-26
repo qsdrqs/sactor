@@ -3,10 +3,10 @@ from .crown import Crown, CrownType
 from .thirdparty import ThirdParty
 
 
-def check_all_dependencies():
-    result = True
-    result = result and C2Rust.check_dependency()
-    result = result and Crown.check_dependency()
+def check_all_requirements() -> list[str]:
+    result = []
+    result.extend(C2Rust.check_requirements())
+    result.extend(Crown.check_requirements())
 
     return result
 
@@ -16,5 +16,5 @@ __all__ = [
     'Crown',
     'CrownType',
     'ThirdParty',
-    'check_all_dependencies',
+    'check_all_requirements',
 ]

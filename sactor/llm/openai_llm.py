@@ -10,27 +10,18 @@ class OpenAILLM(LLM):
     '''
     OpenAI LLM
 
-    Requires the following environment variables:
-    - OPENAI_API_KEY
-    - OPENAI_MODEL
-    - OPENAI_ORGANIZATION (optional)
-    - OPENAI_PROJECT_ID (optional)
-
     '''
-    def __init__(self, encoding=None, system_msg=None):
-        super().__init__(encoding, system_msg)
-        try:
-            api_key = os.environ["OPENAI_API_KEY"]
-        except KeyError:
-            raise OSError("OPENAI_API_KEY is not set")
+    def __init__(self, config, encoding=None, system_msg=None):
+        super().__init__(
+                config,
+            encoding=encoding,
+            system_msg=system_msg
+        )
+        api_key = config['OpenAI']['api_key']
 
         # Optional
-        try:
-            organization = os.environ["OPENAI_ORGANIZATION"]
-            project_id = os.environ["OPENAI_PROJECT_ID"]
-        except KeyError:
-            organization = None
-            project_id = None
+        organization = config['OpenAI'].get('organization')
+        project_id = config['OpenAI'].get('project_id')
 
         self.gpt_client = OpenAI(
             api_key=api_key,
@@ -41,20 +32,19 @@ class OpenAILLM(LLM):
     @override
     def _query_impl(self, prompt, model) -> str:
         if model is None:
-            try:
-                model = os.environ["OPENAI_MODEL"]
-            except KeyError:
-                raise OSError("OPENAI_MODEL is not set")
+            model = self.config['OpenAI']['model']
 
         messages = []
         if self.system_msg is not None:
             messages.append({"role": "system", "content": self.system_msg})
         messages.append({"role": "user", "content": f"{prompt}"})
 
+        temperature = self.config['AzureOpenAI'].get('temperature') # default is 1 if not set
+
         resp = self.gpt_client.chat.completions.create(
             model=model,
             messages=messages,
-            # temperature=0.2,
+            temperature=temperature,
         )
 
         assert resp.choices[0].message.content is not None

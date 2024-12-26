@@ -1,0 +1,5 @@
+[general]
+max_translation_attempts = 3
+
+[OpenAI]
+api_key = "mock-api-key"

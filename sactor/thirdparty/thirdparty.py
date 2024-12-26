@@ -5,6 +5,6 @@ class ThirdParty(ABC):
         pass
 
     @abstractmethod
-    def check_dependency() -> bool:
+    def check_requirements() -> list[str]:
         pass
 

@@ -2,11 +2,10 @@ from sactor.c_parser import CParser, StructInfo, FunctionInfo
 
 
 class Divider():
-    def __init__(self, filename):
-        self.c_parser = CParser(filename)
-        structs = self.c_parser.get_structs()
+    def __init__(self, c_parser: CParser):
+        structs = c_parser.get_structs()
         self.struct_order = self._extract_order(structs, lambda s: s.dependencies)
-        functions = self.c_parser.get_functions()
+        functions = c_parser.get_functions()
         self.function_order = self._extract_order(functions, lambda f: f.function_dependencies)
 
     def get_struct_order(self) -> list[list[StructInfo]]:

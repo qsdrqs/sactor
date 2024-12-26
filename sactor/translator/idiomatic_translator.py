@@ -10,7 +10,7 @@ from sactor.thirdparty import Crown, CrownType
 from sactor.verifier import VerifyResult
 
 from .translator import Translator
-from .translator_types import TranslationResult
+from .translator_types import TranslateResult
 
 
 class IdiomaticTranslator(Translator):
@@ -36,24 +36,26 @@ class IdiomaticTranslator(Translator):
         self.crown_result = crown_result
 
     @override
-    def translate_struct(self, struct_union: StructInfo, error_message=None, error_translation=None, error_tests=None, attempts=0) -> TranslationResult:
-        # Translate all the dependencies of the struct/union
-        struct_union_dependencies = struct_union.dependencies
-        for struct in struct_union_dependencies:
-            self.translate_struct(struct)
-
+    def _translate_struct_impl(
+        self,
+        struct_union: StructInfo,
+        verify_result: tuple[VerifyResult, str | None] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
         # Translate the struct/union
         self.init_failure_info("struct", struct_union.name)
         struct_save_path = os.path.join(
             self.translated_struct_path, struct_union.name + ".rs")
         if os.path.exists(struct_save_path):
             print(f"Struct {struct_union.name} already translated")
-            return TranslationResult.SUCCESS
+            return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to translate struct {struct_union.name} after {self.max_attempts} attempts")
-            return TranslationResult.MAX_ATTEMPTS_EXCEEDED
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
 
         print(
             f"Translating struct: {struct_union.name} (attempts: {attempts})")
@@ -132,7 +134,7 @@ Output the translated struct into this format (wrap with the following tags):
 ----END STRUCT----
 '''
 
-        if error_message:
+        if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
 Lastly, the struct is translated as:
 ```rust
@@ -140,10 +142,21 @@ Lastly, the struct is translated as:
 ```
 It failed to compile with the following error message, try to avoid this error:
 ```
-{error_message}
+{verify_result[1]}
 ```
 '''
-        # TODO: add error_tests here
+        elif verify_result[0] == VerifyResult.TEST_ERROR:
+            prompt += f'''
+Lastly, the function is translated as:
+```rust
+{error_translation}
+```
+It failed the following tests:
+```
+{verify_result[1]}
+```
+Try to avoid this error by passing the tests.
+'''
 
         result = self.llm.query(prompt)
         llm_result = utils.parse_llm_result(result, "struct")
@@ -154,29 +167,29 @@ It failed to compile with the following error message, try to avoid this error:
         # Save the results
         utils.save_code(struct_save_path, struct_result)
 
-        return TranslationResult.SUCCESS
+        return TranslateResult.SUCCESS
 
     @override
-    def translate_function(
+    def _translate_function_impl(
         self,
         function: FunctionInfo,
         verify_result: tuple[VerifyResult, str | None] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
-    ) -> TranslationResult:
+    ) -> TranslateResult:
         self.init_failure_info("function", function.name)
 
         function_save_path = os.path.join(
             self.translated_function_path, function.name + ".rs")
         if os.path.exists(function_save_path):
             print(f"Function {function.name} already translated")
-            return TranslationResult.SUCCESS
+            return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
-            return TranslationResult.MAX_ATTEMPTS_EXCEEDED
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating function: {function.name} (attempts: {attempts})")
 
         # Get used struct, unions
@@ -324,7 +337,7 @@ Try to avoid this error by passing the tests.
         try:
             function_result = llm_result["function"]
         except KeyError:
-            return self.translate_function(
+            return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR,
                                "Output does not wrapped in the correct format!"),
@@ -339,7 +352,7 @@ Try to avoid this error by passing the tests.
             error_message = f"Error: Failed to parse the function: {e}"
             print(error_message)
             # retry the translation
-            return self.translate_function(
+            return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR,
                                error_message),
@@ -356,7 +369,7 @@ Try to avoid this error by passing the tests.
                     function_result_sigs.keys()
                 )}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa."
                 print(error_message)
-                return self.translate_function(
+                return self._translate_function_impl(
                     function,
                     verify_result=(
                         VerifyResult.COMPILE_ERROR,
@@ -388,7 +401,7 @@ Try to avoid this error by passing the tests.
                 raise NotImplementedError(
                     f'erorr type {result[0]} not implemented')
 
-            return self.translate_function(
+            return self._translate_function_impl(
                 function,
                 verify_result=result,
                 error_translation=function_result,
@@ -399,7 +412,7 @@ Try to avoid this error by passing the tests.
         utils.save_code(
             f"{self.translated_function_path}/{function.name}.rs", function_result)
 
-        return TranslationResult.SUCCESS
+        return TranslateResult.SUCCESS
 
     def combine(self, functions, structs, global_vars):
         pass

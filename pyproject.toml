@@ -12,6 +12,9 @@ version = "0.1.0"
 description = "Structure-Aware C to Rust Translator"
 authors = ["Tianyang Zhou <qsdrqs@gmail.com>"]
 readme = "README.md"
+packages = [
+    { include = "sactor" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -21,11 +24,14 @@ tiktoken = "^0.8.0"
 openai = "^1.58.1"
 pytest = "^8.3.4"
 pytest-cov = "^6.0.0"
-
+tomli = "^2.2.1"
 
 [tool.poetry.group.dev.dependencies]
 autopep8 = "^2.3.1"
 isort = "^5.13.2"
+
+[tool.poetry.scripts]
+sactor = "sactor:main"
 
 [build-system]
 requires = ["poetry-core"]

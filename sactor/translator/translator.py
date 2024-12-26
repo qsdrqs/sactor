@@ -7,7 +7,7 @@ from sactor.c_parser import CParser, FunctionInfo, StructInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
-from .translator_types import TranslationResult
+from .translator_types import TranslateResult
 
 
 class Translator(ABC):
@@ -23,19 +23,32 @@ class Translator(ABC):
             self.result_path = os.path.join(
                 utils.find_project_root(), 'result')
 
-    @abstractmethod
-    def translate_struct(self, struct_union: StructInfo) -> TranslationResult:
-        pass
+    def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
+        return self._translate_struct_impl(struct_union)
 
     @abstractmethod
-    def translate_function(
+    def _translate_struct_impl(
+        self,
+        struct_union: StructInfo,
+        verify_result: tuple[VerifyResult, str | None] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
+        pass
+
+    def translate_function(self, function: FunctionInfo) -> TranslateResult:
+        return self._translate_function_impl(function)
+
+    @abstractmethod
+    def _translate_function_impl(
         self,
         function: FunctionInfo,
         verify_result: tuple[VerifyResult, str | None] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
-    ) -> TranslationResult:
+    ) -> TranslateResult:
         pass
 
     @abstractmethod

@@ -12,10 +12,13 @@ class C2Rust(ThirdParty):
         self.filename = filename
 
     @override
-    def check_dependency() -> bool:
-        result = True
-        result = result and bool(shutil.which("c2rust"))
-        result = result and bool(shutil.which("gcc") or shutil.which("clang"))
+    def check_requirements() -> list[str]:
+        result = []
+        if not shutil.which("c2rust"):
+            result.append("c2rust")
+        if not shutil.which("gcc") and not shutil.which("clang"):
+            result.append("C compiler(gcc or clang)")
+
         return result
 
     def _include_path(self) -> list[str]:

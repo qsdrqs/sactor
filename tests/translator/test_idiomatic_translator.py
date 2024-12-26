@@ -1,13 +1,11 @@
-import os
 from functools import partial
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from sactor.c_parser import CParser
-from sactor.llm import AzureOpenAILLM
 from sactor.thirdparty.crown import Crown
-from sactor.translator import IdiomaticTranslator, TranslationResult
+from sactor.translator import IdiomaticTranslator, TranslateResult
 from tests.translator.azure_llm import azure_llm
 
 
@@ -67,6 +65,6 @@ def test_idiomatic_translator(llm):
 
     for struct in c_parser.get_function_info('updateStudentInfo').struct_dependencies:
         result = translator.translate_struct(struct)
-        assert result == TranslationResult.SUCCESS
+        assert result == TranslateResult.SUCCESS
     result = translator.translate_function(c_parser.get_function_info('updateStudentInfo'))
-    assert result == TranslationResult.SUCCESS
+    assert result == TranslateResult.SUCCESS
