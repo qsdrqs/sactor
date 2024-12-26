@@ -1,5 +1,5 @@
-from .dividier import Dividier
+from .divider import Divider
 
 __all__ = [
-    'Dividier',
+    'Divider',
 ]
