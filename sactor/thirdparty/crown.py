@@ -3,8 +3,11 @@ import os
 import shutil
 import subprocess
 from enum import Enum, auto
+from typing import override
 
 from sactor import utils
+
+from .thirdparty import ThirdParty
 
 CROWN_RUST_VERSION = "nightly-2023-01-26"
 
@@ -14,7 +17,7 @@ class CrownType(Enum):
     STRUCT = auto()
 
 
-class Crown:
+class Crown(ThirdParty):
     def __init__(self, build_path=None):
         # check executables
         if not shutil.which("crown"):
@@ -40,6 +43,13 @@ class Crown:
         env['LD_LIBRARY_PATH'] = f'{rust_sysroot}/lib'
         self.env = env
 
+    @override
+    def check_dependency() -> bool:
+        result = True
+        result = result and bool(shutil.which("rustup"))
+        result = result and bool(shutil.which("crown"))
+        return result
+
     def analyze(self, target_c2rust_code):
         crown_analysis_lib = "crown_analysis"
         lib_wrapper_code = f'''
@@ -53,7 +63,8 @@ pub mod {crown_analysis_lib};
             f.write(target_c2rust_code)
 
         cmd_prefix = ['rustup', 'run',
-                      'nightly-2023-01-26-x86_64-unknown-linux-gnu', 'crown'] # Version that works with crown
+                      # Version that works with crown
+                      'nightly-2023-01-26-x86_64-unknown-linux-gnu', 'crown']
         # run crown preprocess
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'preprocess']
