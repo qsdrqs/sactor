@@ -28,21 +28,27 @@ class Verifier(ABC):
     def verify_function(self, function: FunctionInfo, function_code, struct_code, *args, **kwargs) -> tuple[VerifyResult, str | None]:
         pass
 
-    def _try_compile_rust_code(self, rust_code, function_dependency_signatures) -> tuple[VerifyResult, str | None]:
+    def _try_compile_rust_code(self, rust_code, function_dependency_signatures, executable=False) -> tuple[VerifyResult, str | None]:
         # Create a temporary Rust project
         os.makedirs(f"{self.build_attempt_path}/src", exist_ok=True)
 
-        joint_function_depedency_signatures = '\n'.join(
-            function_dependency_signatures)
-        rust_code = f'''
+
+        if len(function_dependency_signatures) > 0:
+            joint_function_depedency_signatures = '\n'.join(
+                function_dependency_signatures)
+            rust_code = f'''
 extern "C" {{
 {joint_function_depedency_signatures}
 }}
 {rust_code}
 '''
 
-        utils.create_rust_lib(rust_code, "build_attempt",
+        if not executable:
+            utils.create_rust_lib(rust_code, "build_attempt",
                               self.build_attempt_path)
+        else:
+            utils.create_rust_bin(rust_code, "build_attempt",
+                                    self.build_attempt_path)
 
         # Try to compile the Rust code
         cmd = ["cargo", "build", "--manifest-path",
@@ -59,12 +65,9 @@ extern "C" {{
             print("Rust code compiled successfully")
             return (VerifyResult.SUCCESS, None)
 
-    def _run_tests(self, name, target):
-        # get absolute path of the target
-        target = os.path.abspath(target)
-        env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = os.path.abspath(
-            f"{self.embed_test_rust_dir}/target/debug")
+    def _run_tests(self, target, env=None) -> tuple[VerifyResult, str | None]:
+        if env is None:
+            env = os.environ.copy()
         if type(self.test_cmd) == str:
             cmd = [self.test_cmd, target]
         elif type(self.test_cmd) == list:
@@ -76,7 +79,6 @@ extern "C" {{
         print(res.stdout.decode())
         print(res.stderr.decode())
         if res.returncode != 0:
-            print(f"Error: Failed to run tests for function {name}")
             stdout = res.stdout.decode()
             stderr = res.stderr.decode()
             if stderr is None:
@@ -86,6 +88,14 @@ extern "C" {{
                     return (VerifyResult.TEST_ERROR, "No output")
             return (VerifyResult.TEST_ERROR, stderr)
         return (VerifyResult.SUCCESS, None)
+
+    def _run_tests_with_rust(self, target) -> tuple[VerifyResult, str | None]:
+        # get absolute path of the target
+        target = os.path.abspath(target)
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = os.path.abspath(
+            f"{self.embed_test_rust_dir}/target/debug")
+        return self._run_tests(target, env)
 
     def _remove_c_code(self, c_function: FunctionInfo, filename, prefix=False):
         def remove_prefix(set_of_strings):
@@ -213,4 +223,9 @@ extern "C" {{
                 f"Error: Failed to compile C code for function {name}")
 
         # run tests
-        return self._run_tests(name, f'{self.embed_test_c_dir}/{name}')
+        result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
+        if result[0] != VerifyResult.SUCCESS:
+            print(f"Error: Failed to run tests for function {name}")
+            return result
+
+        return (VerifyResult.SUCCESS, None)

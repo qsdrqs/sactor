@@ -323,6 +323,3 @@ When running the test, it failed with the following error message, try to avoid 
 
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS
-
-    def combine(self, functions, structs, global_vars):
-        pass

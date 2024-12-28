@@ -26,6 +26,24 @@ crate-type = ["cdylib"]
     with open(f"{path}/src/lib.rs", "w") as f:
         f.write(rust_code)
 
+def create_rust_bin(rust_code, bin_name, path):
+    os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, "src"), exist_ok=True)
+
+    with open(f"{path}/Cargo.toml", "w") as f:
+        f.write(f'''
+[package]
+name = "{bin_name}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2.159"
+''')
+
+    with open(f"{path}/src/main.rs", "w") as f:
+        f.write(rust_code)
+
 
 def find_project_root():
     path = os.path.dirname(os.path.realpath(__file__))

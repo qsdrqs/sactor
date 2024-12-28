@@ -5,15 +5,7 @@ use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use quote::quote;
 use std::collections::HashMap;
 use syn::{
-    parse_quote,
-    parse_str,
-    spanned::Spanned,
-    visit_mut::VisitMut,
-    Abi,
-    Expr,
-    File,
-    LitStr,
-    Token,
+    parse_quote, parse_str, spanned::Spanned, visit_mut::VisitMut, Abi, Expr, File, LitStr, Token,
 };
 
 fn parse_src(source_code: &str) -> PyResult<File> {
@@ -171,6 +163,78 @@ fn get_uses_code(code: &str) -> PyResult<Vec<String>> {
     Ok(uses)
 }
 
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn get_code_other_than_uses(code: &str) -> PyResult<String> {
+    let ast = parse_src(code)?;
+    let mut code_other_than_uses = String::new();
+    for item in ast.items.iter() {
+        if let syn::Item::Use(_) = item {
+            continue;
+        }
+        code_other_than_uses.push_str(&quote!(#item).to_string());
+    }
+
+    Ok(code_other_than_uses)
+}
+
+fn collect_paths(
+    tree: &syn::UseTree,
+    current_path: &mut Vec<String>,
+    all_paths: &mut Vec<Vec<String>>,
+) -> PyResult<()> {
+    match tree {
+        syn::UseTree::Path(path) => {
+            current_path.push(path.ident.to_string());
+            collect_paths(&path.tree, current_path, all_paths)?;
+            current_path.pop();
+        }
+        syn::UseTree::Name(name) => {
+            if name.ident != "self" {
+                current_path.push(name.ident.to_string());
+                all_paths.push(current_path.clone());
+                current_path.pop();
+            } else {
+                // For self, add the current path without pushing 'self'
+                all_paths.push(current_path.clone());
+            }
+        }
+        syn::UseTree::Rename(_) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Use statements with 'as' are not supported",
+            ));
+        }
+        syn::UseTree::Glob(_) => {
+            // Handle glob imports
+            current_path.push("*".to_string());
+            all_paths.push(current_path.clone());
+            current_path.pop();
+        }
+        syn::UseTree::Group(group) => {
+            // Handle nested groups like a::{b, c}
+            for tree in &group.items {
+                collect_paths(tree, current_path, all_paths)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn get_standalone_uses_code_paths(code: &str) -> PyResult<Vec<Vec<String>>> {
+    let ast = parse_src(code)?;
+    let mut all_paths = Vec::new();
+
+    for item in ast.items.iter() {
+        if let syn::Item::Use(use_item) = item {
+            collect_paths(&use_item.tree, &mut Vec::new(), &mut all_paths)?;
+        }
+    }
+
+    Ok(all_paths)
+}
+
 struct RenameVisitor {
     old_name: String,
     new_name: String,
@@ -247,7 +311,9 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_union_definition, m)?)?;
     m.add_function(wrap_pyfunction!(combine_struct_function, m)?)?;
     m.add_function(wrap_pyfunction!(get_uses_code, m)?)?;
+    m.add_function(wrap_pyfunction!(get_code_other_than_uses, m)?)?;
     m.add_function(wrap_pyfunction!(rename_function, m)?)?;
+    m.add_function(wrap_pyfunction!(get_standalone_uses_code_paths, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_blocks, m)?)?;

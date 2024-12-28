@@ -11,6 +11,7 @@ class C2Rust(ThirdParty):
     def __init__(self, filename):
         self.filename = filename
 
+    @staticmethod
     @override
     def check_requirements() -> list[str]:
         result = []

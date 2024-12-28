@@ -11,7 +11,13 @@ def count_unsafe_blocks(code:str) -> int:
 def expose_function_to_c(source_code:str) -> str:
     ...
 
+def get_code_other_than_uses(code:str) -> str:
+    ...
+
 def get_func_signatures(source_code:str) -> dict[str, str]:
+    ...
+
+def get_standalone_uses_code_paths(code:str) -> list[list[str]]:
     ...
 
 def get_struct_definition(source_code:str,struct_name:str) -> str:

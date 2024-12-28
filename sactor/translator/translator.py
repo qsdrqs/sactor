@@ -51,10 +51,6 @@ class Translator(ABC):
     ) -> TranslateResult:
         pass
 
-    @abstractmethod
-    def combine(self, functions, structs, global_vars):
-        pass
-
     def append_failure_info(self, item, error_type, error_message):
         self.failure_info[item]["errors"].append({
             "type": error_type,

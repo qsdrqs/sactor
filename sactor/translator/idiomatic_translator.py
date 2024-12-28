@@ -430,6 +430,3 @@ Try to avoid this error by passing the tests.
             f"{self.translated_function_path}/{function.name}.rs", function_result)
 
         return TranslateResult.SUCCESS
-
-    def combine(self, functions, structs, global_vars):
-        pass

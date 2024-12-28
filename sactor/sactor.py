@@ -2,6 +2,8 @@ import os
 
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
+from sactor.combiner import Combiner
+from sactor.combiner import CombineResult
 from sactor.divider import Divider
 from sactor.llm import AzureOpenAILLM, OpenAILLM
 from sactor.thirdparty import C2Rust
@@ -9,7 +11,16 @@ from sactor.translator import TranslateResult, UnidiomaticTranslator
 
 
 class Sactor:
-    def __init__(self, input_file: str, test_cmd: str, build_dir=None, result_dir=None, config_file=None, no_verify=False, unidiomatic_only=False):
+    def __init__(
+        self,
+        input_file: str,
+        test_cmd: str,
+        build_dir=None,
+        result_dir=None,
+        config_file=None,
+        no_verify=False,
+        unidiomatic_only=False,
+    ):
         self.input_file = input_file
         self.test_cmd = test_cmd.split()
         self.build_dir = os.path.join(
@@ -38,6 +49,8 @@ class Sactor:
         self.function_order = self.divider.get_function_order()
 
         self.c2rust = C2Rust(self.input_file)
+        self.combiner = Combiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
+                                 self.test_cmd, self.build_dir)
 
         # Initialize LLM
         match self.config['general'].get("llm"):
@@ -51,9 +64,16 @@ class Sactor:
 
     def run(self):
         self._run_unidomatic_translation()
-        # FIXME: combine translation results
+        combine_result = self.combiner.combine(os.path.join(
+            self.result_dir, "translated_code_unidiomatic"))
+        if combine_result != CombineResult.SUCCESS:
+            raise ValueError("Failed to combine translated code for unidiomatic translation")
         if not self.unidiomatic_only:
             self._run_idiomatic_translation()
+            result = self.combiner.combine(os.path.join(
+                self.result_dir, "translated_code_idiomatic"))
+            if result != CombineResult.SUCCESS:
+                raise ValueError("Failed to combine translated code for idiomatic translation")
 
     def _run_unidomatic_translation(self):
         self.c2rust_translation = self.c2rust.get_c2rust_translation()

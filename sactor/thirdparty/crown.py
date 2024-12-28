@@ -43,6 +43,7 @@ class Crown(ThirdParty):
         env['LD_LIBRARY_PATH'] = f'{rust_sysroot}/lib'
         self.env = env
 
+    @staticmethod
     @override
     def check_requirements() -> list[str]:
         result = []

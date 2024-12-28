@@ -55,3 +55,23 @@ def test_rename_function(code):
 
 def test_count_unsafe(code):
     assert rust_ast_parser.count_unsafe_blocks(code) == 1
+
+def test_get_standalone_uses_code_paths():
+    code = '''
+use a::b::c;
+use a::b::{self, d, e};
+use a::b::f;
+use a::g::*;
+'''
+    paths = rust_ast_parser.get_standalone_uses_code_paths(code)
+    print(paths)
+    set_paths = set(map(tuple, paths))
+    expected_set_paths = {
+        ('a', 'b'),
+        ('a', 'b', 'c'),
+        ('a', 'b', 'd'),
+        ('a', 'b', 'e'),
+        ('a', 'b', 'f'),
+        ('a', 'g', '*'),
+    }
+    assert set_paths == expected_set_paths
