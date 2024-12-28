@@ -1,12 +1,5 @@
 from sactor.verifier import UnidiomaticVerifier, VerifyResult
 
-'''
-return0stderr
-return0stdout
-return1stderr
-return1stdout
-return1stdoutstderr
-'''
 def test_run_tests1():
     verifier = UnidiomaticVerifier("tests/verifier/mock_results/return0stdout")
     result = verifier._run_tests("")

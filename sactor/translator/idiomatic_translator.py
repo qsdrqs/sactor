@@ -168,7 +168,7 @@ It failed the following tests:
 ```
 {verify_result[1]}
 ```
-Try to avoid this error by passing the tests.
+Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
 
         result = self.llm.query(prompt)
@@ -346,7 +346,7 @@ It failed the following tests:
 ```
 {verify_result[1]}
 ```
-Try to avoid this error by passing the tests.
+Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
 
         result = self.llm.query(prompt)
@@ -365,7 +365,7 @@ Try to avoid this error by passing the tests.
         try:
             function_result_sigs = rust_ast_parser.get_func_signatures(
                 function_result)
-        except ValueError as e:
+        except Exception as e:
             error_message = f"Error: Failed to parse the function: {e}"
             print(error_message)
             # retry the translation

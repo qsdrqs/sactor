@@ -87,7 +87,7 @@ It failed the following tests:
 ```
 {verify_result[1]}
 ```
-Try to avoid this error by passing the tests.
+Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
 
         result = self.llm.query(prompt)

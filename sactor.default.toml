@@ -7,7 +7,9 @@ api_key = "your-api-key"
 endpoint = "https://your-endpoint.openai.azure.com/"
 api_version = "2024-12-26" # change this to your own API version
 model = "gpt-4o" # change this to your own model
+temperature = 1
 
 [OpenAI]
 api_key = "your-api-key"
 model = "gpt-4o" # change this to your own model
+temperature = 1

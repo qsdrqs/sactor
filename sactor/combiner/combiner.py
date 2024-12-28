@@ -83,5 +83,12 @@ class Combiner():
         result = self.verifier.e2e_verify(output_code, executable=True)
         if result[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to verify the combined code: {result[1]}")
+            match result[0]:
+                case VerifyResult.COMPILE_ERROR:
+                    return CombineResult.COMPILE_FAILED
+                case VerifyResult.TEST_ERROR:
+                    return CombineResult.TEST_FAILED
+                case _:
+                    raise ValueError(f"Unexpected error during verification: {result[0]}")
 
         return CombineResult.SUCCESS

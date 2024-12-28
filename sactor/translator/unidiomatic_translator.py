@@ -137,11 +137,19 @@ The function is:
 ```
 '''
 
+        if function.name == 'main':
+            prompt += '''
+The function is the `main` function, which is the entry point of the program. The return type should be `()`, and the arguments should be `()`.
+For `return 0;`, you can directly `return;` in Rust or ignore it if it's the last statement.
+For other return values, you can use `std::process::exit()` to return the value.
+For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
+'''
+
         joint_code_of_structs: str = ''
         if len(code_of_structs) > 0:
             joint_code_of_structs = '\n'.join(code_of_structs)
             prompt += f'''
-The function uses the following structs/unions, which are already translated as (you don't need to include them in your translation):
+The function uses the following structs/unions, which are already translated as (you should **NOT** include them in your translation):
 ```rust
 {joint_code_of_structs}
 ```
@@ -179,7 +187,7 @@ The function uses the following enums, which defined as:
             joint_function_depedency_signatures = '\n'.join(
                 function_depedency_signatures)
             prompt += f'''
-The function uses the following functions, which are already translated as (you don't need to include them in your translation):
+The function uses the following functions, which are already translated as (you should **NOT** include them in your translation):
 ```rust
 {joint_function_depedency_signatures}
 ```
@@ -216,10 +224,11 @@ Lastly, the function is translated as:
 ```rust
 {error_translation}
 ```
-When running the test, it failed with the following error message, try to avoid this error:
+When running the test, it failed with the following error message:
 ```
 {verify_result[1]}
 ```
+Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
 
         # result = query_llm(prompt, False, f"test.rs")
@@ -231,7 +240,7 @@ When running the test, it failed with the following error message, try to avoid 
         try:
             function_result_sigs = rust_ast_parser.get_func_signatures(
                 function_result)
-        except ValueError as e:
+        except Exception as e:
             error_message = f"Error: Failed to parse the function: {e}"
             print(error_message)
             # retry the translation
