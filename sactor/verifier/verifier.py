@@ -29,10 +29,6 @@ class Verifier(ABC):
         pass
 
     def _try_compile_rust_code(self, rust_code, function_dependency_signatures, executable=False) -> tuple[VerifyResult, str | None]:
-        # Create a temporary Rust project
-        os.makedirs(f"{self.build_attempt_path}/src", exist_ok=True)
-
-
         if len(function_dependency_signatures) > 0:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)
@@ -81,8 +77,8 @@ extern "C" {{
         if res.returncode != 0:
             stdout = res.stdout.decode()
             stderr = res.stderr.decode()
-            if stderr is None:
-                if stdout is not None:
+            if stderr == "":
+                if stdout != "":
                     return (VerifyResult.TEST_ERROR, stdout)
                 else:
                     return (VerifyResult.TEST_ERROR, "No output")

@@ -60,7 +60,7 @@ def main():
         result_dir=args.result_dir,
         config_file=args.config,
         no_verify=args.no_verify,
-        unidiomatic_only=False
+        unidiomatic_only=args.unidiomatic_only
     )
 
     sactor.run()

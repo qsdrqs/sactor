@@ -2,10 +2,12 @@ import os
 import tempfile
 
 import tomli as toml
+import shutil
 
 
 def create_rust_lib(rust_code, lib_name, path):
-    os.makedirs(path, exist_ok=True)
+    if os.path.exists(path):
+        shutil.rmtree(path)
     os.makedirs(os.path.join(path, "src"), exist_ok=True)
 
     with open(f"{path}/Cargo.toml", "w") as f:
@@ -27,7 +29,8 @@ crate-type = ["cdylib"]
         f.write(rust_code)
 
 def create_rust_bin(rust_code, bin_name, path):
-    os.makedirs(path, exist_ok=True)
+    if os.path.exists(path):
+        shutil.rmtree(path)
     os.makedirs(os.path.join(path, "src"), exist_ok=True)
 
     with open(f"{path}/Cargo.toml", "w") as f:

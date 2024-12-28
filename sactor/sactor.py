@@ -67,13 +67,13 @@ class Sactor:
         combine_result = self.combiner.combine(os.path.join(
             self.result_dir, "translated_code_unidiomatic"))
         if combine_result != CombineResult.SUCCESS:
-            raise ValueError("Failed to combine translated code for unidiomatic translation")
+            raise ValueError(f"Failed to combine translated code for unidiomatic translation: {combine_result}")
         if not self.unidiomatic_only:
             self._run_idiomatic_translation()
-            result = self.combiner.combine(os.path.join(
+            combine_result = self.combiner.combine(os.path.join(
                 self.result_dir, "translated_code_idiomatic"))
-            if result != CombineResult.SUCCESS:
-                raise ValueError("Failed to combine translated code for idiomatic translation")
+            if combine_result != CombineResult.SUCCESS:
+                raise ValueError(f"Failed to combine translated code for idiomatic translation: {combine_result}")
 
     def _run_unidomatic_translation(self):
         self.c2rust_translation = self.c2rust.get_c2rust_translation()
