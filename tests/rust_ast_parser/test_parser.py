@@ -75,3 +75,40 @@ use a::g::*;
         ('a', 'g', '*'),
     }
     assert set_paths == expected_set_paths
+
+def test_add_attribute_to_function(code):
+    new_code = rust_ast_parser.add_attr_to_function(code, "add", "#[inline]")
+    print(new_code)
+    assert new_code.count('#[inline]') == 1
+    assert code.count('#[inline]') == 0
+
+def test_add_attribute_to_struct(code):
+    new_code = rust_ast_parser.add_attr_to_struct(code, "Foo", "#[derive(Debug)]")
+    print(new_code)
+    assert new_code.count('#[derive(Debug)]') == 1
+    assert code.count('#[derive(Debug)]') == 0
+
+    new_code = rust_ast_parser.add_attr_to_struct(code, "Foo", "#[derive(Copy, Clone)]")
+    print(new_code)
+    assert new_code.count('#[derive(Copy, Clone)]') == 1 # should not add duplicate
+    assert code.count('#[derive(Copy, Clone)]') == 1
+
+def test_add_derive_to_struct(code):
+    # add derive on other structs
+    new_code = rust_ast_parser.add_derive_to_struct(code, "Foo", "Debug")
+    print(new_code)
+    assert new_code.count('#[derive(Copy, Clone, Debug)]') == 1
+    assert code.count('#[derive(Copy, Clone)]') == 1
+
+    # add existing derive
+    new_code = rust_ast_parser.add_derive_to_struct(code, "Foo", "Copy")
+    print(new_code)
+    assert new_code.count('#[derive(Copy, Clone)]') == 1
+    assert new_code.count('#[derive(Copy)]') == 0
+    assert code.count('#[derive(Copy, Clone)]') == 1
+
+    # add derive on union
+    new_code = rust_ast_parser.add_derive_to_struct(code, "Bar", "Debug")
+    print(new_code)
+    assert new_code.count('#[derive(Debug)]') == 1
+    assert code.count('#[derive(Debug)]') == 0

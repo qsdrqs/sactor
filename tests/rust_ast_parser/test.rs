@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use libc::c_int;
 
+#[derive(Copy, Clone)]
 struct Foo {
     a: i32,
     b: i32,

@@ -177,6 +177,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 
         # TODO: Verify the translation
 
+        # add Debug trait for struct/union
+        struct_result = rust_ast_parser.add_derive_to_struct(struct_result, struct_union.name, "Debug")
+
         # Save the results
         utils.save_code(struct_save_path, struct_result)
 
@@ -346,8 +349,11 @@ It failed the following tests:
 ```
 {verify_result[1]}
 ```
+In this error message, the 'original output' is the actual output from the program error message. The 'Feedback' is rerun with feedback mechanism, which is used for debugging. Errors in the 'Feedback' are not the actual error messages.
+
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
+# FIXME: split tests
 
         result = self.llm.query(prompt)
         llm_result = utils.parse_llm_result(result, "function")

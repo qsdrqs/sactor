@@ -2,10 +2,15 @@
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
-use quote::quote;
+use quote::{quote, ToTokens};
 use std::collections::HashMap;
 use syn::{
-    parse_quote, parse_str, spanned::Spanned, visit_mut::VisitMut, Abi, Expr, File, LitStr, Token,
+    parse::{Parse, ParseStream},
+    parse_quote, parse_str,
+    spanned::Spanned,
+    token,
+    visit_mut::VisitMut,
+    Abi, AttrStyle, Attribute, Expr, File, LitStr, Meta, Result, Token,
 };
 
 fn parse_src(source_code: &str) -> PyResult<File> {
@@ -303,6 +308,172 @@ fn count_unsafe_blocks(code: &str) -> PyResult<usize> {
     Ok(counter.count)
 }
 
+pub struct ParsedAttribute(pub Attribute);
+
+impl Parse for ParsedAttribute {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let pound_token: token::Pound = input.parse()?;
+
+        // Determine the style of the attribute (Outer or Inner)
+        let style = if input.peek(token::Bracket) {
+            AttrStyle::Outer
+        } else if input.peek(Token![!]) {
+            input.parse::<Token![!]>()?;
+            AttrStyle::Inner(Token![!](input.span()))
+        } else {
+            return Err(input.error("Expected attribute brackets"));
+        };
+
+        // Parse the bracketed contents
+        let content;
+        let bracket_token = syn::bracketed!(content in input);
+        let meta: Meta = content.parse()?;
+
+        let attribute = Attribute {
+            pound_token,
+            style,
+            bracket_token,
+            meta,
+        };
+
+        Ok(ParsedAttribute(attribute))
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn add_attr_to_function(code: &str, function_name: &str, attr: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+    for item in ast.items.iter_mut() {
+        if let syn::Item::Fn(f) = item {
+            if f.sig.ident == function_name {
+                let parsed = parse_str::<ParsedAttribute>(attr).map_err(|e| {
+                    pyo3::exceptions::PySyntaxError::new_err(format!(
+                        "Parse error: {}\n source code: {}",
+                        e, attr
+                    ))
+                })?;
+                let attr = parsed.0;
+                // check if the attribute is already present
+                for existing_attr in f.attrs.iter() {
+                    if existing_attr.to_token_stream().to_string()
+                        == attr.to_token_stream().to_string()
+                    {
+                        return Ok(prettyplease::unparse(&ast));
+                    }
+                }
+
+                f.attrs.push(attr);
+            }
+        }
+    }
+    Ok(prettyplease::unparse(&ast))
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn add_attr_to_struct_union(code: &str, struct_union_name: &str, attr: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+
+    fn add_attribute(attrs: &mut Vec<syn::Attribute>, attr: &str) -> PyResult<()> {
+        let parsed = parse_str::<ParsedAttribute>(attr).map_err(|e| {
+            pyo3::exceptions::PySyntaxError::new_err(format!(
+                "Parse error: {}\n source code: {}",
+                e, attr
+            ))
+        })?;
+        let attr = parsed.0;
+
+        // Check if the attribute is already present
+        if attrs.iter().any(|existing| existing.to_token_stream().to_string() == attr.to_token_stream().to_string()) {
+            return Ok(());
+        }
+
+        attrs.push(attr);
+        Ok(())
+    }
+
+    for item in ast.items.iter_mut() {
+        if let syn::Item::Struct(s) = item {
+            if s.ident == struct_union_name {
+                add_attribute(&mut s.attrs, attr)?;
+            }
+        } else if let syn::Item::Union(u) = item {
+            if u.ident == struct_union_name {
+                add_attribute(&mut u.attrs, attr)?;
+            }
+        }
+    }
+
+    Ok(prettyplease::unparse(&ast))
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn add_derive_to_struct_union(code: &str, struct_union_name: &str, derive: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+
+    fn add_derive(attrs: &mut Vec<syn::Attribute>, derive: &str, span: proc_macro2::Span) -> PyResult<()> {
+        let mut existing_derive = None;
+
+        // Check for existing derive attribute
+        for attr in attrs.iter_mut() {
+            if let syn::Meta::List(list) = &mut attr.meta {
+                if list.path.is_ident("derive") {
+                    existing_derive = Some(list);
+                    break;
+                }
+            }
+        }
+
+        if let Some(existing_derive) = existing_derive {
+            // Check if derive is already present
+            let mut found = false;
+            existing_derive
+                .parse_nested_meta(|meta| {
+                    if meta.path.is_ident(derive) {
+                        found = true;
+                    }
+                    Ok(())
+                })
+                .map_err(|e| {
+                    pyo3::exceptions::PySyntaxError::new_err(format!(
+                        "Parse error: {}\n source code: {}",
+                        e, derive
+                    ))
+                })?;
+
+            if !found {
+                let current_derive_tokens = existing_derive.tokens.clone();
+                let ident = syn::Ident::new(derive, span);
+                existing_derive.tokens = quote! { #current_derive_tokens, #ident };
+            }
+        } else {
+            // Add new derive attribute
+            let ident = syn::Ident::new(derive, span);
+            attrs.push(parse_quote!(#[derive(#ident)]));
+        }
+
+        Ok(())
+    }
+
+    for item in ast.items.iter_mut() {
+        match item {
+            syn::Item::Struct(s) if s.ident == struct_union_name => {
+                let span = s.span();
+                add_derive(&mut s.attrs, derive, span)?;
+            }
+            syn::Item::Union(u) if u.ident == struct_union_name => {
+                let span = u.span();
+                add_derive(&mut u.attrs, derive, span)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(prettyplease::unparse(&ast))
+}
+
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
@@ -314,6 +485,9 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_code_other_than_uses, m)?)?;
     m.add_function(wrap_pyfunction!(rename_function, m)?)?;
     m.add_function(wrap_pyfunction!(get_standalone_uses_code_paths, m)?)?;
+    m.add_function(wrap_pyfunction!(add_attr_to_function, m)?)?;
+    m.add_function(wrap_pyfunction!(add_attr_to_struct_union, m)?)?;
+    m.add_function(wrap_pyfunction!(add_derive_to_struct_union, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_blocks, m)?)?;

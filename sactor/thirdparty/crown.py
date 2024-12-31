@@ -60,8 +60,8 @@ extern crate libc;
 extern crate core;
 pub mod {crown_analysis_lib};
 '''
-        utils.create_rust_lib(
-            lib_wrapper_code, crown_analysis_lib, self.analysis_build_path)
+        utils.create_rust_proj(
+            lib_wrapper_code, crown_analysis_lib, self.analysis_build_path, is_lib=True)
         with open(os.path.join(self.analysis_build_path, f"src/{crown_analysis_lib}.rs"), "w") as f:
             f.write(target_c2rust_code)
 

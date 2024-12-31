@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import subprocess
 from abc import ABC, abstractmethod
 
@@ -40,11 +41,11 @@ extern "C" {{
 '''
 
         if not executable:
-            utils.create_rust_lib(rust_code, "build_attempt",
-                              self.build_attempt_path)
+            utils.create_rust_proj(rust_code, "build_attempt",
+                              self.build_attempt_path, is_lib=True)
         else:
-            utils.create_rust_bin(rust_code, "build_attempt",
-                                    self.build_attempt_path)
+            utils.create_rust_proj(rust_code, "build_attempt",
+                                    self.build_attempt_path, is_lib=False)
 
         # Try to compile the Rust code
         cmd = ["cargo", "build", "--manifest-path",
@@ -173,7 +174,7 @@ extern "C" {{
 
         return "".join(lines)
 
-    def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures, prefix=False):
+    def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures, prefix=False) -> tuple[VerifyResult, str | None]:
         name = c_function.name
         filename = c_function.node.location.file.name
 
@@ -188,18 +189,18 @@ extern "C" {{
 
 {rust_code}
 '''
-        utils.create_rust_lib(rust_code, name, self.embed_test_rust_dir)
+        utils.create_rust_proj(rust_code, name, self.embed_test_rust_dir, is_lib=True)
 
         # compile
         # should succeed, omit output
-        cmd = ["cargo", "build", "--manifest-path",
+        rust_compile_cmd = ["cargo", "build", "--manifest-path",
                f"{self.embed_test_rust_dir}/Cargo.toml"]
-        print(" ".join(cmd))
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL,
+        print(" ".join(rust_compile_cmd))
+        res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
         if res.returncode != 0:
             raise RuntimeError(
-                "Failed to compile Rust code for function {name}")
+                f"Failed to compile Rust code for function {name}")
 
         library_path = f"{self.embed_test_rust_dir}/target/debug/lib{name}.so"
         c_code_removed = self._remove_c_code(c_function, filename, prefix)
@@ -210,10 +211,10 @@ extern "C" {{
             f.write(c_code_removed)
 
         # compile the C code
-        cmd = ['gcc', '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
+        c_compile_cmd = ['gcc', '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
             self.embed_test_c_dir, f'{name}.c'), f'-L{self.embed_test_rust_dir}/target/debug', f'-l{name}']
-        print(cmd)
-        res = subprocess.run(cmd)
+        print(c_compile_cmd)
+        res = subprocess.run(c_compile_cmd)
         if res.returncode != 0:
             raise RuntimeError(
                 f"Error: Failed to compile C code for function {name}")
@@ -221,7 +222,28 @@ extern "C" {{
         # run tests
         result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
         if result[0] != VerifyResult.SUCCESS:
-            print(f"Error: Failed to run tests for function {name}")
-            return result
+            # rerun with feedback from `trace_fn`
+            print(f"Error: Failed to run tests for function {name}, rerun with feedback")
+            rust_code = rust_ast_parser.add_attr_to_function(rust_code, name, "#[sactor_proc_macros::trace_fn]")
+            utils.create_rust_proj(rust_code, name, self.embed_test_rust_dir, is_lib=True)
+            res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+            if res.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to compile Rust code for function {name}")
+
+            previous_result = result
+
+            result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
+
+            feedback = f'''
+--------Begin Original Output--------
+{previous_result[1]}
+--------End Original Output--------
+--------Begin Feedback--------
+{result[1]}
+--------End Feedback--------'''
+
+            return (result[0], feedback)
 
         return (VerifyResult.SUCCESS, None)

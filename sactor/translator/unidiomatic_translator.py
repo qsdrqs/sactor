@@ -58,6 +58,9 @@ class UnidiomaticTranslator(Translator):
             rust_s_u = rust_ast_parser.get_union_definition(
                 self.c2rust_translation, struct_union.name)
 
+        # add Debug trait for struct/union
+        rust_s_u = rust_ast_parser.add_derive_to_struct(rust_s_u, struct_union.name, "Debug")
+
         # Save the translated struct/union
         utils.save_code(
             f'{self.translated_struct_path}/{struct_union.name}.rs', rust_s_u)
@@ -228,6 +231,8 @@ When running the test, it failed with the following error message:
 ```
 {verify_result[1]}
 ```
+In this error message, the 'original output' is the actual output from the program error message. The 'Feedback' is rerun with feedback mechanism, which is used for debugging. Errors in the 'Feedback' are not the actual error messages.
+
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
 
@@ -278,7 +283,6 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                     error_translation=function_result,
                     attempts=attempts+1
                 )
-                # exit(f"Error: Function signature not found in the translated code for function {function.name}: {function_result_sigs}") FIXME: check here
         else:
             function_result_sig = function_result_sigs[function.name]
         pointers_count = function_result_sig.count('*')

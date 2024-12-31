@@ -1,51 +1,55 @@
 import os
-import tempfile
+import shutil
+from sactor import utils
 
 import tomli as toml
-import shutil
 
 
-def create_rust_lib(rust_code, lib_name, path):
+def create_rust_proj(rust_code, proj_name, path, is_lib):
     if os.path.exists(path):
         shutil.rmtree(path)
     os.makedirs(os.path.join(path, "src"), exist_ok=True)
 
     with open(f"{path}/Cargo.toml", "w") as f:
-        f.write(f'''
+        if is_lib:
+            f.write(f'''
 [package]
-name = "{lib_name}"
+name = "{proj_name}"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 libc = "0.2.159"
+sactor_proc_macros = {{ path = "./sactor_proc_macros" }}
 
 [lib]
-name = "{lib_name}"
+name = "{proj_name}"
 crate-type = ["cdylib"]
 ''')
-
-    with open(f"{path}/src/lib.rs", "w") as f:
-        f.write(rust_code)
-
-def create_rust_bin(rust_code, bin_name, path):
-    if os.path.exists(path):
-        shutil.rmtree(path)
-    os.makedirs(os.path.join(path, "src"), exist_ok=True)
-
-    with open(f"{path}/Cargo.toml", "w") as f:
-        f.write(f'''
+        else:
+            # bin
+            f.write(f'''
 [package]
-name = "{bin_name}"
+name = "{proj_name}"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 libc = "0.2.159"
+sactor_proc_macros = {{ path = "./sactor_proc_macros" }}
 ''')
 
-    with open(f"{path}/src/main.rs", "w") as f:
-        f.write(rust_code)
+    if is_lib:
+        with open(f"{path}/src/lib.rs", "w") as f:
+            f.write(rust_code)
+    else:
+        with open(f"{path}/src/main.rs", "w") as f:
+            f.write(rust_code)
+
+    proj_root = utils.find_project_root()
+    sactor_proc_macros_path = os.path.join(proj_root, "sactor_proc_macros")
+    # Copy sactor_proc_macros to the project
+    shutil.copytree(sactor_proc_macros_path, os.path.join(path, "sactor_proc_macros"))
 
 
 def find_project_root():
@@ -104,6 +108,7 @@ def print_red(s):
 def print_green(s):
     print("\033[92m {}\033[00m".format(s))
 
+
 def _merge_configs(config, default_config):
     config_out = {}
 
@@ -126,6 +131,7 @@ def _merge_configs(config, default_config):
             config_out[key] = value
 
     return config_out
+
 
 def try_load_config(config_file=None):
     proj_root = find_project_root()

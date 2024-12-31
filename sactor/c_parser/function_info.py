@@ -28,6 +28,9 @@ class FunctionInfo:
         signature = f"{return_type} {function_name}({', '.join(arg_list)})"
         return signature
 
+    def get_arg_types(self):
+        return [arg_type for _, arg_type in self.arguments]
+
     def get_pointer_count_in_signature(self):
         count = 0
         if self.return_type.find("*") != -1:

@@ -16,6 +16,7 @@
           rec {
             buildInputs = [
               pkgs.gcc
+              pkgs.clang-tools
               pkgs.libclang
               pkgs.rustup
               pkgs.zlib

@@ -2,6 +2,15 @@
 # ruff: noqa: E501, F401
 
 
+def add_attr_to_function(code:str,function_name:str,attr:str) -> str:
+    ...
+
+def add_attr_to_struct(code:str,struct_name:str,attr:str) -> str:
+    ...
+
+def add_derive_to_struct(code:str,struct_name:str,derive:str) -> str:
+    ...
+
 def combine_struct_function(struct_code:str,function_code:str) -> str:
     ...
 
