@@ -1,36 +1,18 @@
 from sactor import rust_ast_parser
 from sactor.c_parser import CParser
 from sactor.verifier import UnidiomaticVerifier, VerifyResult
+from sactor.verifier import Verifier
 
-def test_run_tests1():
-    verifier = UnidiomaticVerifier("tests/verifier/mock_results/return0stdout")
-    result = verifier._run_tests("")
-    assert result[0] == VerifyResult.SUCCESS
-    assert result[1] == None
+def test_verify_test_cmd():
+    cmd_path = "tests/verifier/test_cmd.json"
+    assert Verifier.verify_test_cmd(cmd_path)
+    cmd_bad1_path = "tests/verifier/test_cmd_bad1.json"
+    assert not Verifier.verify_test_cmd(cmd_bad1_path)
+    cmd_bad2_path = "tests/verifier/test_cmd_bad2.json"
+    assert not Verifier.verify_test_cmd(cmd_bad2_path)
+    cmd_bad3_path = "tests/verifier/test_cmd_bad3.json"
+    assert not Verifier.verify_test_cmd(cmd_bad3_path)
 
-def test_run_tests2():
-    verifier = UnidiomaticVerifier("tests/verifier/mock_results/return0stderr")
-    result = verifier._run_tests("")
-    assert result[0] == VerifyResult.SUCCESS
-    assert result[1] == None
-
-def test_run_tests3():
-    verifier = UnidiomaticVerifier("tests/verifier/mock_results/return1stdout")
-    result = verifier._run_tests("")
-    assert result[0] == VerifyResult.TEST_ERROR
-    assert result[1] == "Hello, world!\n"
-
-def test_run_tests4():
-    verifier = UnidiomaticVerifier("tests/verifier/mock_results/return1stderr")
-    result = verifier._run_tests("")
-    assert result[0] == VerifyResult.TEST_ERROR
-    assert result[1] == "Some error message\n"
-
-def test_run_tests5():
-    verifier = UnidiomaticVerifier("tests/verifier/mock_results/return1stdoutstderr")
-    result = verifier._run_tests("")
-    assert result[0] == VerifyResult.TEST_ERROR
-    assert result[1] == "Some error message\n"
 
 def test_embed_test():
     c_path = "tests/c_examples/course_manage.c"
@@ -48,10 +30,12 @@ def test_embed_test():
     with open(func_path, "r") as f:
         function_code = f.read()
 
-    rust_code = rust_ast_parser.combine_struct_function(struct_code, function_code)
+    rust_code = rust_ast_parser.combine_struct_function(
+        struct_code, function_code)
     c_parser = CParser(c_path)
 
-    verifier = UnidiomaticVerifier(['python', 'tests/c_examples/course_manage_test.py'])
+    verifier = UnidiomaticVerifier(
+        'tests/c_examples/course_manage_test.json')
     result = verifier._embed_test_rust(
         c_parser.get_function_info("updateStudentInfo"),
         rust_code=rust_code,
@@ -59,7 +43,8 @@ def test_embed_test():
     )
     assert result[0] == VerifyResult.SUCCESS
 
-    verifier = UnidiomaticVerifier(['python', 'tests/c_examples/course_manage_wrong_test.py'])
+    verifier = UnidiomaticVerifier(
+        'tests/c_examples/course_manage_test_wrong.json')
     result = verifier._embed_test_rust(
         c_parser.get_function_info("updateStudentInfo"),
         rust_code=rust_code,

@@ -8,13 +8,14 @@ from sactor.divider import Divider
 from sactor.llm import AzureOpenAILLM, OpenAILLM
 from sactor.thirdparty import C2Rust
 from sactor.translator import TranslateResult, UnidiomaticTranslator
+from sactor.verifier import Verifier
 
 
 class Sactor:
     def __init__(
         self,
         input_file: str,
-        test_cmd: str,
+        test_cmd_path: str,
         build_dir=None,
         result_dir=None,
         config_file=None,
@@ -22,7 +23,9 @@ class Sactor:
         unidiomatic_only=False,
     ):
         self.input_file = input_file
-        self.test_cmd = test_cmd.split()
+        if not Verifier.verify_test_cmd(test_cmd_path):
+            raise ValueError("Invalid test command path or format")
+        self.test_cmd_path = test_cmd_path
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
 
@@ -50,7 +53,7 @@ class Sactor:
 
         self.c2rust = C2Rust(self.input_file)
         self.combiner = Combiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
-                                 self.test_cmd, self.build_dir)
+                                 self.test_cmd_path, self.build_dir)
 
         # Initialize LLM
         match self.config['general'].get("llm"):
@@ -82,7 +85,7 @@ class Sactor:
             self.llm,
             self.c2rust_translation,
             self.c_parser,
-            self.test_cmd,
+            self.test_cmd_path,
             build_path=self.build_dir,
             result_path=self.result_dir,
             max_attempts=self.config['general']['max_translation_attempts'],
@@ -110,7 +113,7 @@ class Sactor:
             self.llm,
             self.c2rust_translation,
             self.c_parser,
-            self.test_cmd,
+            self.test_cmd_path,
             build_path=self.build_dir,
             result_path=self.result_dir,
             max_attempts=self.config['general']['max_translation_attempts'],

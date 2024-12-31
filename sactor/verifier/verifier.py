@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
+import json
 import os
-import re
 import subprocess
 from abc import ABC, abstractmethod
 
@@ -12,7 +12,7 @@ from .verifier_types import VerifyResult
 
 
 class Verifier(ABC):
-    def __init__(self, test_cmd: str | list[str], build_path=None):
+    def __init__(self, test_cmd_path: str, build_path=None):
         if build_path:
             self.build_path = build_path
         else:
@@ -23,7 +23,38 @@ class Verifier(ABC):
         self.embed_test_rust_dir = os.path.join(
             self.build_path, "embed_test_rust")
         self.embed_test_c_dir = os.path.join(self.build_path, "embed_test_c")
-        self.test_cmd = test_cmd
+        self.test_cmd_path = test_cmd_path
+
+    @staticmethod
+    def verify_test_cmd(test_cmd_path: str) -> bool:
+        try:
+            with open(test_cmd_path, "r") as f:
+                test_cmd = f.read()
+            test_cmd = test_cmd.strip()
+            test_cmd = json.loads(test_cmd)
+            if not isinstance(test_cmd, list):
+                print(
+                    "Error: Invalid test command file, expected a list of dicts, can't find the list")
+                return False
+            for cmd in test_cmd:
+                if not isinstance(cmd, dict):
+                    print(
+                        "Error: Invalid test command file, expected a list of dicts, found a non-dict element in list")
+                    return False
+                if 'command' not in cmd:
+                    print(
+                        "Error: Invalid test command file, expected a list of dicts, found a dict without 'command' key")
+                    return False
+                command = cmd['command']
+                if not isinstance(command, str) and not isinstance(command, list):
+                    print(
+                        "Error: Invalid test command file, expected list or string for 'command'")
+                    return False
+            return True
+
+        except Exception as e:
+            print(f"Error: Invalid test command file {test_cmd_path}: {e}")
+            return False
 
     @abstractmethod
     def verify_function(self, function: FunctionInfo, function_code, struct_code, *args, **kwargs) -> tuple[VerifyResult, str | None]:
@@ -40,12 +71,8 @@ extern "C" {{
 {rust_code}
 '''
 
-        if not executable:
-            utils.create_rust_proj(rust_code, "build_attempt",
-                              self.build_attempt_path, is_lib=True)
-        else:
-            utils.create_rust_proj(rust_code, "build_attempt",
-                                    self.build_attempt_path, is_lib=False)
+        utils.create_rust_proj(rust_code, "build_attempt",
+                               self.build_attempt_path, is_lib=(not executable))
 
         # Try to compile the Rust code
         cmd = ["cargo", "build", "--manifest-path",
@@ -62,37 +89,55 @@ extern "C" {{
             print("Rust code compiled successfully")
             return (VerifyResult.SUCCESS, None)
 
-    def _run_tests(self, target, env=None) -> tuple[VerifyResult, str | None]:
+    def _load_test_cmd(self, target) -> list[list[str]]:
+        with open(self.test_cmd_path, "r") as f:
+            test_cmd_str = f.read()
+        test_cmd_str = test_cmd_str.strip()
+        test_cmd_json = json.loads(test_cmd_str)
+        test_cmd = []
+        for item in test_cmd_json:
+            cmd = item['command']
+            if type(cmd) is str:
+                cmd = cmd.split()
+            for i, arg in enumerate(cmd):
+                if arg == "%t":
+                    cmd[i] = target
+            test_cmd.append(cmd)
+
+        return test_cmd
+
+    def _run_tests(self, target, env=None, test_number=None) -> tuple[VerifyResult, str | None, int | None]:
         if env is None:
             env = os.environ.copy()
-        if type(self.test_cmd) == str:
-            cmd = [self.test_cmd, target]
-        elif type(self.test_cmd) == list:
-            cmd = self.test_cmd + [target]
-        else:
-            raise ValueError(f"Invalid test command type: {type(self.test_cmd)}, expected str or list[str]")
-        res = subprocess.run(cmd, env=env,
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print(res.stdout.decode())
-        print(res.stderr.decode())
-        if res.returncode != 0:
-            stdout = res.stdout.decode()
-            stderr = res.stderr.decode()
-            if stderr == "":
-                if stdout != "":
-                    return (VerifyResult.TEST_ERROR, stdout)
-                else:
-                    return (VerifyResult.TEST_ERROR, "No output")
-            return (VerifyResult.TEST_ERROR, stderr)
-        return (VerifyResult.SUCCESS, None)
+        test_cmds = self._load_test_cmd(target)
 
-    def _run_tests_with_rust(self, target) -> tuple[VerifyResult, str | None]:
+        for i, cmd in enumerate(test_cmds):
+            if test_number is not None and i != test_number:
+                continue
+            print(cmd)
+            res = subprocess.run(cmd, env=env, cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print(res.stdout.decode())
+            print(res.stderr.decode())
+            if res.returncode != 0:
+                stdout = res.stdout.decode()
+                stderr = res.stderr.decode()
+                if stderr == "":
+                    if stdout != "":
+                        return (VerifyResult.TEST_ERROR, stdout, i)
+                    else:
+                        return (VerifyResult.TEST_ERROR, "No output", i)
+                return (VerifyResult.TEST_ERROR, stderr, i)
+
+        return (VerifyResult.SUCCESS, None, None)
+
+    def _run_tests_with_rust(self, target, test_number=None) -> tuple[VerifyResult, str | None, int | None]:
         # get absolute path of the target
         target = os.path.abspath(target)
         env = os.environ.copy()
         env["LD_LIBRARY_PATH"] = os.path.abspath(
             f"{self.embed_test_rust_dir}/target/debug")
-        return self._run_tests(target, env)
+        return self._run_tests(target, env, test_number)
 
     def _remove_c_code(self, c_function: FunctionInfo, filename, prefix=False):
         def remove_prefix(set_of_strings):
@@ -189,12 +234,13 @@ extern "C" {{
 
 {rust_code}
 '''
-        utils.create_rust_proj(rust_code, name, self.embed_test_rust_dir, is_lib=True)
+        utils.create_rust_proj(
+            rust_code, name, self.embed_test_rust_dir, is_lib=True)
 
         # compile
         # should succeed, omit output
         rust_compile_cmd = ["cargo", "build", "--manifest-path",
-               f"{self.embed_test_rust_dir}/Cargo.toml"]
+                            f"{self.embed_test_rust_dir}/Cargo.toml"]
         print(" ".join(rust_compile_cmd))
         res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
@@ -222,10 +268,15 @@ extern "C" {{
         # run tests
         result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
         if result[0] != VerifyResult.SUCCESS:
+            failed_test_number = result[2]
+            assert failed_test_number is not None
             # rerun with feedback from `trace_fn`
-            print(f"Error: Failed to run tests for function {name}, rerun with feedback")
-            rust_code = rust_ast_parser.add_attr_to_function(rust_code, name, "#[sactor_proc_macros::trace_fn]")
-            utils.create_rust_proj(rust_code, name, self.embed_test_rust_dir, is_lib=True)
+            print(
+                f"Error: Failed to run tests for function {name}, rerun with feedback")
+            rust_code = rust_ast_parser.add_attr_to_function(
+                rust_code, name, "#[sactor_proc_macros::trace_fn]")
+            utils.create_rust_proj(
+                rust_code, name, self.embed_test_rust_dir, is_lib=True)
             res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
             if res.returncode != 0:
@@ -234,7 +285,8 @@ extern "C" {{
 
             previous_result = result
 
-            result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
+            result = self._run_tests_with_rust(
+                f'{self.embed_test_c_dir}/{name}', failed_test_number)
 
             feedback = f'''
 --------Begin Original Output--------

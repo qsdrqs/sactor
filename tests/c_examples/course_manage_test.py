@@ -203,6 +203,14 @@ Name: Peter Parker
 Age: 20
 Course: Physics (Code: 301)
 Grades: 85.0 0.0 90.0
+Average Grade: 58.33"""),
+        ('"Peter Parker" 20 "Physics" 301 85.0 abc 90.0',
+         """Student Information:
+------------------
+Name: Peter Parker
+Age: 2
+Course: Physics (Code: 301)
+Grades: 85.0 0.0 90.0
 Average Grade: 58.33""")]
 
     return valid_cases + invalid_cases
@@ -252,9 +260,19 @@ def run_all_tests(program_path: str) -> Tuple[bool, Dict[str, str]]:
 
     return all_passed, failed_tests
 
+def run_one_test(program_path: str, test_number: int) -> Tuple[bool, str]:
+    """Run a single test case and return a tuple of (is_passed, output)."""
+    if test_number < 0 or test_number >= len(generate_test_cases()):
+        raise ValueError(f"Invalid test number: {test_number}, must be between 0 and {len(generate_test_cases()) - 1}")
+    test_input, expected_output = generate_test_cases()[test_number]
+    actual_output = run_test(program_path, test_input)
+    matches, diff = compare_outputs(normalize_output(actual_output),
+                                 normalize_output(expected_output))
+    return matches, diff
+
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python test_program.py <path_to_program>")
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print("Usage: python test_program.py <path_to_program> [test_number]")
         sys.exit(1)
 
     program_path = sys.argv[1]
@@ -262,21 +280,33 @@ def main():
     print("Running tests...")
     print("="*50)
 
-    all_passed, failed_tests = run_all_tests(program_path)
+    if len(sys.argv) == 2:
+        all_passed, failed_tests = run_all_tests(program_path)
+        if all_passed:
+            print("✅ All tests passed successfully!")
+            sys.exit(0)
+        else:
+            print(f"❌ {len(failed_tests)} test(s) failed!\n")
+            for test_input, diff in failed_tests.items():
+                print(f"Test case failed with input:")
+                print(f"  {program_path} {test_input}")
+                print("\nDiff:")
+                print("-" * 40)
+                print(diff)
+                print("=" * 50 + "\n")
+            sys.exit(1)
 
-    if all_passed:
-        print("✅ All tests passed successfully!")
-        sys.exit(0)
-    else:
-        print(f"❌ {len(failed_tests)} test(s) failed!\n")
-        for test_input, diff in failed_tests.items():
-            print(f"Test case failed with input:")
-            print(f"  {program_path} {test_input}")
-            print("\nDiff:")
-            print("-" * 40)
+    elif len(sys.argv) == 3:
+        test_number = int(sys.argv[2])
+        is_passed, diff = run_one_test(program_path, test_number)
+        if is_passed:
+            print(f"✅ Test {test_number} passed successfully!")
+            sys.exit(0)
+        else:
+            print(f"❌ Test {test_number} failed!")
             print(diff)
-            print("=" * 50 + "\n")
-        sys.exit(1)
+            sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

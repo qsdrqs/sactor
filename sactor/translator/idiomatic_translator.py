@@ -20,7 +20,7 @@ class IdiomaticTranslator(Translator):
         c2rust_translation,
         crown_result: Crown,
         c_parser: CParser,
-        test_cmd,
+        test_cmd_path,
         build_path=None,
         unidiomatic_result_path=None,
         result_path=None,
@@ -44,7 +44,7 @@ class IdiomaticTranslator(Translator):
             self.unidiomatic_result_path = self.result_path
 
         self.verifier = verifier.IdiomaticVerifier(
-            test_cmd, llm, build_path=build_path)
+            test_cmd_path, llm, build_path=build_path)
         self.crown_result = crown_result
 
     @override
@@ -353,7 +353,6 @@ In this error message, the 'original output' is the actual output from the progr
 
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
-# FIXME: split tests
 
         result = self.llm.query(prompt)
         llm_result = utils.parse_llm_result(result, "function")

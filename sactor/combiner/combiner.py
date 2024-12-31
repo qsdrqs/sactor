@@ -11,11 +11,11 @@ from .rust_code import RustCode
 
 
 class Combiner():
-    def __init__(self, functions: list[FunctionInfo], structs: list[StructInfo], test_cmd, build_path):
+    def __init__(self, functions: list[FunctionInfo], structs: list[StructInfo], test_cmd_path, build_path):
         self.functions = functions
         self.structs = structs
 
-        self.verifier = E2EVerifier(test_cmd, build_path)
+        self.verifier = E2EVerifier(test_cmd_path, build_path)
 
     def _merge_uses(self, all_uses: list[list[str]]) -> list[str]:
         return [

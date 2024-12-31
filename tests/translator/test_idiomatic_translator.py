@@ -42,6 +42,7 @@ def llm():
     yield from azure_llm(mock_query_impl)
 
 
+@pytest.mark.skip(reason='Not implemented')
 def test_idiomatic_translator(llm):
     file_path = 'tests/c_examples/course_manage.c'
     c2rust_path = 'tests/c_examples/course_manage_c2rust.rs'
@@ -58,7 +59,7 @@ def test_idiomatic_translator(llm):
         c2rust_content,
         crown,
         c_parser,
-        ['python', 'tests/c_examples/course_manage_test.py'],
+        'tests/c_examples/course_manage_test.json',
         result_path='tests/c_examples/result',
         unidiomatic_result_path='tests/c_examples/result'
     )

@@ -6,8 +6,8 @@ from .verifier_types import VerifyResult
 
 
 class E2EVerifier(Verifier):
-    def __init__(self, test_cmd, build_path=None):
-        super().__init__(test_cmd, build_path)
+    def __init__(self, test_cmd_path, build_path=None):
+        super().__init__(test_cmd_path, build_path)
 
     @override
     def verify_function(self):

@@ -1,0 +1,10 @@
+[
+    {
+        "command": "echo 'Hello, World!'",
+        "arbitrary": "Hello, World!"
+    },
+    {
+        "command": "echo \"Hello, World!\"",
+        "arbitrary2": "Hello, World!"
+    }
+]

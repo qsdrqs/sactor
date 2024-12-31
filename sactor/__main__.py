@@ -14,8 +14,8 @@ def main():
     )
 
     parser.add_argument(
-        'test_command',
-        help='The command to run the test, with the target binary as first argument for the testing command'
+        'test_command_path',
+        help='The path to the json file containing the test commands, need to follow the format specified in the README'
     )
 
     parser.add_argument(
@@ -55,7 +55,7 @@ def main():
 
     sactor = Sactor(
         input_file=args.input_file,
-        test_cmd=args.test_command,
+        test_cmd_path=args.test_command,
         build_dir=args.build_dir,
         result_dir=args.result_dir,
         config_file=args.config,

@@ -1,0 +1,4 @@
+{
+    "command": "echo 'Hello, World!'",
+    "arbitrary": "Hello, World!"
+}

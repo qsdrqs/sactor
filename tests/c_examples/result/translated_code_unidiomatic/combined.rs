@@ -10,13 +10,13 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::process;
 use std::ptr;
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct Course {
     pub courseName: *mut libc::c_char,
     pub courseCode: libc::c_int,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct Student {
     pub name: *mut libc::c_char,

@@ -30,7 +30,12 @@ def test_unidiomatic_translator(llm):
 
     with tempfile.TemporaryDirectory() as tempdir:
         translator = UnidiomaticTranslator(
-            llm, c2rust_content, c_parser, ['python', 'tests/c_examples/course_manage_test.py'], result_path=tempdir)
+            llm,
+            c2rust_content,
+            c_parser,
+            'tests/c_examples/course_manage_test.json',
+            result_path=tempdir
+        )
 
         result = translator.translate_struct(
             c_parser.get_struct_info('Student'))

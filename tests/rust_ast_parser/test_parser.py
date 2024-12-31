@@ -18,7 +18,7 @@ def test_get_func_signatures(code):
 
 def test_get_struct_definition(code):
     struct_definition = rust_ast_parser.get_struct_definition(code, "Foo")
-    assert struct_definition == 'struct Foo {\n    a: i32,\n    b: i32,\n}\n'
+    assert struct_definition == '#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n}\n'
 
 
 def test_expose_function_to_c(code):

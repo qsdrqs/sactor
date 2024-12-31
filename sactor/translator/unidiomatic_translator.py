@@ -18,7 +18,7 @@ class UnidiomaticTranslator(Translator):
         llm: LLM,
         c2rust_translation,
         c_parser: CParser,
-        test_cmd,
+        test_cmd_path,
         build_path=None,
         result_path=None,
         max_attempts=6,
@@ -35,7 +35,7 @@ class UnidiomaticTranslator(Translator):
             self.result_path, "translated_code_unidiomatic/structs")
         self.translated_function_path = os.path.join(
             self.result_path, "translated_code_unidiomatic/functions")
-        self.verifier = verifier.UnidiomaticVerifier(test_cmd, build_path)
+        self.verifier = verifier.UnidiomaticVerifier(test_cmd_path, build_path)
 
     @override
     def _translate_struct_impl(

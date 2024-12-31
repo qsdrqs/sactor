@@ -10,8 +10,8 @@ from .verifier_types import VerifyResult
 
 
 class IdiomaticVerifier(Verifier):
-    def __init__(self, test_cmd, llm: LLM, build_path=None):
-        super().__init__(test_cmd, build_path)
+    def __init__(self, test_cmd_path, llm: LLM, build_path=None):
+        super().__init__(test_cmd_path, build_path)
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")
         self.llm = llm

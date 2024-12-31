@@ -40,7 +40,7 @@ def test_combine():
     combiner = Combiner(
         functions,
         structs,
-        ['python', 'tests/c_examples/course_manage_test.py'],
+        'tests/c_examples/course_manage_test.json',
         build_path
     )
 

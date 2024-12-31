@@ -10,8 +10,8 @@ from .verifier_types import VerifyResult
 
 
 class UnidiomaticVerifier(Verifier):
-    def __init__(self, test_cmd, build_path=None):
-        super().__init__(test_cmd, build_path)
+    def __init__(self, test_cmd_path, build_path=None):
+        super().__init__(test_cmd_path, build_path)
 
     @override
     def verify_function(self, function: FunctionInfo, function_code, struct_code, function_dependency_signatures, has_prefix) -> tuple[VerifyResult, str | None]:
