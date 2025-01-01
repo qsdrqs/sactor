@@ -22,7 +22,7 @@ def azure_llm():
     mock_gpt_client.chat.completions.create.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content="mocked_response"))]
     )
-    llm.gpt_client = mock_gpt_client
+    llm.client = mock_gpt_client
 
     return llm
 
@@ -39,7 +39,7 @@ def openai_llm():
     mock_gpt_client.chat.completions.create.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content="mocked_response"))]
     )
-    llm.gpt_client = mock_gpt_client
+    llm.client = mock_gpt_client
 
     return llm
 

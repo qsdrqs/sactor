@@ -21,16 +21,17 @@ class IdiomaticTranslator(Translator):
         crown_result: Crown,
         c_parser: CParser,
         test_cmd_path,
+        max_attempts,
+        max_verifier_harness_attempts=None,
         build_path=None,
         unidiomatic_result_path=None,
         result_path=None,
-        max_attempts=6,
     ):
         super().__init__(
-            llm,
-            c_parser,
-            result_path,
-            max_attempts,
+            llm=llm,
+            c_parser=c_parser,
+            max_attempts=max_attempts,
+            result_path=result_path,
         )
         self.c2rust_translation = c2rust_translation
 
@@ -43,8 +44,10 @@ class IdiomaticTranslator(Translator):
         else:
             self.unidiomatic_result_path = self.result_path
 
+        if max_verifier_harness_attempts is None:
+            max_verifier_harness_attempts = max_attempts
         self.verifier = verifier.IdiomaticVerifier(
-            test_cmd_path, llm, build_path=build_path)
+            test_cmd_path, llm, build_path=build_path, max_attempts=max_verifier_harness_attempts)
         self.crown_result = crown_result
 
     @override
@@ -188,7 +191,8 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         # TODO: Verify the translation
 
         # add Debug trait for struct/union
-        struct_result = rust_ast_parser.add_derive_to_struct(struct_result, struct_union.name, "Debug")
+        struct_result = rust_ast_parser.add_derive_to_struct(
+            struct_result, struct_union.name, "Debug")
 
         # Save the results
         utils.save_code(struct_save_path, struct_result)

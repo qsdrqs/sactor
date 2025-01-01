@@ -10,11 +10,12 @@ from .verifier_types import VerifyResult
 
 
 class IdiomaticVerifier(Verifier):
-    def __init__(self, test_cmd_path, llm: LLM, build_path=None):
+    def __init__(self, test_cmd_path, llm: LLM, max_attempts, build_path=None):
         super().__init__(test_cmd_path, build_path)
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")
         self.llm = llm
+        self.max_attempts = max_attempts
 
     # generate test harness for the function
     def _function_generate_test_harness(
@@ -26,8 +27,13 @@ class IdiomaticVerifier(Verifier):
         verify_result: tuple[VerifyResult, str | None] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
+        attempts=0,
     ):
-        # FIXME: add attempt counter
+        if attempts > self.max_attempts - 1:
+            print(
+                f"Error: Failed to get compilable test harness for function {function_name} after {self.max_attempts} attempts")
+            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, None
+        print(f"Tries: {attempts} to generate test harness for function {function_name}")
 
         uses = rust_ast_parser.get_uses_code(idiomatic_impl)
         joint_uses = '\n'.join(uses)

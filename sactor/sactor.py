@@ -1,12 +1,14 @@
 import os
 
 from sactor import thirdparty, utils
+from sactor import c_parser
 from sactor.c_parser import CParser
 from sactor.combiner import Combiner, CombineResult
 from sactor.divider import Divider
 from sactor.llm import AzureOpenAILLM, OllamaLLM, OpenAILLM
-from sactor.thirdparty import C2Rust
-from sactor.translator import TranslateResult, UnidiomaticTranslator
+from sactor.thirdparty import C2Rust, Crown
+from sactor.translator import (IdiomaticTranslator, TranslateResult,
+                               UnidiomaticTranslator)
 from sactor.verifier import Verifier
 
 
@@ -89,9 +91,9 @@ class Sactor:
             self.c2rust_translation,
             self.c_parser,
             self.test_cmd_path,
+            max_attempts=self.config['general']['max_translation_attempts'],
             build_path=self.build_dir,
             result_path=self.result_dir,
-            max_attempts=self.config['general']['max_translation_attempts'],
         )
 
         for struct_pairs in self.struct_order:
@@ -112,14 +114,19 @@ class Sactor:
     def _run_idiomatic_translation(self):
         self.c2rust_translation = self.c2rust.get_c2rust_translation()
 
-        translator = UnidiomaticTranslator(
+        crown = Crown(self.build_dir)
+        crown.analyze(self.c2rust_translation)
+
+        translator = IdiomaticTranslator(
             self.llm,
-            self.c2rust_translation,
-            self.c_parser,
-            self.test_cmd_path,
+            c2rust_translation=self.c2rust_translation,
+            crown_result=crown,
+            c_parser=self.c_parser,
+            test_cmd_path=self.test_cmd_path,
+            max_attempts=self.config['general']['max_translation_attempts'],
+            max_verifier_harness_attempts=self.config['general']['max_verifier_harness_attempts'],
             build_path=self.build_dir,
             result_path=self.result_dir,
-            max_attempts=self.config['general']['max_translation_attempts'],
         )
 
         for struct_pairs in self.struct_order:

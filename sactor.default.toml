@@ -1,6 +1,7 @@
 [general]
 llm = "AzureOpenAI" # you only need to configure the llm you want to use
 max_translation_attempts = 6
+max_verifier_harness_attempts = 6
 
 [AzureOpenAI]
 api_key = "your-api-key"

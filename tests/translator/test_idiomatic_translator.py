@@ -53,6 +53,7 @@ def test_idiomatic_translator(llm):
     crown = Crown()
     crown.analyze(c2rust_content)
     c_parser = CParser(file_path)
+    max_attempts = 6
 
     translator = IdiomaticTranslator(
         llm,
@@ -60,6 +61,7 @@ def test_idiomatic_translator(llm):
         crown,
         c_parser,
         'tests/c_examples/course_manage_test.json',
+        max_attempts=max_attempts,
         result_path='tests/c_examples/result',
         unidiomatic_result_path='tests/c_examples/result'
     )
@@ -67,5 +69,6 @@ def test_idiomatic_translator(llm):
     for struct in c_parser.get_function_info('updateStudentInfo').struct_dependencies:
         result = translator.translate_struct(struct)
         assert result == TranslateResult.SUCCESS
-    result = translator.translate_function(c_parser.get_function_info('updateStudentInfo'))
+    result = translator.translate_function(
+        c_parser.get_function_info('updateStudentInfo'))
     assert result == TranslateResult.SUCCESS

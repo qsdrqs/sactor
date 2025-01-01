@@ -30,10 +30,11 @@ def test_unidiomatic_translator(llm):
 
     with tempfile.TemporaryDirectory() as tempdir:
         translator = UnidiomaticTranslator(
-            llm,
-            c2rust_content,
-            c_parser,
-            'tests/c_examples/course_manage_test.json',
+            llm=llm,
+            c2rust_translation=c2rust_content,
+            c_parser=c_parser,
+            test_cmd_path='tests/c_examples/course_manage_test.json',
+            max_attempts=1,
             result_path=tempdir
         )
 

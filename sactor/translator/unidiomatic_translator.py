@@ -19,15 +19,15 @@ class UnidiomaticTranslator(Translator):
         c2rust_translation,
         c_parser: CParser,
         test_cmd_path,
+        max_attempts,
         build_path=None,
         result_path=None,
-        max_attempts=6,
     ) -> None:
         super().__init__(
-            llm,
-            c_parser,
-            result_path,
-            max_attempts,
+            llm=llm,
+            c_parser=c_parser,
+            max_attempts=max_attempts,
+            result_path=result_path,
         )
         self.c2rust_translation = c2rust_translation
 
