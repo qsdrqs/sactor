@@ -2,7 +2,7 @@ from sactor.thirdparty import Crown, CrownType
 import tempfile
 
 def test_crown():
-    file_c2rust_path = 'tests/c_examples/course_manage_c2rust.rs'
+    file_c2rust_path = 'tests/c_examples/course_manage/course_manage_c2rust.rs'
     with open(file_c2rust_path) as f:
         c2rust_code = f.read()
     with tempfile.TemporaryDirectory() as tmpdir:

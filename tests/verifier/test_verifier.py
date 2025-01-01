@@ -15,10 +15,10 @@ def test_verify_test_cmd():
 
 
 def test_embed_test():
-    c_path = "tests/c_examples/course_manage.c"
-    func_path = "tests/c_examples/result/translated_code_unidiomatic/functions/updateStudentInfo.rs"
-    struct_path1 = "tests/c_examples/result/translated_code_unidiomatic/structs/Course.rs"
-    struct_path2 = "tests/c_examples/result/translated_code_unidiomatic/structs/Student.rs"
+    c_path = "tests/c_examples/course_manage/course_manage.c"
+    func_path = "tests/c_examples/course_manage/result/translated_code_unidiomatic/functions/updateStudentInfo.rs"
+    struct_path1 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Course.rs"
+    struct_path2 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Student.rs"
 
     struct_code = ""
     with open(struct_path1, "r") as f:
@@ -35,7 +35,7 @@ def test_embed_test():
     c_parser = CParser(c_path)
 
     verifier = UnidiomaticVerifier(
-        'tests/c_examples/course_manage_test.json')
+        'tests/c_examples/course_manage/course_manage_test.json')
     result = verifier._embed_test_rust(
         c_parser.get_function_info("updateStudentInfo"),
         rust_code=rust_code,
@@ -44,7 +44,7 @@ def test_embed_test():
     assert result[0] == VerifyResult.SUCCESS
 
     verifier = UnidiomaticVerifier(
-        'tests/c_examples/course_manage_test_wrong.json')
+        'tests/c_examples/course_manage/course_manage_test_wrong.json')
     result = verifier._embed_test_rust(
         c_parser.get_function_info("updateStudentInfo"),
         rust_code=rust_code,

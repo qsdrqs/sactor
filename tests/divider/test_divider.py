@@ -13,7 +13,7 @@ class MockInfo:
 
 @pytest.fixture
 def divider():
-    c_parser = CParser('tests/c_examples/course_manage.c')
+    c_parser = CParser('tests/c_examples/course_manage/course_manage.c')
     return Divider(c_parser)
 
 def test_extract_order1(divider):

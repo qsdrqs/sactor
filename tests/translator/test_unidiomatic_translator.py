@@ -20,8 +20,8 @@ def llm():
 
 
 def test_unidiomatic_translator(llm):
-    file_path = 'tests/c_examples/course_manage.c'
-    c2rust_path = 'tests/c_examples/course_manage_c2rust.rs'
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
+    c2rust_path = 'tests/c_examples/course_manage/course_manage_c2rust.rs'
 
     with open(c2rust_path) as f:
         c2rust_content = f.read()
@@ -33,7 +33,7 @@ def test_unidiomatic_translator(llm):
             llm=llm,
             c2rust_translation=c2rust_content,
             c_parser=c_parser,
-            test_cmd_path='tests/c_examples/course_manage_test.json',
+            test_cmd_path='tests/c_examples/course_manage/course_manage_test.json',
             max_attempts=1,
             result_path=tempdir
         )
@@ -41,7 +41,7 @@ def test_unidiomatic_translator(llm):
         result = translator.translate_struct(
             c_parser.get_struct_info('Student'))
         assert result == TranslateResult.SUCCESS
-        with open('tests/c_examples/result/translated_code_unidiomatic/structs/Student.rs') as f:
+        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Student.rs') as f:
             with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Student.rs')) as f2:
                 assert f.read() == f2.read()
 
@@ -49,7 +49,7 @@ def test_unidiomatic_translator(llm):
             c_parser.get_struct_info('Course'))
         assert result == TranslateResult.SUCCESS
 
-        with open('tests/c_examples/result/translated_code_unidiomatic/structs/Course.rs') as f:
+        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Course.rs') as f:
             with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Course.rs')) as f2:
                 assert f.read() == f2.read()
 
@@ -58,6 +58,6 @@ def test_unidiomatic_translator(llm):
         assert result == TranslateResult.SUCCESS
         assert os.path.exists(
             os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs'))
-        with open('tests/c_examples/result/translated_code_unidiomatic/functions/updateStudentInfo.rs') as f:
+        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/functions/updateStudentInfo.rs') as f:
             with open(os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs')) as f2:
                 assert f.read() == f2.read()

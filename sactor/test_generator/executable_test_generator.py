@@ -31,8 +31,6 @@ class ExecutableTestGenerator(TestGenerator):
         for sample in self.init_test_samples:
             self._execute_test_sample(sample)
 
-        self.test_samples_output = []
-
     def _execute_test_sample(self, test_sample):
         if self.feed_as_arguments:
             feed_input_str = f'{self.executable} {test_sample}'
@@ -120,4 +118,9 @@ You don't need to provide the expected output. The expected output will be gener
         # collect test cases
         for i, sample in enumerate(self.test_samples):
             output = self._execute_test_sample(sample)
-            self.test_samples_output.append(output)
+            self.test_samples_output.append(
+                {
+                    "input": sample,
+                    "output": output,
+                }
+            )

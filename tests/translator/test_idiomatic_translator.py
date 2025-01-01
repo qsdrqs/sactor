@@ -44,8 +44,8 @@ def llm():
 
 @pytest.mark.skip(reason='Not implemented')
 def test_idiomatic_translator(llm):
-    file_path = 'tests/c_examples/course_manage.c'
-    c2rust_path = 'tests/c_examples/course_manage_c2rust.rs'
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
+    c2rust_path = 'tests/c_examples/course_manage/course_manage_c2rust.rs'
 
     with open(c2rust_path) as f:
         c2rust_content = f.read()
@@ -60,7 +60,7 @@ def test_idiomatic_translator(llm):
         c2rust_content,
         crown,
         c_parser,
-        'tests/c_examples/course_manage_test.json',
+        'tests/c_examples/course_manage/course_manage_test.json',
         max_attempts=max_attempts,
         result_path='tests/c_examples/result',
         unidiomatic_result_path='tests/c_examples/result'

@@ -2,7 +2,7 @@ from sactor.c_parser import CParser
 
 
 def test_c_parser():
-    file_path = 'tests/c_examples/course_manage.c'
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
     print(c_parser.statistic())  # Will be emmited to the console
 
@@ -19,7 +19,7 @@ def test_c_parser():
     }
 
 def test_c_parser_struct_dependency():
-    file_path = 'tests/c_examples/course_manage.c'
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
     student_struct = c_parser.get_struct_info('Student')

@@ -28,19 +28,19 @@ def test_merge_groups():
 
 
 def test_combine():
-    file_path = 'tests/c_examples/course_manage.c'
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
     functions = c_parser.get_functions()
     structs = c_parser.get_structs()
 
-    result_dir_with_type = 'tests/c_examples/result/translated_code_unidiomatic'
+    result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_unidiomatic'
     build_path = utils.get_temp_dir()
 
     combiner = Combiner(
         functions,
         structs,
-        'tests/c_examples/course_manage_test.json',
+        'tests/c_examples/course_manage/course_manage_test.json',
         build_path
     )
 
