@@ -61,4 +61,7 @@ Each item in the list is an end-to-end test command that will be run by Sactor.
 The only required key is `command` for each test command. The `arbitrary_key` is
 optional and can be arbitrary key-value pairs can be added to the test command.
 
+`%t` is a placeholder that will be replaced with the path to the testing target
+executable.
+
 Command is executed in the same working directory where the json file is located.
