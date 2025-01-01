@@ -238,7 +238,17 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 
         # result = query_llm(prompt, False, f"test.rs")
         result = self.llm.query(prompt)
-        llm_result = utils.parse_llm_result(result, "function")
+        try:
+            llm_result = utils.parse_llm_result(result, "function")
+        except:
+            error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
+            print(error_message)
+            return self._translate_function_impl(
+                function,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
         function_result = llm_result["function"]
 
         # TODO: check function signature, must use pointers, not Box, etc.

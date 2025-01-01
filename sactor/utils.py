@@ -88,6 +88,10 @@ def parse_llm_result(llm_result, *args):
                 continue
             if in_arg and '```' not in line:
                 arg_result += line + "\n"
+        if arg_result == "":
+            raise ValueError(f"Could not find {arg}")
+        if in_arg:
+            raise ValueError(f"Could not find end of {arg}")
         print(f"Translated {arg}:")
         print(arg_result)
         res[arg] = arg_result

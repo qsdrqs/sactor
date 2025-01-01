@@ -13,3 +13,14 @@ temperature = 1
 api_key = "your-api-key"
 model = "gpt-4o" # change this to your own model
 temperature = 1
+# organization = "your-organization" # uncomment this line if you are using an organization
+# project_id = "your-project-id" # uncomment this line if you are using a project id
+
+[Ollama]
+host = "http://127.0.0.1:11434"
+model = "llama3.3"
+# temperature = 0.6 # Uncomment this line if you want to set a temperature
+
+[Ollama.headers]
+# Add any headers you want to send with the request
+# Authorization = "Bearer your-token"

@@ -55,7 +55,7 @@ def main():
 
     sactor = Sactor(
         input_file=args.input_file,
-        test_cmd_path=args.test_command,
+        test_cmd_path=args.test_command_path,
         build_dir=args.build_dir,
         result_dir=args.result_dir,
         config_file=args.config,

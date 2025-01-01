@@ -1,4 +1,3 @@
-import os
 from typing import override
 
 from openai import OpenAI
@@ -23,7 +22,7 @@ class OpenAILLM(LLM):
         organization = config['OpenAI'].get('organization')
         project_id = config['OpenAI'].get('project_id')
 
-        self.gpt_client = OpenAI(
+        self.client = OpenAI(
             api_key=api_key,
             organization=organization,
             project=project_id,
@@ -39,9 +38,9 @@ class OpenAILLM(LLM):
             messages.append({"role": "system", "content": self.system_msg})
         messages.append({"role": "user", "content": f"{prompt}"})
 
-        temperature = self.config['AzureOpenAI'].get('temperature') # default is 1 if not set
+        temperature = self.config['OpenAI'].get('temperature') # default is 1 if not set
 
-        resp = self.gpt_client.chat.completions.create(
+        resp = self.client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,

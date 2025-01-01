@@ -2,10 +2,9 @@ import os
 
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
-from sactor.combiner import Combiner
-from sactor.combiner import CombineResult
+from sactor.combiner import Combiner, CombineResult
 from sactor.divider import Divider
-from sactor.llm import AzureOpenAILLM, OpenAILLM
+from sactor.llm import AzureOpenAILLM, OllamaLLM, OpenAILLM
 from sactor.thirdparty import C2Rust
 from sactor.translator import TranslateResult, UnidiomaticTranslator
 from sactor.verifier import Verifier
@@ -61,6 +60,8 @@ class Sactor:
                 self.llm = AzureOpenAILLM(self.config)
             case "OpenAI":
                 self.llm = OpenAILLM(self.config)
+            case "Ollama":
+                self.llm = OllamaLLM(self.config)
             case _:
                 raise ValueError(
                     f"Invalid LLM type: {self.config['general'].get('llm')}")
@@ -70,13 +71,15 @@ class Sactor:
         combine_result = self.combiner.combine(os.path.join(
             self.result_dir, "translated_code_unidiomatic"))
         if combine_result != CombineResult.SUCCESS:
-            raise ValueError(f"Failed to combine translated code for unidiomatic translation: {combine_result}")
+            raise ValueError(
+                f"Failed to combine translated code for unidiomatic translation: {combine_result}")
         if not self.unidiomatic_only:
             self._run_idiomatic_translation()
             combine_result = self.combiner.combine(os.path.join(
                 self.result_dir, "translated_code_idiomatic"))
             if combine_result != CombineResult.SUCCESS:
-                raise ValueError(f"Failed to combine translated code for idiomatic translation: {combine_result}")
+                raise ValueError(
+                    f"Failed to combine translated code for idiomatic translation: {combine_result}")
 
     def _run_unidomatic_translation(self):
         self.c2rust_translation = self.c2rust.get_c2rust_translation()

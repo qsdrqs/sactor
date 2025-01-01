@@ -1,4 +1,3 @@
-import os
 from typing import override
 
 from openai import AzureOpenAI
@@ -21,7 +20,7 @@ class AzureOpenAILLM(LLM):
         endpoint = config['AzureOpenAI']['endpoint']
         api_version = config['AzureOpenAI']['api_version']
 
-        self.gpt_client = AzureOpenAI(
+        self.client = AzureOpenAI(
             api_key=api_key,
             api_version=api_version,
             azure_endpoint=endpoint,
@@ -39,7 +38,7 @@ class AzureOpenAILLM(LLM):
 
         temperature =  self.config['AzureOpenAI'].get('temperature') # default is 1 if not set
 
-        resp = self.gpt_client.chat.completions.create(
+        resp = self.client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,

@@ -172,7 +172,17 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
 
         result = self.llm.query(prompt)
-        llm_result = utils.parse_llm_result(result, "struct")
+        try:
+            llm_result = utils.parse_llm_result(result, "struct")
+        except:
+            error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
+            print(error_message)
+            return self._translate_struct_impl(
+                struct_union,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
         struct_result = llm_result["struct"]
 
         # TODO: Verify the translation
@@ -355,7 +365,17 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
 
         result = self.llm.query(prompt)
-        llm_result = utils.parse_llm_result(result, "function")
+        try:
+            llm_result = utils.parse_llm_result(result, "function")
+        except:
+            error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
+            print(error_message)
+            return self._translate_function_impl(
+                function,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
         try:
             function_result = llm_result["function"]
         except KeyError:
