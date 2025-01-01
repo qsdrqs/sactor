@@ -92,7 +92,7 @@ def parse_llm_result(llm_result, *args):
             raise ValueError(f"Could not find {arg}")
         if in_arg:
             raise ValueError(f"Could not find end of {arg}")
-        print(f"Translated {arg}:")
+        print(f"Generated {arg}:")
         print(arg_result)
         res[arg] = arg_result
     return res
