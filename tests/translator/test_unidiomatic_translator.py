@@ -6,7 +6,7 @@ import pytest
 from sactor.c_parser import CParser
 from sactor.translator import UnidiomaticTranslator
 from sactor.translator.translator_types import TranslateResult
-from tests.translator.azure_llm import azure_llm
+from tests.azure_llm import azure_llm
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):

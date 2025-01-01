@@ -21,7 +21,7 @@ def azure_llm(mock_query_impl):
             choices=[MagicMock(message=MagicMock(
                 content="mocked_response"))]
         )
-        llm.gpt_client = mock_gpt_client
+        llm.client = mock_gpt_client
 
         mock_with_original = partial(
             mock_query_impl, original=original_query, llm_instance=llm)
