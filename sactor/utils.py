@@ -1,6 +1,5 @@
 import os
 import shutil
-from sactor import utils
 
 import tomli as toml
 
@@ -46,10 +45,11 @@ sactor_proc_macros = {{ path = "./sactor_proc_macros" }}
         with open(f"{path}/src/main.rs", "w") as f:
             f.write(rust_code)
 
-    proj_root = utils.find_project_root()
+    proj_root = find_project_root()
     sactor_proc_macros_path = os.path.join(proj_root, "sactor_proc_macros")
     # Copy sactor_proc_macros to the project
-    shutil.copytree(sactor_proc_macros_path, os.path.join(path, "sactor_proc_macros"))
+    shutil.copytree(sactor_proc_macros_path,
+                    os.path.join(path, "sactor_proc_macros"))
 
 
 def find_project_root():
@@ -159,3 +159,10 @@ def try_load_config(config_file=None):
     config = _merge_configs(config, default_config)
 
     return config
+
+
+def normalize_string(output: str) -> str:
+    lines = output.splitlines()
+    for i, line in enumerate(lines):
+        lines[i] = line.strip()
+    return '\n'.join(lines)

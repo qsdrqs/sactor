@@ -4,6 +4,7 @@ import time
 from abc import ABC, abstractmethod
 
 import tiktoken
+
 from sactor import utils
 
 
@@ -30,8 +31,12 @@ You are an expert in translating code from C to Rust. You will take all informat
     def _query_impl(self, prompt, model) -> str:
         pass
 
-    def query(self, prompt, model=None) -> str:
+    def query(self, prompt, model=None, override_system_message=None) -> str:
         utils.print_red(prompt)
+        old_system_msg = None
+        if override_system_message is not None:
+            old_system_msg = self.system_msg
+            self.system_msg = override_system_message
 
         start_time = time.time()
         response = self._query_impl(prompt, model)
@@ -45,6 +50,10 @@ You are an expert in translating code from C to Rust. You will take all informat
 
         utils.print_green(response)
 
+        if override_system_message is not None and old_system_msg is not None:
+            # Restore old message
+            self.system_msg = old_system_msg
+
         return response
 
     def statistic(self, path: str) -> None:
@@ -57,4 +66,4 @@ You are an expert in translating code from C to Rust. You will take all informat
             "last_costed_time": self.last_costed_time,
         }
         with open(path, "w") as f:
-            json.dump(statistic_result, f)
+            json.dump(statistic_result, f, indent=4)

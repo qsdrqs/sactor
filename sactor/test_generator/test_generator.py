@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 from abc import ABC, abstractmethod
 
 from sactor.c_parser import CParser
@@ -15,9 +17,20 @@ class TestGenerator(ABC):
         self.test_samples_output = []
 
     @abstractmethod
-    def generate(self, count):
+    def generate_tests(self, count):
         pass
 
-    def export_test_samples(self, filename):
-        with open(filename) as f:
-            json.dump(self.test_samples_output, f)
+    @abstractmethod
+    def create_test_task(self, task_path, test_sample_path):
+        pass
+
+    def _check_runner_exist(self):
+        # check if `sactor-test-runner` is installed
+        if shutil.which('sactor-test-runner') is None:
+            raise ValueError("sactor-test-runner is not installed. Please install sactor first.")
+
+    def export_test_samples(self, file_path):
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w') as f:
+            json.dump(self.test_samples_output, f, indent=4)
+

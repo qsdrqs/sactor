@@ -1,0 +1,50 @@
+[
+    {
+        "input": "1 2",
+        "output": "Enter two numbers: 1 + 2 = 3"
+    },
+    {
+        "input": "3 4",
+        "output": "Enter two numbers: 3 + 4 = 7"
+    },
+    {
+        "input": "0 0",
+        "output": "Enter two numbers: 0 + 0 = 0"
+    },
+    {
+        "input": "-5 -10",
+        "output": "Enter two numbers: -5 + -10 = -15"
+    },
+    {
+        "input": "123456 654321",
+        "output": "Enter two numbers: 123456 + 654321 = 777777"
+    },
+    {
+        "input": "999999 888888",
+        "output": "Enter two numbers: 999999 + 888888 = 1888887"
+    },
+    {
+        "input": "0 1000000",
+        "output": "Enter two numbers: 0 + 1000000 = 1000000"
+    },
+    {
+        "input": "-10000 30000",
+        "output": "Enter two numbers: -10000 + 30000 = 20000"
+    },
+    {
+        "input": "1 -1",
+        "output": "Enter two numbers: 1 + -1 = 0"
+    },
+    {
+        "input": "2147483647 1",
+        "output": "Enter two numbers: 2147483647 + 1 = -2147483648"
+    },
+    {
+        "input": "-2147483648 -1",
+        "output": "Enter two numbers: -2147483648 + -1 = 2147483647"
+    },
+    {
+        "input": "12345 54321",
+        "output": "Enter two numbers: 12345 + 54321 = 66666"
+    }
+]
