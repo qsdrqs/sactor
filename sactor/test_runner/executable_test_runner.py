@@ -11,12 +11,12 @@ from .test_runner_types import TestRunnerResult
 class ExecutableTestRunner(TestRunner):
     def __init__(
         self,
-        test_samples_output_path: str,
+        test_samples_path: str,
         target: str,
         feed_as_arguments=True,
     ):
         super().__init__(
-            test_samples_output_path=test_samples_output_path,
+            test_samples_path=test_samples_path,
             target=target
         )
         self.feed_as_arguments = feed_as_arguments

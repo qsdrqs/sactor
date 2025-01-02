@@ -11,7 +11,7 @@ def main():
     )
 
     parser.add_argument(
-        'test_samples_output_path',
+        'test_samples_path',
         type=str,
         help='The path to the test samples output json file'
     )
@@ -72,7 +72,7 @@ def main():
 
     if args.type == 'bin':
         test_runner = ExecutableTestRunner(
-            args.test_samples_output_path,
+            args.test_samples_path,
             args.target,
             feed_as_arguments=feed_as_args
         )
