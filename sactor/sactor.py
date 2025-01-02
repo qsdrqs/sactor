@@ -6,9 +6,9 @@ from sactor.combiner import Combiner, CombineResult
 from sactor.divider import Divider
 from sactor.llm import AzureOpenAILLM, OllamaLLM, OpenAILLM
 from sactor.thirdparty import C2Rust, Crown
-from sactor.translator import (IdiomaticTranslator, TranslateResult,
+from sactor.translator import (IdiomaticTranslator, TranslateResult, Translator,
                                UnidiomaticTranslator)
-from sactor.verifier import Verifier
+from sactor.verifier import Verifier, idiomatic_verifier
 
 
 class Sactor:
@@ -70,14 +70,27 @@ class Sactor:
         self.c2rust_translation = None
 
     def run(self):
-        self._run_unidomatic_translation()
+        result, unidiomatic_translator = self._run_unidomatic_translation()
+        # Collect failure info
+        unidiomatic_translator.save_failure_info(os.path.join(
+            self.result_dir, "unidiomatic_failure_info.json"))
+        if result != TranslateResult.SUCCESS:
+            raise ValueError(
+                f"Failed to translate unidiomatic code: {result}")
         combine_result = self.combiner.combine(os.path.join(
             self.result_dir, "translated_code_unidiomatic"))
         if combine_result != CombineResult.SUCCESS:
             raise ValueError(
                 f"Failed to combine translated code for unidiomatic translation: {combine_result}")
         if not self.unidiomatic_only:
-            self._run_idiomatic_translation()
+            result, idiomatic_translator = self._run_idiomatic_translation()
+            # Collect failure info
+            idiomatic_translator.save_failure_info(os.path.join(
+                self.result_dir, "idiomatic_failure_info.json"))
+            if result != TranslateResult.SUCCESS:
+                raise ValueError(
+                    f"Failed to translate idiomatic code: {result}")
+
             combine_result = self.combiner.combine(os.path.join(
                 self.result_dir, "translated_code_idiomatic"))
             if combine_result != CombineResult.SUCCESS:
@@ -102,7 +115,7 @@ class Sactor:
         )
         return translator
 
-    def _run_unidomatic_translation(self):
+    def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
 
         for struct_pairs in self.struct_order:
@@ -110,7 +123,7 @@ class Sactor:
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate struct {struct}")
-                    return
+                    return result, translator
 
         for function_pairs in self.function_order:
             for function in function_pairs:
@@ -118,7 +131,9 @@ class Sactor:
                 result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate function {function}")
-                    return
+                    return result, translator
+
+        return TranslateResult.SUCCESS, translator
 
     def _new_idiomatic_translator(self):
         if self.c2rust_translation is None:
@@ -141,7 +156,7 @@ class Sactor:
 
         return translator
 
-    def _run_idiomatic_translation(self):
+    def _run_idiomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_idiomatic_translator()
 
         for struct_pairs in self.struct_order:
@@ -150,7 +165,7 @@ class Sactor:
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate struct {struct}")
-                    return
+                    return result, translator
 
         for function_pairs in self.function_order:
             for function in function_pairs:
@@ -158,4 +173,6 @@ class Sactor:
                 result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate function {function}")
-                    return
+                    return result, translator
+
+        return TranslateResult.SUCCESS, translator

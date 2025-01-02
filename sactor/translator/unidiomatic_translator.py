@@ -59,7 +59,8 @@ class UnidiomaticTranslator(Translator):
                 self.c2rust_translation, struct_union.name)
 
         # add Debug trait for struct/union
-        rust_s_u = rust_ast_parser.add_derive_to_struct(rust_s_u, struct_union.name, "Debug")
+        rust_s_u = rust_ast_parser.add_derive_to_struct(
+            rust_s_u, struct_union.name, "Debug")
 
         # Save the translated struct/union
         utils.save_code(
@@ -258,6 +259,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         except:
             error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
             print(error_message)
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", error_message
+            )
             return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
@@ -274,6 +278,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
             error_message = f"Error: Failed to parse the function: {e}"
             print(error_message)
             # retry the translation
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", error_message
+            )
             return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR,
@@ -289,10 +296,14 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                     function_result_sig = function_result_sigs[name_prefix]
                     prefix = True
                 else:
+                    error_message = f"Function {name_prefix} not found in the translated code"
+                    self.append_failure_info(
+                        function.name, "COMPILE_ERROR", error_message
+                    )
                     return self._translate_function_impl(
                         function,
                         verify_result=(
-                            VerifyResult.COMPILE_ERROR, f"Function {name_prefix} not found in the translated code"),
+                            VerifyResult.COMPILE_ERROR, error_message),
                         error_translation=function_result,
                         attempts=attempts+1
                     )
@@ -301,6 +312,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                     function_result_sigs.keys()
                 )}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa."
                 print(error_message)
+                self.append_failure_info(
+                    function.name, "COMPILE_ERROR", error_message
+                )
                 return self._translate_function_impl(
                     function,
                     verify_result=(
@@ -317,11 +331,14 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         #     return
 
         if len(function_result.strip()) == 0:
-            print("Error: Empty translation")
+            error_message = "Translated code doesn't wrap by the tags as instructed"
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", error_message
+            )
             return self._translate_function_impl(
                 function,
                 verify_result=(
-                    VerifyResult.COMPILE_ERROR, "Translated code doesn't wrap by the tags as instructed"),
+                    VerifyResult.COMPILE_ERROR, error_message),
                 error_translation=function_result,
                 attempts=attempts+1
             )

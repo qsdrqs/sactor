@@ -180,6 +180,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         except:
             error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
             print(error_message)
+            self.append_failure_info(
+                struct_union.name, "COMPILE_ERROR", error_message
+            )
             return self._translate_struct_impl(
                 struct_union,
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
@@ -191,8 +194,21 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         # TODO: Verify the translation
 
         # add Debug trait for struct/union
-        struct_result = rust_ast_parser.add_derive_to_struct(
-            struct_result, struct_union.name, "Debug")
+        try:
+            struct_result = rust_ast_parser.add_derive_to_struct(
+                struct_result, struct_union.name, "Debug")
+        except Exception as e:
+            error_message = f"Error: Failed to add Debug trait to the struct: {e}, please check if the struct has a correct syntax"
+            print(error_message)
+            self.append_failure_info(
+                struct_union.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_struct_impl(
+                struct_union,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
 
         # Save the results
         utils.save_code(struct_save_path, struct_result)
@@ -389,6 +405,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         except:
             error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
             print(error_message)
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", error_message
+            )
             return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
@@ -398,10 +417,13 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         try:
             function_result = llm_result["function"]
         except KeyError:
+            error_message = f"Error: Output does not wrapped in the correct format!"
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", error_message
+            )
             return self._translate_function_impl(
                 function,
-                verify_result=(VerifyResult.COMPILE_ERROR,
-                               "Output does not wrapped in the correct format!"),
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
                 error_translation=llm_result,
                 attempts=attempts + 1
             )
@@ -412,6 +434,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         except Exception as e:
             error_message = f"Error: Failed to parse the function: {e}"
             print(error_message)
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", error_message
+            )
             # retry the translation
             return self._translate_function_impl(
                 function,
