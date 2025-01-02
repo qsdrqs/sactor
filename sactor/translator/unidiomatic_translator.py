@@ -247,7 +247,7 @@ In this error message, the 'original output' is the actual output from the progr
 
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
-        else:
+        elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'erorr type {verify_result[0]} not implemented')
 
