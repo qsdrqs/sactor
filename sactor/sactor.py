@@ -1,7 +1,6 @@
 import os
 
-from sactor import thirdparty, utils
-from sactor import c_parser
+from sactor import c_parser, thirdparty, utils
 from sactor.c_parser import CParser
 from sactor.combiner import Combiner, CombineResult
 from sactor.divider import Divider
@@ -68,6 +67,8 @@ class Sactor:
                 raise ValueError(
                     f"Invalid LLM type: {self.config['general'].get('llm')}")
 
+        self.c2rust_translation = None
+
     def run(self):
         self._run_unidomatic_translation()
         combine_result = self.combiner.combine(os.path.join(
@@ -83,8 +84,12 @@ class Sactor:
                 raise ValueError(
                     f"Failed to combine translated code for idiomatic translation: {combine_result}")
 
-    def _run_unidomatic_translation(self):
-        self.c2rust_translation = self.c2rust.get_c2rust_translation()
+        # LLM statistics
+        self.llm.statistic(self.result_dir)
+
+    def _new_unidiomatic_translator(self):
+        if self.c2rust_translation is None:
+            self.c2rust_translation = self.c2rust.get_c2rust_translation()
 
         translator = UnidiomaticTranslator(
             self.llm,
@@ -95,6 +100,10 @@ class Sactor:
             build_path=self.build_dir,
             result_path=self.result_dir,
         )
+        return translator
+
+    def _run_unidomatic_translation(self):
+        translator = self._new_unidiomatic_translator()
 
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
@@ -111,8 +120,9 @@ class Sactor:
                     print(f"Failed to translate function {function}")
                     return
 
-    def _run_idiomatic_translation(self):
-        self.c2rust_translation = self.c2rust.get_c2rust_translation()
+    def _new_idiomatic_translator(self):
+        if self.c2rust_translation is None:
+            self.c2rust_translation = self.c2rust.get_c2rust_translation()
 
         crown = Crown(self.build_dir)
         crown.analyze(self.c2rust_translation)
@@ -128,6 +138,11 @@ class Sactor:
             build_path=self.build_dir,
             result_path=self.result_dir,
         )
+
+        return translator
+
+    def _run_idiomatic_translation(self):
+        translator = self._new_idiomatic_translator()
 
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:

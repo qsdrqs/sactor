@@ -6,3 +6,4 @@ class VerifyResult(Enum):
     COMPILE_ERROR = auto()
     TEST_ERROR = auto()
     TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED = auto()
+    FEEDBACK = auto()

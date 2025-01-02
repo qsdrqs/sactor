@@ -12,7 +12,7 @@ from .verifier_types import VerifyResult
 
 
 class Verifier(ABC):
-    def __init__(self, test_cmd_path: str, build_path=None):
+    def __init__(self, test_cmd_path: str, build_path=None, no_feedback=False):
         if build_path:
             self.build_path = build_path
         else:
@@ -24,6 +24,7 @@ class Verifier(ABC):
             self.build_path, "embed_test_rust")
         self.embed_test_c_dir = os.path.join(self.build_path, "embed_test_c")
         self.test_cmd_path = test_cmd_path
+        self.no_feedback = no_feedback
 
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
@@ -106,6 +107,21 @@ extern "C" {{
 
         return test_cmd
 
+    def _collect_feedback(self, output) -> str:
+        lines = output.split('\n')
+        feedback = ""
+        in_feedback = False
+        for line in lines:
+            if line.find("--------Entering function: ") != -1:
+                in_feedback = True
+
+            if line.find("----------------------------------") != -1:
+                in_feedback = False
+            if in_feedback:
+                feedback += line + '\n'
+
+        return feedback
+
     def _run_tests(self, target, env=None, test_number=None) -> tuple[VerifyResult, str | None, int | None]:
         if env is None:
             env = os.environ.copy()
@@ -122,6 +138,9 @@ extern "C" {{
             if res.returncode != 0:
                 stdout = res.stdout.decode()
                 stderr = res.stderr.decode()
+                feedback = self._collect_feedback(stdout)
+                if feedback != "":
+                    return (VerifyResult.FEEDBACK, feedback, i)
                 if stderr == "":
                     if stdout != "":
                         return (VerifyResult.TEST_ERROR, stdout, i)
@@ -270,6 +289,8 @@ extern "C" {{
         if result[0] != VerifyResult.SUCCESS:
             failed_test_number = result[2]
             assert failed_test_number is not None
+            if self.no_feedback:
+                return (result[0], result[1])
             # rerun with feedback from `trace_fn`
             print(
                 f"Error: Failed to run tests for function {name}, rerun with feedback")
@@ -288,14 +309,17 @@ extern "C" {{
             result = self._run_tests_with_rust(
                 f'{self.embed_test_c_dir}/{name}', failed_test_number)
 
-            feedback = f'''
+            if result[0] == VerifyResult.FEEDBACK:
+                feedback = f'''
 --------Begin Original Output--------
 {previous_result[1]}
 --------End Original Output--------
 --------Begin Feedback--------
 {result[1]}
 --------End Feedback--------'''
-
-            return (result[0], feedback)
+                return (result[0], feedback)
+            else:
+                # No feedback, return the original error message
+                return (result[0], result[1])
 
         return (VerifyResult.SUCCESS, None)

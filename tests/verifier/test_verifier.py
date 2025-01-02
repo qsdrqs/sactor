@@ -1,3 +1,5 @@
+import pytest
+
 from sactor import rust_ast_parser
 from sactor.c_parser import CParser
 from sactor.verifier import UnidiomaticVerifier, VerifyResult
@@ -13,9 +15,13 @@ def test_verify_test_cmd():
     cmd_bad3_path = "tests/verifier/test_cmd_bad3.json"
     assert not Verifier.verify_test_cmd(cmd_bad3_path)
 
-
-def test_embed_test():
+@pytest.fixture
+def c_parser():
     c_path = "tests/c_examples/course_manage/course_manage.c"
+    return CParser(c_path)
+
+@pytest.fixture
+def rust_code():
     func_path = "tests/c_examples/course_manage/result/translated_code_unidiomatic/functions/updateStudentInfo.rs"
     struct_path1 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Course.rs"
     struct_path2 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Student.rs"
@@ -30,10 +36,11 @@ def test_embed_test():
     with open(func_path, "r") as f:
         function_code = f.read()
 
-    rust_code = rust_ast_parser.combine_struct_function(
+    return rust_ast_parser.combine_struct_function(
         struct_code, function_code)
-    c_parser = CParser(c_path)
 
+
+def test_embed_test(c_parser, rust_code):
     verifier = UnidiomaticVerifier(
         'tests/c_examples/course_manage/course_manage_test.json')
     result = verifier._embed_test_rust(
@@ -43,6 +50,7 @@ def test_embed_test():
     )
     assert result[0] == VerifyResult.SUCCESS
 
+def test_embed_test_wrong(c_parser, rust_code):
     verifier = UnidiomaticVerifier(
         'tests/c_examples/course_manage/course_manage_test_wrong.json')
     result = verifier._embed_test_rust(
@@ -50,5 +58,5 @@ def test_embed_test():
         rust_code=rust_code,
         function_dependency_signatures=[],
     )
-    assert result[0] == VerifyResult.TEST_ERROR
+    assert result[0] == VerifyResult.FEEDBACK
     print(result[1])

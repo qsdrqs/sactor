@@ -363,10 +363,25 @@ It failed the following tests:
 ```
 {verify_result[1]}
 ```
-In this error message, the 'original output' is the actual output from the program error message. The 'Feedback' is rerun with feedback mechanism, which is used for debugging. Errors in the 'Feedback' are not the actual error messages.
+Analyze the error messages, think about the possible reasons, and try to avoid this error.
+'''
+        elif verify_result[0] == VerifyResult.FEEDBACK:
+            prompt += f'''
+Lastly, the function is translated as:
+```rust
+{error_translation}
+```
+When running the test, it failed with the following error message:
+```
+{verify_result[1]}
+```
+In this error message, the 'original output' is the actual output from the program error message. The 'Feedback' is information of function calls collected during the test.
 
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
+        else:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
         try:
@@ -440,7 +455,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 self.append_failure_info(
                     function.name, "COMPILE_ERROR", result[1])
 
-            elif result[0] == VerifyResult.TEST_ERROR:
+            elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK:
                 self.append_failure_info(
                     function.name, "TEST_ERROR", result[1])
             else:
