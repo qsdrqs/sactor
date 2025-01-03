@@ -2,7 +2,7 @@ import os
 
 from sactor import c_parser, thirdparty, utils
 from sactor.c_parser import CParser
-from sactor.combiner import Combiner, CombineResult
+from sactor.combiner import ProgramCombiner, CombineResult
 from sactor.divider import Divider
 from sactor.llm import AzureOpenAILLM, OllamaLLM, OpenAILLM
 from sactor.thirdparty import C2Rust, Crown
@@ -52,7 +52,7 @@ class Sactor:
         self.function_order = self.divider.get_function_order()
 
         self.c2rust = C2Rust(self.input_file)
-        self.combiner = Combiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
+        self.combiner = ProgramCombiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
                                  self.test_cmd_path, self.build_dir)
 
         # Initialize LLM
@@ -77,7 +77,7 @@ class Sactor:
         if result != TranslateResult.SUCCESS:
             raise ValueError(
                 f"Failed to translate unidiomatic code: {result}")
-        combine_result = self.combiner.combine(os.path.join(
+        combine_result, _ = self.combiner.combine(os.path.join(
             self.result_dir, "translated_code_unidiomatic"))
         if combine_result != CombineResult.SUCCESS:
             raise ValueError(
@@ -91,7 +91,7 @@ class Sactor:
                 raise ValueError(
                     f"Failed to translate idiomatic code: {result}")
 
-            combine_result = self.combiner.combine(os.path.join(
+            combine_result, _ = self.combiner.combine(os.path.join(
                 self.result_dir, "translated_code_idiomatic"))
             if combine_result != CombineResult.SUCCESS:
                 raise ValueError(

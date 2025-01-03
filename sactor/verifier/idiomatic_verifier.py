@@ -3,6 +3,7 @@ from typing import override
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo
+from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 from sactor.llm import LLM
 
 from .verifier import Verifier
@@ -10,7 +11,7 @@ from .verifier_types import VerifyResult
 
 
 class IdiomaticVerifier(Verifier):
-    def __init__(self, test_cmd_path, llm: LLM, max_attempts, build_path=None):
+    def __init__(self, test_cmd_path, llm: LLM, max_attempts, build_path=None, result_path=None):
         super().__init__(test_cmd_path, build_path)
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")
@@ -33,7 +34,8 @@ class IdiomaticVerifier(Verifier):
             print(
                 f"Error: Failed to get compilable test harness for function {function_name} after {self.max_attempts} attempts")
             return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, None
-        print(f"Tries: {attempts} to generate test harness for function {function_name}")
+        print(
+            f"Tries: {attempts} to generate test harness for function {function_name}")
 
         uses = rust_ast_parser.get_uses_code(idiomatic_impl)
         joint_uses = '\n'.join(uses)
@@ -123,7 +125,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         ])
 
         result = self._try_compile_rust_code(
-            compile_code, [])
+            compile_code)
 
         if result[0] != VerifyResult.SUCCESS:
             return self._function_generate_test_harness(
@@ -145,39 +147,52 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         pass
 
     @override
-    def verify_function(self, function: FunctionInfo, function_code, struct_code, function_dependency_signatures, unidiomatic_signature, prefix=False) -> tuple[VerifyResult, str | None]:
-        combined_code = rust_ast_parser.combine_struct_function(
-            struct_code, function_code)
+    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], function_dependencies_code: dict[str, str], unidiomatic_signature, prefix=False) -> tuple[VerifyResult, str | None]:
+        functions = function_dependencies_code.copy()
+        functions[function.name] = function_code
+
+        combiner = PartialCombiner(functions, struct_code)
+        result, combined_code = combiner.combine()
+        if result != CombineResult.SUCCESS or combined_code is None:
+            raise ValueError(f"Failed to combine the function {function.name}")
 
         unsafe_count = rust_ast_parser.count_unsafe_blocks(combined_code)
         if unsafe_count > 0:
+            # TODO: may allow unsafe blocks in the future
             return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
 
         # Try to compile the Rust code
         function_name = function.name
         compile_result = self._try_compile_rust_code(
-            combined_code, function_dependency_signatures)
+            combined_code)
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
 
         idiomatic_signature = rust_ast_parser.get_func_signatures(function_code)[
             function_name]
 
-        result = self._function_generate_test_harness(
-            function_name,
-            combined_code,
-            unidiomatic_signature,
-            idiomatic_signature
-        )
-        if result[0] != VerifyResult.SUCCESS:
-            return result
+        if function_name == "main":
+            # main function doesn't have test harness
+            harness_code = combined_code
+        else:
+            result = self._function_generate_test_harness(
+                function_name,
+                combined_code,
+                unidiomatic_signature,
+                idiomatic_signature
+            )
+            if result[0] != VerifyResult.SUCCESS:
+                return result
 
-        # We have had the test harness generated, now we need to run the tests
-        with open(f"{self.function_test_harness_dir}/{function_name}.rs") as f:
-            harness_code = f.read()
+            # We have had the test harness generated, now we need to run the tests
+            with open(f"{self.function_test_harness_dir}/{function_name}.rs") as f:
+                harness_code = f.read()
 
         test_error = self._embed_test_rust(
-            function, harness_code, function_dependency_signatures, prefix)
+            function,
+            harness_code,
+            prefix=prefix
+        )
 
         if test_error[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to run tests for function {function_name}")

@@ -5,7 +5,7 @@ class StructInfo:
     def __init__(self, node, name, location, dependencies=None):
         self.node = node
         self.is_struct: bool = node.kind == cindex.CursorKind.STRUCT_DECL
-        self.name = name
+        self.name: str = name
         self.location = location
         self.dependencies: list[StructInfo] = dependencies if dependencies is not None else []
 

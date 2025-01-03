@@ -115,7 +115,7 @@ class UnidiomaticTranslator(Translator):
 
         # Translate the function using LLM
         structs_in_function = function.struct_dependencies
-        code_of_structs = []
+        code_of_structs = {}
         visited_structs = set()
         for struct in structs_in_function:
             all_structs = self.c_parser.retrieve_all_struct_dependencies(
@@ -128,7 +128,7 @@ class UnidiomaticTranslator(Translator):
                         f"Error: Struct {struct_name} is not translated yet")
                 with open(f"{self.translated_struct_path}/{struct_name}.rs", "r") as file:
                     code_of_struct = file.read()
-                    code_of_structs.append(code_of_struct)
+                    code_of_structs[struct_name] = code_of_struct
                     visited_structs.add(struct_name)
 
         code_of_function = self.c_parser.extract_function_code(function.name)
@@ -149,9 +149,8 @@ For other return values, you can use `std::process::exit()` to return the value.
 For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
 '''
 
-        joint_code_of_structs: str = ''
         if len(code_of_structs) > 0:
-            joint_code_of_structs = '\n'.join(code_of_structs)
+            joint_code_of_structs = '\n'.join(code_of_structs.values())
             prompt += f'''
 The function uses the following structs/unions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
 ```rust
@@ -349,7 +348,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         result = self.verifier.verify_function(
             function,
             function_result,
-            joint_code_of_structs,
+            code_of_structs,
             function_depedency_signatures,
             prefix
         )

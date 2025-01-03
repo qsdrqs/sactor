@@ -15,7 +15,7 @@ class E2EVerifier(Verifier):
 
     def e2e_verify(self, code: str, executable) -> tuple[VerifyResult, str | None]:
         # try compile the code
-        compile_result = self._try_compile_rust_code(code, [], executable)
+        compile_result = self._try_compile_rust_code(code, executable)
 
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
@@ -26,6 +26,6 @@ class E2EVerifier(Verifier):
 
         if test_error[0] != VerifyResult.SUCCESS:
             print("Error: Failed to run tests for the combined code")
-            return test_error
+            return test_error[:2]
 
         return (VerifyResult.SUCCESS, None)

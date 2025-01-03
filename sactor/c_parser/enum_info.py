@@ -1,7 +1,7 @@
 class EnumInfo:
     def __init__(self, node, name, value, definition_node):
         self.node = node
-        self.name = name
+        self.name: str = name
         self.value = value
         self.definition_node = definition_node
 

@@ -58,20 +58,10 @@ class Verifier(ABC):
             return False
 
     @abstractmethod
-    def verify_function(self, function: FunctionInfo, function_code, struct_code, *args, **kwargs) -> tuple[VerifyResult, str | None]:
+    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], *args, **kwargs) -> tuple[VerifyResult, str | None]:
         pass
 
-    def _try_compile_rust_code(self, rust_code, function_dependency_signatures, executable=False) -> tuple[VerifyResult, str | None]:
-        if len(function_dependency_signatures) > 0:
-            joint_function_depedency_signatures = '\n'.join(
-                function_dependency_signatures)
-            rust_code = f'''
-extern "C" {{
-{joint_function_depedency_signatures}
-}}
-{rust_code}
-'''
-
+    def _try_compile_rust_code_impl(self, rust_code, executable=False) -> tuple[VerifyResult, str | None]:
         utils.create_rust_proj(rust_code, "build_attempt",
                                self.build_attempt_path, is_lib=(not executable))
 
@@ -89,6 +79,9 @@ extern "C" {{
             # Rust code compiled successfully
             print("Rust code compiled successfully")
             return (VerifyResult.SUCCESS, None)
+
+    def _try_compile_rust_code(self, rust_code, executable=False) -> tuple[VerifyResult, str | None]:
+        return self._try_compile_rust_code_impl(rust_code, executable)
 
     def _load_test_cmd(self, target) -> list[list[str]]:
         with open(self.test_cmd_path, "r") as f:
@@ -238,12 +231,12 @@ extern "C" {{
 
         return "".join(lines)
 
-    def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures, prefix=False) -> tuple[VerifyResult, str | None]:
+    def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures: list[str] | None = None, prefix=False) -> tuple[VerifyResult, str | None]:
         name = c_function.name
         filename = c_function.node.location.file.name
 
         rust_code = rust_ast_parser.expose_function_to_c(rust_code)
-        if len(function_dependency_signatures) > 0:
+        if function_dependency_signatures:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)
             rust_code = f'''

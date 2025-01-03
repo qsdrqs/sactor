@@ -2,8 +2,9 @@ import os
 import subprocess
 from typing import override
 
-from sactor.c_parser import FunctionInfo
 from sactor import rust_ast_parser
+from sactor.c_parser import FunctionInfo
+from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
 from .verifier import Verifier
 from .verifier_types import VerifyResult
@@ -14,13 +15,18 @@ class UnidiomaticVerifier(Verifier):
         super().__init__(test_cmd_path, build_path)
 
     @override
-    def verify_function(self, function: FunctionInfo, function_code, struct_code, function_dependency_signatures, has_prefix) -> tuple[VerifyResult, str | None]:
-        combined_code = rust_ast_parser.combine_struct_function(
-            struct_code, function_code)
+    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], function_dependency_signatures, has_prefix) -> tuple[VerifyResult, str | None]:
+        functions = {function.name: function_code}
+        combiner = PartialCombiner(functions, struct_code)
+        result, combined_code = combiner.combine()
+        if result != CombineResult.SUCCESS or combined_code is None:
+            raise ValueError(f"Failed to combine the function {function.name}")
 
         # Try to compile the Rust code
         compile_result = self._try_compile_rust_code(
-            combined_code, function_dependency_signatures)
+            combined_code,
+            function_dependency_signatures=function_dependency_signatures
+        )
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
 
@@ -33,3 +39,16 @@ class UnidiomaticVerifier(Verifier):
             return test_error
 
         return (VerifyResult.SUCCESS, None)
+
+    @override
+    def _try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None) -> tuple[VerifyResult, str | None]:
+        if function_dependency_signatures:
+            joint_function_depedency_signatures = '\n'.join(
+                function_dependency_signatures)
+            rust_code = f'''
+extern "C" {{
+{joint_function_depedency_signatures}
+}}
+{rust_code}
+'''
+        return self._try_compile_rust_code_impl(rust_code, executable)

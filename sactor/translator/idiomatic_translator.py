@@ -47,7 +47,12 @@ class IdiomaticTranslator(Translator):
         if max_verifier_harness_attempts is None:
             max_verifier_harness_attempts = max_attempts
         self.verifier = verifier.IdiomaticVerifier(
-            test_cmd_path, llm, build_path=build_path, max_attempts=max_verifier_harness_attempts)
+            test_cmd_path,
+            llm,
+            build_path=build_path,
+            max_attempts=max_verifier_harness_attempts,
+            result_path=result_path,
+        )
         self.crown_result = crown_result
 
     @override
@@ -240,7 +245,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
-        code_of_structs = []
+        code_of_structs = {}
         visited_structs = set()
         for struct in structs_in_function:
             all_structs = self.c_parser.retrieve_all_struct_dependencies(
@@ -254,7 +259,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                     raise RuntimeError(
                         f"Error: Struct {struct_name} is not translated yet")
                 with open(struct_path, "r") as file:
-                    code_of_structs.append(file.read())
+                    code_of_structs[struct_name] = file.read()
                     visited_structs.add(struct_name)
 
         # Get used global variables
@@ -331,9 +336,8 @@ Analyze the Crown output firstly, then translate the pointers in function argume
 Try to avoid using pointers in the function arguments and return values if possible.
 '''
 
-        joint_struct_code = ''
         if len(code_of_structs) > 0:
-            joint_struct_code = '\n'.join(code_of_structs)
+            joint_struct_code = '\n'.join(code_of_structs.values())
             prompt += f'''
 This function uses the following structs/unions, which are already translated as (you don't need to include them in your translation, and **you can not modify them**):
 ```rust
@@ -465,14 +469,45 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                     attempts=attempts+1
                 )
 
+        # TODO: dirty hack to fix the signature
+        all_structs = set()
+        all_dependency_functions = set()
+
+        def get_all_dependencies(function: FunctionInfo):
+            for struct in function.struct_dependencies:
+                all_structs.add(struct.name)
+            for f in function.function_dependencies:
+                all_dependency_functions.add(f.name)
+                get_all_dependencies(f)
+
+        get_all_dependencies(function)
+
+        def get_all_struct_dependencies(struct: StructInfo):
+            for s in struct.dependencies:
+                all_structs.add(s.name)
+                get_all_struct_dependencies(s)
+
+        for struct in structs_in_function:
+            get_all_struct_dependencies(struct)
+
+        all_structs_code = {}
+        for struct in all_structs:
+            with open(f"{self.translated_struct_path}/{struct}.rs", "r") as file:
+                all_structs_code[struct] = file.read()
+
+        all_dependency_functions_code = {}
+        for f in all_dependency_functions:
+            with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
+                all_dependency_functions_code[f] = file.read()
+
         # Verify the translation
         result = self.verifier.verify_function(
             function,
-            function_result,
-            joint_struct_code,
-            function_depedency_signatures,
-            undiomantic_function_signature,
-            False  # TODO: check here
+            function_code=function_result,
+            struct_code=all_structs_code,
+            function_dependencies_code=all_dependency_functions_code,
+            unidiomatic_signature=undiomantic_function_signature,
+            prefix=False,  # TODO: check here
         )
 
         if result[0] != VerifyResult.SUCCESS:

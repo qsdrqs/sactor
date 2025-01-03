@@ -1,6 +1,6 @@
 from sactor import utils
 from sactor.c_parser import CParser
-from sactor.combiner import Combiner
+from sactor.combiner import ProgramCombiner
 from sactor.combiner.combiner_types import CombineResult
 
 
@@ -15,7 +15,7 @@ def test_merge_groups():
     ]
 
     # Create a new instance without calling __init__
-    combiner = Combiner.__new__(Combiner)
+    combiner = ProgramCombiner.__new__(ProgramCombiner)
     merged_uses = combiner._merge_uses(all_uses)
     assert merged_uses == [
         'use a::b;',
@@ -37,12 +37,12 @@ def test_combine():
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_unidiomatic'
     build_path = utils.get_temp_dir()
 
-    combiner = Combiner(
+    combiner = ProgramCombiner(
         functions,
         structs,
         'tests/c_examples/course_manage/course_manage_test.json',
         build_path
     )
 
-    combiner_result = combiner.combine(result_dir_with_type)
+    combiner_result, _ = combiner.combine(result_dir_with_type)
     assert combiner_result == CombineResult.SUCCESS

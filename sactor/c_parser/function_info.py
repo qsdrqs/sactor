@@ -5,7 +5,7 @@ from clang.cindex import Cursor
 class FunctionInfo:
     def __init__(self, node, name, return_type, arguments, location, called_functions=None, used_structs=None, used_global_vars=None, used_enums=None):
         self.node = node
-        self.name = name
+        self.name: str = name
         self.return_type = return_type
         self.arguments = arguments
         self.location = location
