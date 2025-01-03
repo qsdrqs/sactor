@@ -39,12 +39,12 @@ class IdiomaticVerifier(Verifier):
 
         uses = rust_ast_parser.get_uses_code(idiomatic_impl)
         joint_uses = '\n'.join(uses)
-        idiomatic_signature = idiomatic_signature.replace(
+        idiomatic_signature_replaced = idiomatic_signature.replace(
             function_name, f"{function_name}_idiomatic")
         prompt = f'''
 This is the idiomatic translation of Rust code from C, the function signature is
 ```rust
-{idiomatic_signature};
+{idiomatic_signature_replaced};
 ```
 This is the unidiomatic translation of Rust code from C, the function signature is
 ```rust
@@ -54,9 +54,11 @@ Generate the harness for the function {function_name}_idiomatic with the followi
 Finish all the TODOs.
 You should **NOT** add any dummy implementation of the function or structs, as it will be provided by the verifier:
 ```rust
+// TODO: add necessary uses here
+
 {original_signature} {{
     // TODO: Add code here to Convert the input to the idiomatic format
-    let result = {idiomatic_signature}; // Call the idiomatic function
+    let result = {idiomatic_signature_replaced}; // Call the idiomatic function
     // TODO: Add code here to Convert the result back to the original format
 }}
 '''

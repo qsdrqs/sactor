@@ -71,12 +71,14 @@ pub mod {crown_analysis_lib};
         # run crown preprocess
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'preprocess']
-        result = subprocess.run(cmd, env=self.env)
+        result = subprocess.run(
+            cmd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             raise RuntimeError("crown preprocess failed")
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'explicit-addr']
-        result = subprocess.run(cmd, env=self.env)
+        result = subprocess.run(
+            cmd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             raise RuntimeError("crown explicit-addr failed")
 
@@ -84,7 +86,8 @@ pub mod {crown_analysis_lib};
         os.makedirs(self.analysis_results_path, exist_ok=True)
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'analyse', self.analysis_results_path]
-        result = subprocess.run(cmd, env=self.env)
+        result = subprocess.run(
+            cmd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             raise RuntimeError("crown analyse failed")
         self._read_analyze_result()

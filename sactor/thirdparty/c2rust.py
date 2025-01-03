@@ -69,7 +69,11 @@ class C2Rust(ThirdParty):
                    '--', *search_include_paths]
             print(cmd)
             # add C_INCLUDE_PATH to the environment if needed
-            result = subprocess.run(cmd)
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
             if result.returncode != 0:
                 print("c2rust failed")
                 os.remove(tmp_filename_rs)
