@@ -31,20 +31,6 @@ def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")
     assert union_definition == 'union Bar {\n    a: i32,\n    b: i32,\n}\n'
 
-def test_combine_struct_function():
-    function_path = 'tests/rust_ast_parser/test_combine/test_function.rs'
-    struct_path = 'tests/rust_ast_parser/test_combine/test_struct.rs'
-    with open(function_path) as f:
-        function_code = f.read()
-    with open(struct_path) as f:
-        struct_code = f.read()
-    combined_code = rust_ast_parser.combine_struct_function(struct_code, function_code)
-
-    combine_path = 'tests/rust_ast_parser/test_combine/test_combine.rs'
-    with open(combine_path) as f:
-        expected_code = f.read()
-    assert combined_code == expected_code
-
 def test_get_uses_code(code):
     uses_code = rust_ast_parser.get_uses_code(code)
     assert uses_code == ['use std :: collections :: HashMap ;', 'use libc :: c_int ;']
@@ -112,3 +98,12 @@ def test_add_derive_to_struct(code):
     print(new_code)
     assert new_code.count('#[derive(Debug)]') == 1
     assert code.count('#[derive(Debug)]') == 0
+
+def test_unidiomatic_function_cleanup():
+    path = 'tests/rust_ast_parser/unidiomatic.rs'
+    with open(path) as f:
+        code = f.read()
+    new_code = rust_ast_parser.unidiomatic_function_cleanup(code)
+    print(new_code)
+    assert new_code.find('extern "C"') == -1
+    assert new_code.find('extern crate libc') == -1

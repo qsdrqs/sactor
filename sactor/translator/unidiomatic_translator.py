@@ -374,7 +374,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 error_translation=function_result,
                 attempts=attempts+1
             )
-        rust_ast_parser.unidiomatic_function_cleanup(function_result)
+        function_result = rust_ast_parser.unidiomatic_function_cleanup(function_result)
 
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS

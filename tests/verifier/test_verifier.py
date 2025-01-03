@@ -3,6 +3,7 @@ import pytest
 from sactor import rust_ast_parser
 from sactor.c_parser import CParser
 from sactor.verifier import UnidiomaticVerifier, VerifyResult
+from sactor.combiner.partial_combiner import PartialCombiner
 from sactor.verifier import Verifier
 
 def test_verify_test_cmd():
@@ -26,18 +27,22 @@ def rust_code():
     struct_path1 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Course.rs"
     struct_path2 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Student.rs"
 
-    struct_code = ""
+    functions = {}
+    structs = {}
+
     with open(struct_path1, "r") as f:
-        struct_code = f.read()
+        structs["Course"] = f.read()
     with open(struct_path2, "r") as f:
-        struct_code += f.read()
+        structs["Student"] = f.read()
 
-    function_code = ""
     with open(func_path, "r") as f:
-        function_code = f.read()
+        functions["updateStudentInfo"] = f.read()
 
-    return rust_ast_parser.combine_struct_function(
-        struct_code, function_code)
+
+    combiner = PartialCombiner(functions, structs)
+    _, combined_code = combiner.combine()
+
+    return combined_code
 
 
 def test_embed_test(c_parser, rust_code):

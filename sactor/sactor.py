@@ -98,7 +98,7 @@ class Sactor:
                     f"Failed to combine translated code for idiomatic translation: {combine_result}")
 
         # LLM statistics
-        self.llm.statistic(self.result_dir)
+        self.llm.statistic(os.path.join(self.result_dir, "llm_statistic.json"))
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:

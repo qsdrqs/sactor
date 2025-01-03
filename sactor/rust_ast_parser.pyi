@@ -11,9 +11,6 @@ def add_attr_to_struct_union(code:str,struct_union_name:str,attr:str) -> str:
 def add_derive_to_struct_union(code:str,struct_union_name:str,derive:str) -> str:
     ...
 
-def combine_struct_function(struct_code:str,function_code:str) -> str:
-    ...
-
 def count_unsafe_blocks(code:str) -> int:
     ...
 
