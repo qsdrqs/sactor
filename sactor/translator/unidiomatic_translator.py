@@ -59,7 +59,7 @@ class UnidiomaticTranslator(Translator):
                 self.c2rust_translation, struct_union.name)
 
         # add Debug trait for struct/union
-        rust_s_u = rust_ast_parser.add_derive_to_struct(
+        rust_s_u = rust_ast_parser.add_derive_to_struct_union(
             rust_s_u, struct_union.name, "Debug")
 
         # Save the translated struct/union

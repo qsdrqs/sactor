@@ -195,7 +195,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 
         # add Debug trait for struct/union
         try:
-            struct_result = rust_ast_parser.add_derive_to_struct(
+            struct_result = rust_ast_parser.add_derive_to_struct_union(
                 struct_result, struct_union.name, "Debug")
         except Exception as e:
             error_message = f"Error: Failed to add Debug trait to the struct: {e}, please check if the struct has a correct syntax"
