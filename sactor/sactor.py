@@ -1,14 +1,14 @@
 import os
 
-from sactor import c_parser, thirdparty, utils
+from sactor import thirdparty, utils
 from sactor.c_parser import CParser
-from sactor.combiner import ProgramCombiner, CombineResult
+from sactor.combiner import CombineResult, ProgramCombiner
 from sactor.divider import Divider
 from sactor.llm import AzureOpenAILLM, OllamaLLM, OpenAILLM
 from sactor.thirdparty import C2Rust, Crown
-from sactor.translator import (IdiomaticTranslator, TranslateResult, Translator,
-                               UnidiomaticTranslator)
-from sactor.verifier import Verifier, idiomatic_verifier
+from sactor.translator import (IdiomaticTranslator, TranslateResult,
+                               Translator, UnidiomaticTranslator)
+from sactor.verifier import Verifier
 
 
 class Sactor:
@@ -21,6 +21,7 @@ class Sactor:
         config_file=None,
         no_verify=False,
         unidiomatic_only=False,
+        llm_stat=None,
     ):
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
@@ -31,6 +32,9 @@ class Sactor:
 
         self.result_dir = os.path.join(utils.get_temp_dir(
         ), "result") if result_dir is None else result_dir
+
+        self.llm_stat = llm_stat if llm_stat is not None else os.path.join(
+            self.result_dir, "llm_stat.json")
 
         self.config_file = config_file
         self.no_verify = no_verify
@@ -53,7 +57,7 @@ class Sactor:
 
         self.c2rust = C2Rust(self.input_file)
         self.combiner = ProgramCombiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
-                                 self.test_cmd_path, self.build_dir)
+                                        self.test_cmd_path, self.build_dir)
 
         # Initialize LLM
         match self.config['general'].get("llm"):
@@ -98,7 +102,7 @@ class Sactor:
                     f"Failed to combine translated code for idiomatic translation: {combine_result}")
 
         # LLM statistics
-        self.llm.statistic(os.path.join(self.result_dir, "llm_statistic.json"))
+        self.llm.statistic(self.llm_stat)
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:

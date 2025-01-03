@@ -22,10 +22,8 @@ You are an expert in translating code from C to Rust. You will take all informat
             encoding = "o200k_base"  # default encoding, for gpt-4o
 
         self.enc = tiktoken.get_encoding(encoding)
-        self.total_costed_tokens = 0
-        self.last_costed_tokens = 0
-        self.total_costed_time = 0
-        self.last_costed_time = 0
+        self.costed_tokens = []
+        self.costed_time = []
 
     @abstractmethod
     def _query_impl(self, prompt, model) -> str:
@@ -41,12 +39,12 @@ You are an expert in translating code from C to Rust. You will take all informat
         start_time = time.time()
         response = self._query_impl(prompt, model)
         end_time = time.time()
-        self.last_costed_time = end_time - start_time
-        self.total_costed_time += self.last_costed_time
+        last_costed_time = end_time - start_time
+        self.costed_time.append(last_costed_time)
 
         tokens = self.enc.encode(response + prompt)
-        self.last_costed_tokens = len(tokens)
-        self.total_costed_tokens += self.last_costed_tokens
+        last_costed_tokens = len(tokens)
+        self.costed_tokens.append(last_costed_tokens)
 
         utils.print_green(response)
 
@@ -58,12 +56,16 @@ You are an expert in translating code from C to Rust. You will take all informat
 
     def statistic(self, path: str) -> None:
         if os.path.isdir(path):
-            path = os.path.join(path, "statistic.json")
+            path = os.path.join(path, "llm_stat.json")
+        total_costed_tokens = sum(self.costed_tokens)
+        total_costed_time = sum(self.costed_time)
+
         statistic_result = {
-            "total_costed_tokens": self.total_costed_tokens,
-            "total_costed_time": self.total_costed_time,
-            "last_costed_tokens": self.last_costed_tokens,
-            "last_costed_time": self.last_costed_time,
+            "total_queries": len(self.costed_tokens),
+            "total_costed_tokens": total_costed_tokens,
+            "total_costed_time": total_costed_time,
+            "costed_tokens": self.costed_tokens,
+            "costed_time": self.costed_time,
         }
         with open(path, "w") as f:
             json.dump(statistic_result, f, indent=4)

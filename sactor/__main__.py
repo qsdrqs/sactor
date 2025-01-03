@@ -40,6 +40,13 @@ def main():
     )
 
     parser.add_argument(
+        '--llm-stat',
+        '-l',
+        type=str,
+        help='The path to output the LLM statistics json file, default to {result_dir}/llm_stat.json'
+    )
+
+    parser.add_argument(
         '--no-verify',
         action='store_true',
         help='Do not verify the generated Rust code'
@@ -60,7 +67,8 @@ def main():
         result_dir=args.result_dir,
         config_file=args.config,
         no_verify=args.no_verify,
-        unidiomatic_only=args.unidiomatic_only
+        unidiomatic_only=args.unidiomatic_only,
+        llm_stat=args.llm_stat
     )
 
     sactor.run()
