@@ -153,7 +153,7 @@ For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
         if len(code_of_structs) > 0:
             joint_code_of_structs = '\n'.join(code_of_structs)
             prompt += f'''
-The function uses the following structs/unions, which are already translated as (you should **NOT** include them in your translation):
+The function uses the following structs/unions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
 ```rust
 {joint_code_of_structs}
 ```
@@ -191,7 +191,7 @@ The function uses the following enums, which defined as:
             joint_function_depedency_signatures = '\n'.join(
                 function_depedency_signatures)
             prompt += f'''
-The function uses the following functions, which are already translated as (you should **NOT** include them in your translation):
+The function uses the following functions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
 ```rust
 {joint_function_depedency_signatures}
 ```
@@ -375,6 +375,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 error_translation=function_result,
                 attempts=attempts+1
             )
+        rust_ast_parser.unidiomatic_function_cleanup(function_result)
 
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS

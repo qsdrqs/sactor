@@ -5,10 +5,10 @@
 def add_attr_to_function(code:str,function_name:str,attr:str) -> str:
     ...
 
-def add_attr_to_struct(code:str,struct_name:str,attr:str) -> str:
+def add_attr_to_struct_union(code:str,struct_union_name:str,attr:str) -> str:
     ...
 
-def add_derive_to_struct(code:str,struct_name:str,derive:str) -> str:
+def add_derive_to_struct_union(code:str,struct_union_name:str,derive:str) -> str:
     ...
 
 def combine_struct_function(struct_code:str,function_code:str) -> str:
@@ -39,5 +39,8 @@ def get_uses_code(code:str) -> list[str]:
     ...
 
 def rename_function(code:str,old_name:str,new_name:str) -> str:
+    ...
+
+def unidiomatic_function_cleanup(code:str) -> str:
     ...
 

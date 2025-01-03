@@ -474,6 +474,24 @@ fn add_derive_to_struct_union(code: &str, struct_union_name: &str, derive: &str)
     Ok(prettyplease::unparse(&ast))
 }
 
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn unidiomatic_function_cleanup(code: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+
+    for item in ast.items.iter_mut() {
+        if let syn::Item::Fn(f) = item {
+            // remove `extern "C"``
+            f.sig.abi = None;
+            // add `pub` before `fn`
+            f.vis = syn::Visibility::Public(Token![pub](f.span()));
+        }
+    }
+
+    Ok(prettyplease::unparse(&ast))
+}
+
+
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
@@ -488,6 +506,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_attr_to_function, m)?)?;
     m.add_function(wrap_pyfunction!(add_attr_to_struct_union, m)?)?;
     m.add_function(wrap_pyfunction!(add_derive_to_struct_union, m)?)?;
+    m.add_function(wrap_pyfunction!(unidiomatic_function_cleanup, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_blocks, m)?)?;

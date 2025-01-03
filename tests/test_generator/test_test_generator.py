@@ -40,8 +40,13 @@ def c_file_executable(file_path):
 
         assert compiler is not None
         os.makedirs(tmpdirname, exist_ok=True)
-        subprocess.run([compiler, file_path, "-o",
-                       f"{tmpdirname}/a.out"], check=True)
+        subprocess.run([
+            compiler,
+            file_path,
+            "-o",
+            f"{tmpdirname}/a.out",
+            '-ftrapv',
+        ], check=True)
 
         executable = f"{tmpdirname}/a.out"
         yield (executable, file_path)

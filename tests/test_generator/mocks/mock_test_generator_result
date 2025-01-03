@@ -30,11 +30,11 @@ Certainly! Below are 10 test cases for your C program, written in the specified 
 
 ----END INPUT 7----
 ----INPUT 8----
-2147483647 1
+2147483647 -1
 
 ----END INPUT 8----
 ----INPUT 9----
--2147483648 -1
+-2147483648 1
 
 ----END INPUT 9----
 ----INPUT 10----
