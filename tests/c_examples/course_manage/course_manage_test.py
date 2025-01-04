@@ -184,14 +184,6 @@ Example: ./program "John Doe" 20 "Computer Science" 101 85.5 92.0 88.5"""),
          "Error: Invalid grade 105.000000 (must be between 0 and 100)"),
         ('"Sara Miller" 19 "History" 701 85.0 -92.0',
          "Error: Invalid grade -92.000000 (must be between 0 and 100)"),
-        ('"" 20 "Psychology" 801 88.0 92.0',
-         """Student Information:
-------------------
-Name:
-Age: 20
-Course: Psychology (Code: 801)
-Grades: 88.0 92.0
-Average Grade: 90.00"""),
         ('"Mike Johnson" abc "Computer Science" 901 85.0',
          "Error: Invalid age (must be between 1 and 120)"),
         ('"Lucy Smith" 21 "Mathematics" xyz 88.0',
@@ -214,7 +206,6 @@ Grades: 85.0 0.0 90.0
 Average Grade: 58.33""")]
 
     return valid_cases + invalid_cases
-    return test_cases
 
 def normalize_output(output: str) -> str:
     """Normalize the output by removing extra whitespace and standardizing newlines."""

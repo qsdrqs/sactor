@@ -1,23 +1,20 @@
-----FUNCTION----
+
+ ----FUNCTION----
 ```rust
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int};
+use std::ffi::CStr;
+use std::os::raw::c_char;
+use std::os::raw::c_int;
 
-fn updateStudentInfo(student: *mut Student, newName: *const c_char, newAge: c_int) {
-    // TODO: Add code here to Convert the input to the idiomatic format
+fn updateStudentInfo(student: *mut CStudent, newName: *const c_char, newAge: c_int) {
     unsafe {
-        assert!(!student.is_null());
-        assert!(!newName.is_null());
-
-        let student = &mut *student;
-        let newName = CStr::from_ptr(newName).to_str().expect("Invalid UTF-8 string");
-        let newAge = newAge as i32;
-
-        // Call the idiomatic function
-        let result = updateStudentInfo_idiomatic(student, newName, newAge);
-
-        // TODO: Add code here to Convert the result back to the original format
-        // In this case, assuming the function doesn’t return anything, there is nothing to convert.
+        let student_idiomatic: &mut Student = CStudent_to_Student_mut(student);
+        let name_str = CStr::from_ptr(newName)
+            .to_str()
+            .expect("Invalid UTF-8 string");
+        updateStudentInfo_idiomatic(student_idiomatic, name_str, newAge as i32);
+        let c_student_converted = Student_to_CStudent_mut(student_idiomatic);
+        std::ptr::copy_nonoverlapping(c_student_converted, student, 1);
     }
 }
+```
 ----END FUNCTION----

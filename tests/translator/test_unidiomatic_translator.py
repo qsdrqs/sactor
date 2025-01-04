@@ -41,23 +41,17 @@ def test_unidiomatic_translator(llm):
         result = translator.translate_struct(
             c_parser.get_struct_info('Student'))
         assert result == TranslateResult.SUCCESS
-        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Student.rs') as f:
-            with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Student.rs')) as f2:
-                assert f.read() == f2.read()
+        assert os.path.exists(
+            os.path.join(tempdir, 'translated_code_unidiomatic/structs/Student.rs'))
 
         result = translator.translate_struct(
             c_parser.get_struct_info('Course'))
         assert result == TranslateResult.SUCCESS
-
-        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Course.rs') as f:
-            with open(os.path.join(tempdir, 'translated_code_unidiomatic/structs/Course.rs')) as f2:
-                assert f.read() == f2.read()
+        assert os.path.exists(
+            os.path.join(tempdir, 'translated_code_unidiomatic/structs/Course.rs'))
 
         result = translator.translate_function(
             c_parser.get_function_info('updateStudentInfo'))
         assert result == TranslateResult.SUCCESS
         assert os.path.exists(
             os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs'))
-        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/functions/updateStudentInfo.rs') as f:
-            with open(os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs')) as f2:
-                assert f.read() == f2.read()

@@ -4,6 +4,7 @@ from typing import override
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
+from sactor.data_types import DataTypes
 from sactor.c_parser import CParser, FunctionInfo, StructInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
@@ -51,12 +52,16 @@ class UnidiomaticTranslator(Translator):
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
 
-        if struct_union.is_struct:
-            rust_s_u = rust_ast_parser.get_struct_definition(
-                self.c2rust_translation, struct_union.name)
-        else:
-            rust_s_u = rust_ast_parser.get_union_definition(
-                self.c2rust_translation, struct_union.name)
+        match struct_union.data_type:
+            case DataTypes.STRUCT:
+                rust_s_u = rust_ast_parser.get_struct_definition(
+                    self.c2rust_translation, struct_union.name)
+            case DataTypes.UNION:
+                rust_s_u = rust_ast_parser.get_union_definition(
+                    self.c2rust_translation, struct_union.name)
+            case _:
+                raise ValueError(
+                    f"Error: Invalid data type {struct_union.data_type}")
 
         # add Debug trait for struct/union
         rust_s_u = rust_ast_parser.add_derive_to_struct_union(

@@ -65,6 +65,16 @@ class Verifier(ABC):
         utils.create_rust_proj(rust_code, "build_attempt",
                                self.build_attempt_path, is_lib=(not executable))
 
+        # Try format the Rust code
+        cmd = ["cargo", "fmt", "--manifest-path",
+                f"{self.build_attempt_path}/Cargo.toml"]
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            # Rust code failed to format, unable to compile
+            print("Rust code failed to format")
+            return (VerifyResult.COMPILE_ERROR, result.stderr.decode())
+
         # Try to compile the Rust code
         cmd = ["cargo", "build", "--manifest-path",
                f"{self.build_attempt_path}/Cargo.toml"]
@@ -115,23 +125,37 @@ class Verifier(ABC):
 
         return feedback
 
-    def _run_tests(self, target, env=None, test_number=None) -> tuple[VerifyResult, str | None, int | None]:
+    def _run_tests(self, target, env=None, test_number=None, valgrind=False) -> tuple[VerifyResult, str | None, int | None]:
         if env is None:
             env = os.environ.copy()
         test_cmds = self._load_test_cmd(target)
+        valgrind_cmd = [
+            'valgrind',
+            '--error-exitcode=1',
+            '--leak-check=no',
+            '--trace-children=yes',
+            '--',
+        ]
 
         for i, cmd in enumerate(test_cmds):
             if test_number is not None and i != test_number:
                 continue
             print(cmd)
-            res = subprocess.run(cmd, env=env, cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if valgrind:
+                cmd = valgrind_cmd + cmd
+            res = subprocess.run(
+                cmd,
+                env=env,
+                cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
             print(res.stdout.decode())
             print(res.stderr.decode())
             if res.returncode != 0:
                 stdout = res.stdout.decode()
                 stderr = res.stderr.decode()
-                feedback = self._collect_feedback(stdout)
+                feedback = self._collect_feedback(stdout + stderr)
                 if feedback != "":
                     return (VerifyResult.FEEDBACK, feedback, i)
                 if stderr == "":
@@ -143,13 +167,13 @@ class Verifier(ABC):
 
         return (VerifyResult.SUCCESS, None, None)
 
-    def _run_tests_with_rust(self, target, test_number=None) -> tuple[VerifyResult, str | None, int | None]:
+    def _run_tests_with_rust(self, target, test_number=None, valgrind=False) -> tuple[VerifyResult, str | None, int | None]:
         # get absolute path of the target
         target = os.path.abspath(target)
         env = os.environ.copy()
         env["LD_LIBRARY_PATH"] = os.path.abspath(
             f"{self.embed_test_rust_dir}/target/debug")
-        return self._run_tests(target, env, test_number)
+        return self._run_tests(target, env, test_number, valgrind)
 
     def _remove_c_code(self, c_function: FunctionInfo, filename, prefix=False):
         def remove_prefix(set_of_strings):
@@ -235,7 +259,7 @@ class Verifier(ABC):
         name = c_function.name
         filename = c_function.node.location.file.name
 
-        rust_code = rust_ast_parser.expose_function_to_c(rust_code)
+        rust_code = rust_ast_parser.expose_function_to_c(rust_code, name)
         if function_dependency_signatures:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)
@@ -300,7 +324,7 @@ extern "C" {{
             previous_result = result
 
             result = self._run_tests_with_rust(
-                f'{self.embed_test_c_dir}/{name}', failed_test_number)
+                f'{self.embed_test_c_dir}/{name}', failed_test_number, valgrind=True)
 
             if result[0] == VerifyResult.FEEDBACK:
                 feedback = f'''

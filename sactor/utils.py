@@ -3,6 +3,10 @@ import shutil
 
 import tomli as toml
 
+from sactor import rust_ast_parser
+from sactor.data_types import DataTypes
+from sactor.thirdparty.rustfmt import RustFmt
+
 
 def create_rust_proj(rust_code, proj_name, path, is_lib):
     if os.path.exists(path):
@@ -80,10 +84,11 @@ def parse_llm_result(llm_result, *args):
         in_arg = False
         arg_result = ""
         for line in llm_result.split("\n"):
-            if line == f"----{arg.upper()}----":
+            # prevent hallucination to different length of dashes
+            if line.find(f"-{arg.upper()}-") != -1 and not in_arg:
                 in_arg = True
                 continue
-            if line == f"----END {arg.upper()}----":
+            if line.find(f"-END {arg.upper()}-") != -1 and in_arg:
                 in_arg = False
                 continue
             if in_arg and '```' not in line:
@@ -101,6 +106,11 @@ def parse_llm_result(llm_result, *args):
 def save_code(path, code):
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)
+    rustfmt = RustFmt(path)
+    try:
+        rustfmt.format()
+    except Exception:
+        print("Cannot format the code") # allow to continue
     with open(path, "w") as f:
         f.write(code)
 
@@ -166,3 +176,30 @@ def normalize_string(output: str) -> str:
     for i, line in enumerate(lines):
         lines[i] = line.strip()
     return '\n'.join(lines)
+
+
+def rename_rust_function_signature(signature: str, old_name: str, new_name: str, data_type: DataTypes) -> str:
+    has_tail_comma = False
+    if signature.strip().endswith(";"):
+        signature = signature.replace(";", "")
+        has_tail_comma = True
+
+    signature = signature + "{}"
+    match data_type:
+        case DataTypes.FUNCTION:
+            signature = rust_ast_parser.rename_function(signature, old_name, new_name)
+        case DataTypes.UNION:
+            signature = rust_ast_parser.rename_struct_union(signature, old_name, new_name)
+        case DataTypes.STRUCT:
+            signature = rust_ast_parser.rename_struct_union(signature, old_name, new_name)
+        case _:
+            raise ValueError(f"Unknown data type {data_type}")
+
+    # remove {}
+    signature = signature.replace("{}", "").strip()
+
+    if has_tail_comma:
+        signature = signature + ";"
+
+    return signature
+

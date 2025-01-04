@@ -1,0 +1,71 @@
+ ----FUNCTION----
+```rust
+unsafe fn Student_to_CStudent_mut(input: &mut Student) -> *mut CStudent {
+    // Allocate memory for the CStudent structure
+    let c_student = Box::new(CStudent {
+        // Convert the name to a C-compatible string
+        name: if !input.name.is_empty() {
+            libc::strdup(input.name.as_ptr() as *const libc::c_char)
+        } else {
+            std::ptr::null_mut()
+        },
+        age: input.age as libc::c_int,
+        enrolledCourse: if let Some(course) = input.enrolled_course.as_mut() {
+            Course_to_CCourse_mut(course)
+        } else {
+            std::ptr::null_mut()
+        },
+        grades: if !input.grades.is_empty() {
+            let array = libc::malloc((input.grades.len() * std::mem::size_of::<libc::c_float>()) as libc::size_t) as *mut libc::c_float;
+            if !array.is_null() {
+                std::ptr::copy(input.grades.as_ptr(), array, input.grades.len());
+            }
+            array
+        } else {
+            std::ptr::null_mut()
+        },
+        numGrades: input.num_grades as libc::c_int,
+    });
+
+    // Return the raw pointer to CStudent
+    Box::into_raw(c_student)
+}
+
+unsafe fn CStudent_to_Student_mut(input: *mut CStudent) -> &'static mut Student {
+    if input.is_null() {
+        panic!("Received null pointer for CStudent");
+    }
+    
+    let c_student = &mut *input;
+    let name = if !c_student.name.is_null() {
+        let c_str = std::ffi::CStr::from_ptr(c_student.name);
+        c_str.to_string_lossy().into_owned()
+    } else {
+        String::new()
+    };
+
+    let enrolled_course = if !c_student.enrolledCourse.is_null() {
+        Some(Box::new(CCourse_to_Course_mut(c_student.enrolledCourse).clone()))
+    } else {
+        None
+    };
+
+    let grades = if !c_student.grades.is_null() {
+        Vec::from_raw_parts(c_student.grades, c_student.numGrades as usize, c_student.numGrades as usize)
+    } else {
+        Vec::new()
+    };
+
+    let student = Box::new(Student {
+        name,
+        age: c_student.age as i32,
+        enrolled_course,
+        grades,
+        num_grades: c_student.numGrades as i32,
+    });
+
+    // Leak the student's memory and return a reference
+    Box::leak(student)
+}
+```
+----END FUNCTION----

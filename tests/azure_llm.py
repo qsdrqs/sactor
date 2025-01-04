@@ -36,3 +36,7 @@ def azure_llm(mock_query_impl):
         with patch('sactor.llm.AzureOpenAILLM._query_impl', side_effect=mock_with_original):
             yield llm
 
+
+def general_mock_query_impl(prompt, model, original=None, llm_instance=None):
+    if llm_instance is not None and original is not None:
+        return original(llm_instance, prompt, model)

@@ -30,6 +30,12 @@ pub struct Course {''') != -1:
     if prompt.find('Generate the harness for the function updateStudentInfo_idiomatic') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_function_harness') as f:
             return f.read()
+    if prompt.find('There are two structs: Student and CStudent') != -1:
+        with open('tests/verifier/mock_results/mock_student_harness') as f:
+            return f.read()
+    if prompt.find('There are two structs: Course and CCourse') != -1:
+        with open('tests/verifier/mock_results/mock_course_harness') as f:
+            return f.read()
     else:
         if llm_instance is not None and original is not None:
             return original(llm_instance, prompt, model)
@@ -42,7 +48,6 @@ def llm():
     yield from azure_llm(mock_query_impl)
 
 
-@pytest.mark.skip(reason='Not implemented')
 def test_idiomatic_translator(llm):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c2rust_path = 'tests/c_examples/course_manage/course_manage_c2rust.rs'
@@ -62,13 +67,18 @@ def test_idiomatic_translator(llm):
         c_parser,
         'tests/c_examples/course_manage/course_manage_test.json',
         max_attempts=max_attempts,
-        result_path='tests/c_examples/result',
-        unidiomatic_result_path='tests/c_examples/result'
+        result_path='tests/c_examples/course_manage/result',
+        unidiomatic_result_path='tests/c_examples/course_manage/result'
     )
 
-    for struct in c_parser.get_function_info('updateStudentInfo').struct_dependencies:
-        result = translator.translate_struct(struct)
-        assert result == TranslateResult.SUCCESS
+    course = c_parser.get_struct_info('Course')
+    result = translator.translate_struct(course)
+    assert result == TranslateResult.SUCCESS
+
+    student = c_parser.get_struct_info('Student')
+    result = translator.translate_struct(student)
+    assert result == TranslateResult.SUCCESS
+
     result = translator.translate_function(
         c_parser.get_function_info('updateStudentInfo'))
     assert result == TranslateResult.SUCCESS

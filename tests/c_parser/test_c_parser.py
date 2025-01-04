@@ -26,4 +26,22 @@ def test_c_parser_struct_dependency():
     assert len(student_struct.dependencies) == 1
     assert student_struct.dependencies[0].name == 'Course'
 
+def test_structs_in_signature():
+    file_path = 'tests/c_parser/c_example.c'
+    c_parser = CParser(file_path)
 
+    printpoint = c_parser.get_function_info('printPoint')
+    structs_in_signature = printpoint.get_structs_in_signature()
+    structs_in_signature_names = [struct.name for struct in structs_in_signature]
+    assert set(structs_in_signature_names) == {'Point'}
+    structs_in_function = printpoint.struct_dependencies
+    structs_in_function_names = [struct.name for struct in structs_in_function]
+    assert set(structs_in_function_names) == {'Point'}
+
+    foo = c_parser.get_function_info('foo')
+    structs_in_signature = foo.get_structs_in_signature()
+    structs_in_signature_names = [struct.name for struct in structs_in_signature]
+    assert set(structs_in_signature_names) == set()
+    structs_in_function = foo.struct_dependencies
+    structs_in_function_names = [struct.name for struct in structs_in_function]
+    assert set(structs_in_function_names) == {'Point'}

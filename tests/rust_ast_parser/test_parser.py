@@ -18,14 +18,13 @@ def test_get_func_signatures(code):
 
 def test_get_struct_definition(code):
     struct_definition = rust_ast_parser.get_struct_definition(code, "Foo")
-    assert struct_definition == '#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n}\n'
+    assert struct_definition == '#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n'
 
 
 def test_expose_function_to_c(code):
-    exposed_code = rust_ast_parser.expose_function_to_c(code)
-    all_function_signatures = rust_ast_parser.get_func_signatures(exposed_code)
-    assert exposed_code.count('extern "C"') == len(all_function_signatures)
-    assert exposed_code.count('#[no_mangle]') == len(all_function_signatures)
+    exposed_code = rust_ast_parser.expose_function_to_c(code, "add")
+    assert exposed_code.count('extern "C"') == 1
+    assert exposed_code.count('#[no_mangle]') == 1
 
 def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")
@@ -38,6 +37,15 @@ def test_get_uses_code(code):
 def test_rename_function(code):
     new_code = rust_ast_parser.rename_function(code, "fib", "fibonacci")
     assert code.count('fib') == new_code.count('fibonacci')
+
+def test_rename_struct(code):
+    new_code = rust_ast_parser.rename_struct_union(code, "Foo", "FooBar")
+    assert code.count('Foo') == new_code.count('FooBar')
+
+def test_rename_function_signature():
+    signature = 'fn add (a : i32 , b : i32) -> i32 {}'
+    new_signature = rust_ast_parser.rename_function(signature, "add", "addition")
+    assert signature.count('add') == new_signature.count('addition')
 
 def test_count_unsafe(code):
     assert rust_ast_parser.count_unsafe_blocks(code) == 1

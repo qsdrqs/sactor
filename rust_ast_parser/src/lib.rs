@@ -27,10 +27,13 @@ fn parse_src(source_code: &str) -> PyResult<File> {
 // 2. add `#[no_mangle]` before `pub`
 #[gen_stub_pyfunction]
 #[pyfunction]
-fn expose_function_to_c(source_code: &str) -> PyResult<String> {
+fn expose_function_to_c(source_code: &str, function_name: &str) -> PyResult<String> {
     let mut ast = parse_src(source_code)?;
     for item in ast.items.iter_mut() {
         if let syn::Item::Fn(ref mut f) = item {
+            if f.sig.ident != function_name {
+                continue;
+            }
             f.vis = syn::Visibility::Public(Token![pub](f.span()));
             f.sig.abi = Some(Abi {
                 extern_token: Token![extern](f.span()),
@@ -215,19 +218,48 @@ fn get_standalone_uses_code_paths(code: &str) -> PyResult<Vec<Vec<String>>> {
     Ok(all_paths)
 }
 
+enum RenameModifier {
+    Function,
+    StructUnion,
+}
+
 struct RenameVisitor {
     old_name: String,
     new_name: String,
+    modifer: RenameModifier,
 }
 
 impl syn::visit_mut::VisitMut for RenameVisitor {
     fn visit_item_fn_mut(&mut self, item_fn: &mut syn::ItemFn) {
-        // rename definition
-        if item_fn.sig.ident == self.old_name {
-            item_fn.sig.ident = syn::Ident::new(&self.new_name, item_fn.sig.ident.span());
+        if let RenameModifier::Function = self.modifer {
+            // rename definition
+            if item_fn.sig.ident == self.old_name {
+                item_fn.sig.ident = syn::Ident::new(&self.new_name, item_fn.sig.ident.span());
+            }
+        }
+        syn::visit_mut::visit_item_fn_mut(self, item_fn);
+    }
+
+    fn visit_item_struct_mut(&mut self, item_struct: &mut syn::ItemStruct) {
+        if let RenameModifier::StructUnion = self.modifer {
+            // rename definition
+            if item_struct.ident == self.old_name {
+                item_struct.ident = syn::Ident::new(&self.new_name, item_struct.ident.span());
+            }
         }
 
-        syn::visit_mut::visit_item_fn_mut(self, item_fn);
+        syn::visit_mut::visit_item_struct_mut(self, item_struct);
+    }
+
+    fn visit_item_union_mut(&mut self, item_union: &mut syn::ItemUnion) {
+        if let RenameModifier::StructUnion = self.modifer {
+            // rename definition
+            if item_union.ident == self.old_name {
+                item_union.ident = syn::Ident::new(&self.new_name, item_union.ident.span());
+            }
+        }
+
+        syn::visit_mut::visit_item_union_mut(self, item_union);
     }
 
     fn visit_path_mut(&mut self, path: &mut syn::Path) {
@@ -251,6 +283,24 @@ fn rename_function(code: &str, old_name: &str, new_name: &str) -> PyResult<Strin
     let mut visitor = RenameVisitor {
         old_name: old_name.to_string(),
         new_name: new_name.to_string(),
+        modifer: RenameModifier::Function,
+    };
+    visitor.visit_file_mut(&mut ast);
+
+    // Return the modified source code
+    Ok(prettyplease::unparse(&ast))
+}
+//
+// Need to rename both function definition and function calls
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn rename_struct_union(code: &str, old_name: &str, new_name: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+    // Create and run our visitor
+    let mut visitor = RenameVisitor {
+        old_name: old_name.to_string(),
+        new_name: new_name.to_string(),
+        modifer: RenameModifier::StructUnion,
     };
     visitor.visit_file_mut(&mut ast);
 
@@ -360,7 +410,9 @@ fn add_attr_to_struct_union(code: &str, struct_union_name: &str, attr: &str) -> 
         let attr = parsed.0;
 
         // Check if the attribute is already present
-        if attrs.iter().any(|existing| existing.to_token_stream().to_string() == attr.to_token_stream().to_string()) {
+        if attrs.iter().any(|existing| {
+            existing.to_token_stream().to_string() == attr.to_token_stream().to_string()
+        }) {
             return Ok(());
         }
 
@@ -385,10 +437,18 @@ fn add_attr_to_struct_union(code: &str, struct_union_name: &str, attr: &str) -> 
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-fn add_derive_to_struct_union(code: &str, struct_union_name: &str, derive: &str) -> PyResult<String> {
+fn add_derive_to_struct_union(
+    code: &str,
+    struct_union_name: &str,
+    derive: &str,
+) -> PyResult<String> {
     let mut ast = parse_src(code)?;
 
-    fn add_derive(attrs: &mut Vec<syn::Attribute>, derive: &str, span: proc_macro2::Span) -> PyResult<()> {
+    fn add_derive(
+        attrs: &mut Vec<syn::Attribute>,
+        derive: &str,
+        span: proc_macro2::Span,
+    ) -> PyResult<()> {
         let mut existing_derive = None;
 
         // Check for existing derive attribute
@@ -470,7 +530,6 @@ fn unidiomatic_function_cleanup(code: &str) -> PyResult<String> {
     Ok(prettyplease::unparse(&ast))
 }
 
-
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
@@ -480,6 +539,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_uses_code, m)?)?;
     m.add_function(wrap_pyfunction!(get_code_other_than_uses, m)?)?;
     m.add_function(wrap_pyfunction!(rename_function, m)?)?;
+    m.add_function(wrap_pyfunction!(rename_struct_union, m)?)?;
     m.add_function(wrap_pyfunction!(get_standalone_uses_code_paths, m)?)?;
     m.add_function(wrap_pyfunction!(add_attr_to_function, m)?)?;
     m.add_function(wrap_pyfunction!(add_attr_to_struct_union, m)?)?;

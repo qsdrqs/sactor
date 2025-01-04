@@ -5,6 +5,7 @@ use libc::c_int;
 struct Foo {
     a: i32,
     b: i32,
+    self_ptr: *const Foo,
 }
 
 union Bar {
@@ -21,6 +22,10 @@ pub fn fib(n: i32) -> i32 {
         return n;
     }
     fib(n - 1) + fib(n - 2)
+}
+
+fn use_foo(foo: Foo) -> i32 {
+    foo.a + foo.b
 }
 
 fn main() {

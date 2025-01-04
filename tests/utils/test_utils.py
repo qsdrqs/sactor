@@ -1,4 +1,5 @@
 from sactor import utils
+from sactor.data_types import DataTypes
 
 
 def test_merge_configs():
@@ -30,3 +31,23 @@ def test_load_config():
     assert config['general']['max_translation_attempts'] == 3
     assert config['AzureOpenAI']['api_key'] == "your-api-key"
     assert config['OpenAI']['api_key'] == 'mock-api-key'
+
+def test_rename_signature():
+    signature = "fn foo(a: i32, b: i32) -> i32;"
+    renamed_signature = "fn bar(a: i32, b: i32) -> i32;"
+    assert utils.rename_rust_function_signature(
+        signature,
+        "foo",
+        "bar",
+        DataTypes.FUNCTION
+    ) == renamed_signature
+
+    signature = "fn changeStudentName(student: Student, name: String) -> Student;"
+    renamed_signature = "fn changeStudentName(student: CStudent, name: String) -> CStudent;"
+
+    assert utils.rename_rust_function_signature(
+        signature,
+        "Student",
+        "CStudent",
+        DataTypes.STRUCT
+    ) == renamed_signature

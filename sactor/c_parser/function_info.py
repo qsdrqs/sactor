@@ -28,6 +28,20 @@ class FunctionInfo:
         signature = f"{return_type} {function_name}({', '.join(arg_list)})"
         return signature
 
+    def get_structs_in_signature(self) -> list[StructInfo]:
+        struct_dependencies_tbl = {}
+        for struct in self.struct_dependencies:
+            struct_dependencies_tbl[struct.name] = struct
+        structs_in_signature = []
+        for name in struct_dependencies_tbl:
+            if self.return_type.find(name) != -1:
+                structs_in_signature.append(struct_dependencies_tbl[name])
+            for _, arg_type in self.arguments:
+                if arg_type.find(name) != -1:
+                    structs_in_signature.append(struct_dependencies_tbl[name])
+
+        return structs_in_signature
+
     def get_arg_types(self):
         return [arg_type for _, arg_type in self.arguments]
 
