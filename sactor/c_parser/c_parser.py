@@ -7,12 +7,6 @@ from .enum_info import EnumInfo
 from .function_info import FunctionInfo
 from .struct_info import StructInfo
 
-# Load the clang_Location_isInSystemHeader function from the libclang library
-cindex.conf.lib.clang_Location_isInSystemHeader.argtypes = [
-    cindex.SourceLocation,
-]
-cindex.conf.lib.clang_Location_isInSystemHeader.restype = ctypes.c_bool
-
 
 class CParser:
     def __init__(self, filename):
@@ -124,11 +118,13 @@ class CParser:
     def _collect_structs_and_unions(self, node):
         structs = []
         if (node.kind == cindex.CursorKind.STRUCT_DECL or node.kind == cindex.CursorKind.UNION_DECL) and node.is_definition():
-            name = node.spelling
-            if name.find("unnamed at") == -1:  # ignore unnamed structs TODO: is this good?
-                location = f"{node.location.file}:{node.location.line}"
-                dependencies = []
-                structs.append(StructInfo(node, name, location, dependencies))
+            # Exclude structs declared in system headers
+            if node.location and not self._is_in_system_header(node):
+                name = node.spelling
+                if name.find("unnamed at") == -1:  # ignore unnamed structs TODO: is this good?
+                    location = f"{node.location.file}:{node.location.line}"
+                    dependencies = []
+                    structs.append(StructInfo(node, name, location, dependencies))
         for child in node.get_children():
             structs.extend(self._collect_structs_and_unions(child))
         return structs
@@ -201,11 +197,14 @@ class CParser:
         used_structs = set()
         for child in node.get_children():
             if child.kind == cindex.CursorKind.TYPE_REF or child.kind == cindex.CursorKind.STRUCT_DECL or child.kind == cindex.CursorKind.UNION_DECL:
-                if child.spelling.startswith("struct ") or child.spelling.startswith("union "):
-                    # handle the `struct NAME` and `union NAME` cases
-                    used_structs.add(child.spelling.split(" ")[1])
-                else:
-                    used_structs.add(child.spelling)
+                # Exclude structs declared in system headers
+                # TODO: Maybe problematic if we ignore dependencies in system headers (e.g. network socket structs)
+                if child.location and not self._is_in_system_header(child):
+                    if child.spelling.startswith("struct ") or child.spelling.startswith("union "):
+                        # handle the `struct NAME` and `union NAME` cases
+                        used_structs.add(child.spelling.split(" ")[1])
+                    else:
+                        used_structs.add(child.spelling)
             used_structs.update(
                 self._collect_structs_unions_dependencies(child))
         return used_structs
@@ -296,7 +295,7 @@ class CParser:
         node_definition = node.get_definition()
         if node_definition is None:
             return True
-        return False
+        return bool(cindex.conf.lib.clang_Location_isInSystemHeader(node.location))
 
     def statistic(self):
         result = ""

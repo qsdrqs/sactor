@@ -17,7 +17,7 @@
             buildInputs = [
               pkgs.gcc
               pkgs.clang-tools
-              pkgs.libclang
+              pkgs.clang
               pkgs.rustup
               pkgs.zlib
               pkgs.poetry

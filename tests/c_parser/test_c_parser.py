@@ -1,4 +1,6 @@
 from sactor.c_parser import CParser
+import tempfile
+import subprocess
 
 
 def test_c_parser():
@@ -45,3 +47,10 @@ def test_structs_in_signature():
     structs_in_function = foo.struct_dependencies
     structs_in_function_names = [struct.name for struct in structs_in_function]
     assert set(structs_in_function_names) == {'Point'}
+
+def test_clang_compile():
+    file_path = 'tests/c_parser/c_example.c'
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = '/tmp'
+        cmd = ['clang', file_path, '-o', f'{tmpdir}/c_example']
+        subprocess.run(cmd, check=True)
