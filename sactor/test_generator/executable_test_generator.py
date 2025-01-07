@@ -8,6 +8,7 @@ from sactor.llm import LLM
 from sactor.sactor import CParser
 
 from .test_generator import TestGenerator
+from .test_generator_types import TestGeneratorResult
 
 
 class ExecutableTestGenerator(TestGenerator):
@@ -19,15 +20,21 @@ class ExecutableTestGenerator(TestGenerator):
         executable,
         feed_as_arguments=True,
         input_document=None,
+        whole_program=False,
+        timeout_seconds=60,
+        max_attempts=6,
     ):
         super().__init__(
             llm=llm,
             test_samples=test_samples,
             c_parser=c_parser,
-            input_document=input_document
+            input_document=input_document,
+            max_attempts=max_attempts,
         )
         self.executable = executable
         self.feed_as_arguments = feed_as_arguments
+        self.timeout_seconds = timeout_seconds
+        self.whole_program = whole_program
 
         # Check if test samples are valid
         for sample in self.init_test_samples:
@@ -35,26 +42,30 @@ class ExecutableTestGenerator(TestGenerator):
 
     def _execute_test_sample(self, test_sample):
         # TODO: support error tests
-        if self.feed_as_arguments:
-            feed_input_str = f'{self.executable} {test_sample}'
-            cmd = feed_input_str.split()
-            result = subprocess.run(
-                self.valgrind_cmd + cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-        else:
-            cmd = self.executable
-            result = subprocess.run(
-                self.valgrind_cmd + [cmd],
-                input=test_sample.encode(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-        if result.returncode != 0:
-            raise ValueError(
-                f"Failed to run the executable with the input: {test_sample}: {result.stderr.decode()}"
-            )
+        try:
+            if self.feed_as_arguments:
+                feed_input_str = f'{self.executable} {test_sample}'
+                cmd = feed_input_str.split()
+                result = subprocess.run(
+                    self.valgrind_cmd + cmd,
+                    capture_output=True,
+                    timeout=self.timeout_seconds,
+                )
+            else:
+                cmd = self.executable
+                result = subprocess.run(
+                    self.valgrind_cmd + [cmd],
+                    input=test_sample.encode(),
+                    capture_output=True,
+                    timeout=self.timeout_seconds,
+                )
+            if result.returncode != 0:
+                raise ValueError(
+                    f"Failed to run the executable with the input: {result.stderr.decode()}"
+                )
+        except subprocess.TimeoutExpired as e:
+            print(f"Timeout: {e}")
+            raise ValueError(f"Timeout: {e}. Please check the input format.")
 
         # Rerun without valgrind
         if self.feed_as_arguments:
@@ -62,33 +73,44 @@ class ExecutableTestGenerator(TestGenerator):
             cmd = feed_input_str.split()
             result = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
+                timeout=self.timeout_seconds,
             )
         else:
             cmd = self.executable
             result = subprocess.run(
                 cmd,
                 input=test_sample.encode(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
+                timeout=self.timeout_seconds,
             )
         assert result.returncode == 0 # should not fail
         return utils.normalize_string(result.stdout.decode() + result.stderr.decode())
 
-    def _generate_test_impl(self, count, counter_examples=None):
+    def _generate_test_impl(self, count, counter_examples=None, attempt=0) -> TestGeneratorResult:
+        if count <= 0:
+            raise ValueError(f"Invalid count: {count}")
+
+        if attempt >= self.max_attempts:
+            print(f"Max attempts exceeded: {attempt}")
+            return TestGeneratorResult.MAX_ATTEMPTS_EXCEEDED
+
         # Generate test cases
         prompt = ''
         system_message = "You are an expert to write end-to-end tests for a C program."
 
-        main_code = self.c_parser.extract_function_code("main")
-        if main_code is None:
-            raise ValueError("No main function found in the C program")
+        if not self.whole_program:
+            # only extract the main function
+            c_code = self.c_parser.extract_function_code("main")
+            if c_code is None:
+                raise ValueError("No main function found in the C program")
+        else:
+            c_code = self.c_parser.get_code()
 
         prompt += f'''
 The C program has the following main function:
 ```c
-{main_code}
+{c_code}
 ```
 '''
         if self.input_document:
@@ -109,9 +131,30 @@ The C program has the following test cases already written:
 ----END INPUT {i}----
 '''
 
+        if counter_examples:
+            prompt += f'''
+The following test cases are generated before but invalid:
+'''
+            for i, sample in enumerate(counter_examples):
+                prompt += f'''
+----INPUT {i}----
+```
+{sample[0]}
+```
+----END INPUT {i}----
+----OUTPUT {i}----
+```
+{sample[1]}
+```
+----END OUTPUT {i}----
+'''
+            prompt += f'''
+Please only provide valid inputs for these test cases.
+'''
+
         prompt += f'''
-Please write {count} test cases for the C program (start from i=1). All test cases should be written with the following format:
-----INPUT {{i}}----
+Please write {count} test cases for the C program (start from **i=1**). All test cases should be written with the following format:
+----INPUT {{i}}---- (Start from i=1)
 ```
 Your input i here, **DO NOT** provide any comments or extra information in this block
 ```
@@ -125,15 +168,6 @@ Your input i+1 here, **DO NOT** provide any comments or extra information in thi
 You don't need to provide the expected output. The expected output will be generated by the system.
 You should only provide **VALID** inputs for the target C program. You can provide some inputs to test the edge cases.
 '''
-        if counter_examples:
-            joint_counter_examples = '\n'.join(counter_examples)
-            prompt += f'''
-The following test cases are generated before but invalid:
-```
-{joint_counter_examples}
-```
-Please only provide valid inputs for these test cases.
-'''
 
         result = self.llm.query(prompt, override_system_message=system_message)
         success_count = 0
@@ -143,29 +177,39 @@ Please only provide valid inputs for these test cases.
                 self.test_samples.append(test_case[f"input {i}"].strip())
                 success_count += 1
             except ValueError as _:
-                return self._generate_test_impl(count - success_count)  # Retry
+                print(f"Failed to parse the input {i}")
+                return self._generate_test_impl(count - success_count, attempt=attempt+1)  # Retry
 
         # collect test cases
         counter_examples = []
+        remaining_test_samples = []
         for i, sample in enumerate(self.test_samples):
             try:
                 output = self._execute_test_sample(sample)
-            except:
-                counter_examples.append(sample)
+            except ValueError as e:
+                counter_examples.append((sample, e))
                 continue
+            print(f"Test {i} verified")
             self.test_samples_output.append(
                 {
                     "input": sample,
                     "output": output,
                 }
             )
+            remaining_test_samples.append(sample)
+
+        self.test_samples = remaining_test_samples
         if len(counter_examples) > 0:
-            return self._generate_test_impl(count - len(counter_examples), counter_examples)
+            # remove invalid test cases
+            print(f"Counter examples: {len(counter_examples)}")
+            return self._generate_test_impl(len(counter_examples), counter_examples, attempt=attempt+1)
+
+        return TestGeneratorResult.SUCCESS
 
 
     @override
-    def generate_tests(self, count):
-        self._generate_test_impl(count)
+    def generate_tests(self, count) -> TestGeneratorResult:
+        return self._generate_test_impl(count)
 
     @override
     def create_test_task(self, task_path, test_sample_path):

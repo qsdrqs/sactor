@@ -46,5 +46,6 @@ class OllamaLLM(LLM):
             }
         )
 
-        assert resp['message']['content'] is not None
+        if resp['message']['content'] is None:
+            raise Exception(f"Failed to generate response: {resp}")
         return resp['message']['content']

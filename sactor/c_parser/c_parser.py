@@ -20,6 +20,10 @@ class CParser:
         self._functions = dict((func.name, func) for func in functions_list)
         self._update_functions()
 
+    def get_code(self):
+        with open(self.filename, "r") as file:
+            return file.read()
+
     def get_struct_info(self, struct_name):
         if struct_name in self._structs_unions:
             return self._structs_unions[struct_name]

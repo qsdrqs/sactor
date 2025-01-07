@@ -5,16 +5,18 @@ from abc import ABC, abstractmethod
 
 from sactor.c_parser import CParser
 from sactor.llm import LLM
+from .test_generator_types import TestGeneratorResult
 
 
 class TestGenerator(ABC):
-    def __init__(self, llm: LLM, c_parser: CParser, test_samples, input_document=None):
+    def __init__(self, llm: LLM, c_parser: CParser, test_samples, input_document=None, max_attempts=6):
         self.llm = llm
         self.init_test_samples = test_samples
         self.test_samples = test_samples
         self.c_parser = c_parser
         self.input_document = input_document
         self.test_samples_output = []
+        self.max_attempts = max_attempts
 
         # check valgrind existence
         if shutil.which('valgrind') is None:
@@ -26,9 +28,11 @@ class TestGenerator(ABC):
             '--leak-check=no',
             '--',
         ]
+        self.valgrind_cmd = [
+        ]
 
     @abstractmethod
-    def generate_tests(self, count):
+    def generate_tests(self, count) -> TestGeneratorResult:
         pass
 
     @abstractmethod

@@ -44,5 +44,6 @@ class AzureOpenAILLM(LLM):
             temperature=temperature,
         )
 
-        assert resp.choices[0].message.content is not None
+        if resp.choices[0].message.content is None:
+            raise Exception(f"Failed to generate response: {resp}")
         return resp.choices[0].message.content

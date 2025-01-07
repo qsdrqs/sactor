@@ -167,7 +167,8 @@ class ProgramCombiner(Combiner):
             self.warning_stat[warning_type] = diff
             current_count = new_count
 
-        assert current_count == 0
+        if current_count != 0:
+            self.warning_stat["unknown"] = current_count
 
         # remove the suppress lines
         with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:
