@@ -31,7 +31,7 @@ pub fn updateStudentInfo(student: &mut Student, newName: &str, newAge: i32) {
         return;
     }
 
-    student.name = newName.to_owned();
+    student.name = Some(newName.to_owned());
     student.age = newAge;
 }
 ```

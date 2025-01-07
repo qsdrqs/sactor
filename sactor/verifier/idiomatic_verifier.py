@@ -143,8 +143,11 @@ Lastly, the function is translated as:
 ```rust
 {error_translation}
 ```
-It failed to compile with the following error message, try to avoid this error:
+It failed to compile with the following error message:
+```
 {verify_result[1]}
+```
+Analyzing the error messages, think about the possible reasons, and try to avoid this error.
 '''
         elif verify_result[0] == VerifyResult.TEST_ERROR:
             prompt += f'''
@@ -161,11 +164,11 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 
         result = self.llm.query(prompt)
 
-        llm_result = utils.parse_llm_result(result, "function")
         try:
+            llm_result = utils.parse_llm_result(result, "function")
             function_result = llm_result["function"]
-        except KeyError:
-            result = (VerifyResult.COMPILE_ERROR,
+        except:
+            error = (VerifyResult.COMPILE_ERROR,
                       "Output does not wrapped in the correct format!")
             return self._function_generate_test_harness(
                 function_name,
@@ -173,8 +176,9 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 original_signature,
                 idiomatic_signature,
                 struct_signature_dependency_names,
-                result,
-                llm_result
+                verify_result=error,
+                error_translation=result,
+                attempts=attempts+1
             )
 
         struct_code = {}
@@ -212,7 +216,8 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 idiomatic_signature,
                 struct_signature_dependency_names,
                 result,
-                function_result
+                function_result,
+                attempts=attempts+1
             )
 
         utils.save_code(
@@ -231,13 +236,12 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         error_translation=None,
         attempts=0,
     ) -> tuple[VerifyResult, str | None]:
-        # TODO: add attempts limit
-        if os.path.exists(f"{self.struct_test_harness_dir}/{struct_name}.rs"):
+        if attempts > self.max_attempts - 1:
             print(
-                f"Test harness for struct {struct_name} already generated")
-            return VerifyResult.SUCCESS, None
-        # rename the unidiomatic struct to C struct
+                f"Error: Failed to get compilable test harness for function {struct_name} after {self.max_attempts} attempts")
+            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, None
 
+        # rename the unidiomatic struct to C struct
         unidiomatic_struct_code_renamed = rust_ast_parser.rename_struct_union(
             unidiomatic_struct_code, struct_name, f"C{struct_name}")
 
@@ -341,8 +345,11 @@ Lastly, the function is translated as:
 ```rust
 {error_translation}
 ```
-It failed to compile with the following error message, try to avoid this error:
+It failed to compile with the following error message:
+```
 {verify_result[1]}
+```
+Analyzing the error messages, think about the possible reasons, and try to avoid this error.
 '''
         elif verify_result[0] == VerifyResult.TEST_ERROR:
             prompt += f'''
@@ -359,10 +366,10 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 
         result = self.llm.query(prompt)
 
-        llm_result = utils.parse_llm_result(result, "function")
         try:
+            llm_result = utils.parse_llm_result(result, "function")
             function_result = llm_result["function"]
-        except KeyError:
+        except:
             error_message = "Error: Output does not wrapped in the correct format!"
             print(error_message)
             return self._struct_generate_test_harness(
@@ -371,6 +378,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 idiomatic_struct_code,
                 struct_dependencies,
                 (VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
                 attempts=attempts+1
             )
 
@@ -380,7 +388,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 f"{struct_name}_to_C{struct_name}_mut"]
             rust_ast_parser.get_func_signatures(function_result)[
                 f"C{struct_name}_to_{struct_name}_mut"]
-        except KeyError:
+        except:
             error_message = "Error: The transformation functions are not complete"
             print(error_message)
             return self._struct_generate_test_harness(

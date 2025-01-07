@@ -1,3 +1,7 @@
+import tempfile
+import os
+import shutil
+
 from sactor import utils
 from sactor.c_parser import CParser
 from sactor.combiner import ProgramCombiner
@@ -35,14 +39,58 @@ def test_combine():
     structs = c_parser.get_structs()
 
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_unidiomatic'
-    build_path = utils.get_temp_dir()
+    with tempfile.TemporaryDirectory() as tempdir:
+        tempdir = '/tmp/course_manage'
+        build_path = os.path.join(tempdir, 'build')
+        result_path = os.path.join(tempdir, 'result', 'translated_code_unidiomatic')
+        shutil.copytree(result_dir_with_type, result_path, dirs_exist_ok=True)
+        os.remove(os.path.join(result_path, 'combined.rs'))
 
-    combiner = ProgramCombiner(
-        functions,
-        structs,
-        'tests/c_examples/course_manage/course_manage_test.json',
-        build_path
-    )
+        combiner = ProgramCombiner(
+            functions,
+            structs,
+            'tests/c_examples/course_manage/course_manage_test.json',
+            build_path
+        )
 
-    combiner_result, _ = combiner.combine(result_dir_with_type)
-    assert combiner_result == CombineResult.SUCCESS
+        combiner_result, _ = combiner.combine(result_path)
+        assert combiner_result == CombineResult.SUCCESS
+        assert os.path.exists(os.path.join(result_path, 'combined.rs'))
+        with open(os.path.join(result_path, 'combined.rs'), 'r') as f:
+            combined_code = f.read()
+        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/combined.rs', 'r') as f:
+            expected_code = f.read()
+
+        assert utils.normalize_string(combined_code) == utils.normalize_string(expected_code)
+
+def test_combine_idiomatic():
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
+    c_parser = CParser(file_path)
+
+    functions = c_parser.get_functions()
+    structs = c_parser.get_structs()
+
+    result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_idiomatic'
+    with tempfile.TemporaryDirectory() as tempdir:
+        tempdir = '/tmp/course_manage'
+        build_path = os.path.join(tempdir, 'build')
+        result_path = os.path.join(tempdir, 'result', 'translated_code_idiomatic')
+        shutil.copytree(result_dir_with_type, result_path, dirs_exist_ok=True)
+        os.remove(os.path.join(result_path, 'combined.rs')) # remove existing combined.rs
+
+        combiner = ProgramCombiner(
+            functions,
+            structs,
+            'tests/c_examples/course_manage/course_manage_test.json',
+            build_path
+        )
+
+        combiner_result, _ = combiner.combine(result_path)
+        assert combiner_result == CombineResult.SUCCESS
+        assert os.path.exists(os.path.join(result_path, 'combined.rs'))
+        with open(os.path.join(result_path, 'combined.rs'), 'r') as f:
+            combined_code = f.read()
+        with open('tests/c_examples/course_manage/result/translated_code_idiomatic/combined.rs', 'r') as f:
+            expected_code = f.read()
+
+        assert utils.normalize_string(combined_code) == utils.normalize_string(expected_code)

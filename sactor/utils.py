@@ -106,13 +106,13 @@ def parse_llm_result(llm_result, *args):
 def save_code(path, code):
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)
+    with open(path, "w") as f:
+        f.write(code)
     rustfmt = RustFmt(path)
     try:
         rustfmt.format()
     except Exception:
         print("Cannot format the code") # allow to continue
-    with open(path, "w") as f:
-        f.write(code)
 
 
 def print_red(s):

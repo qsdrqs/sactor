@@ -22,10 +22,10 @@
               pkgs.zlib
               pkgs.poetry
             ];
-            shellHook = with pkgs; ''
-              export LD_LIBRARY_PATH="${lib.makeLibraryPath buildInputs}:$LD_LIBRARY_PATH"
-              export LD_LIBRARY_PATH="${stdenv.cc.cc.lib.outPath}/lib:$LD_LIBRARY_PATH"
-            '';
+            # shellHook = with pkgs; ''
+            #   export LD_LIBRARY_PATH="${lib.makeLibraryPath buildInputs}:$LD_LIBRARY_PATH"
+            #   export LD_LIBRARY_PATH="${stdenv.cc.cc.lib.outPath}/lib:$LD_LIBRARY_PATH"
+            # '';
           };
     };
 }

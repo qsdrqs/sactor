@@ -72,7 +72,7 @@ fn main() {
     let mut grades: Vec<c_float> = Vec::with_capacity(num_grades as usize);
     for i in 0..num_grades {
         let grade: c_float = args[(i + 5) as usize].parse().unwrap_or(0.0);
-        if grade < 0.0 || grade > 100.0 {
+        if !(0.0..=100.0).contains(&grade) {
             println!(
                 "Error: Invalid grade {:.6} (must be between 0 and 100)",
                 grade

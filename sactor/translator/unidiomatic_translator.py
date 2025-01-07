@@ -221,10 +221,11 @@ Lastly, the function is translated as:
 ```rust
 {error_translation}
 ```
-It failed to compile with the following error message, try to avoid this error:
+It failed to compile with the following error message:
 ```
 {verify_result[1]}
 ```
+Analyzing the error messages, think about the possible reasons, and try to avoid this error.
 '''
         elif verify_result[0] == VerifyResult.TEST_ERROR:
             prompt += f'''

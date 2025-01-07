@@ -253,6 +253,15 @@ class Verifier(ABC):
                 lines[i] = ""
             lines[start_line] = ' '.join(token_spellings) + ';\n'
 
+        # add fflush(stdout);fflush(stderr); to the end of the printf stmt # TODO: dirty hack
+        for i in range(len(lines)):
+            if 'printf' in lines[i]:
+                # find the end of the printf stmt
+                j = i
+                while ';' not in lines[j]:
+                    j += 1
+                lines[j] = lines[j].replace(';', ';fflush(stdout);fflush(stderr);')
+
         return "".join(lines)
 
     def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures: list[str] | None = None, prefix=False) -> tuple[VerifyResult, str | None]:

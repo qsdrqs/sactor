@@ -1,5 +1,5 @@
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Course {
-    pub course_name: String,
-    pub course_code: i32,
+    pub courseName: String,
+    pub courseCode: i32,
 }

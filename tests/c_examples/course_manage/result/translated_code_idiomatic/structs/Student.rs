@@ -1,8 +1,7 @@
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Student {
-    pub name: String,
+    pub name: Option<String>,
     pub age: i32,
-    pub enrolled_course: Option<Box<Course>>,
+    pub enrolledCourse: Option<Box<Course>>,
     pub grades: Vec<f32>,
-    pub num_grades: i32,
 }

@@ -1,4 +1,5 @@
 from sactor.c_parser import CParser
+import os
 import tempfile
 import subprocess
 
@@ -51,6 +52,6 @@ def test_structs_in_signature():
 def test_clang_compile():
     file_path = 'tests/c_parser/c_example.c'
     with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = '/tmp'
         cmd = ['clang', file_path, '-o', f'{tmpdir}/c_example']
         subprocess.run(cmd, check=True)
+        assert os.path.exists(f'{tmpdir}/c_example')

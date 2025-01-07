@@ -1,5 +1,4 @@
-from functools import partial
-from unittest.mock import MagicMock, patch
+import tempfile
 
 import pytest
 
@@ -15,14 +14,14 @@ def mock_query_impl(prompt, model, original=None, llm_instance=None):
             return f.read()
     if prompt.find('''Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
 ```rust
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct Student {''') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_student') as f:
             return f.read()
     if prompt.find('''Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
 ```rust
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct Course {''') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_course') as f:
@@ -60,25 +59,27 @@ def test_idiomatic_translator(llm):
     c_parser = CParser(file_path)
     max_attempts = 6
 
-    translator = IdiomaticTranslator(
-        llm,
-        c2rust_content,
-        crown,
-        c_parser,
-        'tests/c_examples/course_manage/course_manage_test.json',
-        max_attempts=max_attempts,
-        result_path='tests/c_examples/course_manage/result',
-        unidiomatic_result_path='tests/c_examples/course_manage/result'
-    )
+    with tempfile.TemporaryDirectory() as tempdir:
+        tempdir = '/tmp/course_manage'
+        translator = IdiomaticTranslator(
+            llm,
+            c2rust_content,
+            crown,
+            c_parser,
+            'tests/c_examples/course_manage/course_manage_test.json',
+            max_attempts=max_attempts,
+            result_path=tempdir,
+            unidiomatic_result_path='tests/c_examples/course_manage/result'
+        )
 
-    course = c_parser.get_struct_info('Course')
-    result = translator.translate_struct(course)
-    assert result == TranslateResult.SUCCESS
+        course = c_parser.get_struct_info('Course')
+        result = translator.translate_struct(course)
+        assert result == TranslateResult.SUCCESS
 
-    student = c_parser.get_struct_info('Student')
-    result = translator.translate_struct(student)
-    assert result == TranslateResult.SUCCESS
+        student = c_parser.get_struct_info('Student')
+        result = translator.translate_struct(student)
+        assert result == TranslateResult.SUCCESS
 
-    result = translator.translate_function(
-        c_parser.get_function_info('updateStudentInfo'))
-    assert result == TranslateResult.SUCCESS
+        result = translator.translate_function(
+            c_parser.get_function_info('updateStudentInfo'))
+        assert result == TranslateResult.SUCCESS

@@ -1,12 +1,12 @@
 ----FUNCTION----
 ```rust
 unsafe fn Course_to_CCourse_mut(input: &mut Course) -> *mut CCourse {
-    let course_name_cstring = std::ffi::CString::new(input.course_name.clone()).expect("CString::new failed");
+    let course_name_cstring = std::ffi::CString::new(input.courseName.clone()).expect("CString::new failed");
     let course_name_ptr = course_name_cstring.into_raw();
 
     let c_course = CCourse {
         courseName: course_name_ptr,
-        courseCode: input.course_code as libc::c_int,
+        courseCode: input.courseCode as libc::c_int,
     };
 
     Box::into_raw(Box::new(c_course))
@@ -16,9 +16,9 @@ unsafe fn CCourse_to_Course_mut(input: *mut CCourse) -> &'static mut Course {
     if input.is_null() {
         panic!("Null pointer received for CCourse");
     }
-    
+
     let c_course = &mut *input;
-    
+
     let course_name = if !c_course.courseName.is_null() {
         let c_str = std::ffi::CStr::from_ptr(c_course.courseName);
         c_str.to_str().expect("Invalid UTF-8").to_owned()
@@ -29,8 +29,8 @@ unsafe fn CCourse_to_Course_mut(input: *mut CCourse) -> &'static mut Course {
     let course_code = c_course.courseCode as i32;
 
     let course = Course {
-        course_name,
-        course_code,
+        courseName: course_name,
+        courseCode: course_code,
     };
 
     Box::leak(Box::new(course))
