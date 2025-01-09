@@ -22,7 +22,8 @@ You are an expert in translating code from C to Rust. You will take all informat
             encoding = "o200k_base"  # default encoding, for gpt-4o
 
         self.enc = tiktoken.get_encoding(encoding)
-        self.costed_tokens = []
+        self.costed_input_tokens = []
+        self.costed_output_tokens = []
         self.costed_time = []
 
     @abstractmethod
@@ -42,9 +43,11 @@ You are an expert in translating code from C to Rust. You will take all informat
         last_costed_time = end_time - start_time
         self.costed_time.append(last_costed_time)
 
-        tokens = self.enc.encode(response + prompt)
-        last_costed_tokens = len(tokens)
-        self.costed_tokens.append(last_costed_tokens)
+        input_tokens = self.enc.encode(prompt)
+        output_tokens = self.enc.encode(response)
+
+        self.costed_input_tokens.append(len(input_tokens))
+        self.costed_output_tokens.append(len(output_tokens))
 
         utils.print_green(response)
 
@@ -57,14 +60,17 @@ You are an expert in translating code from C to Rust. You will take all informat
     def statistic(self, path: str) -> None:
         if os.path.isdir(path):
             path = os.path.join(path, "llm_stat.json")
-        total_costed_tokens = sum(self.costed_tokens)
+        total_costed_input_tokens = sum(self.costed_input_tokens)
+        total_costed_output_tokens = sum(self.costed_output_tokens)
         total_costed_time = sum(self.costed_time)
 
         statistic_result = {
-            "total_queries": len(self.costed_tokens),
-            "total_costed_tokens": total_costed_tokens,
+            "total_queries": len(self.costed_input_tokens),
+            "total_costed_input_tokens": total_costed_input_tokens,
+            "total_costed_output_tokens": total_costed_output_tokens,
             "total_costed_time": total_costed_time,
-            "costed_tokens": self.costed_tokens,
+            "costed_input_tokens": self.costed_input_tokens,
+            "costed_output_tokens": self.costed_output_tokens,
             "costed_time": self.costed_time,
         }
         with open(path, "w") as f:
