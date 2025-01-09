@@ -55,3 +55,46 @@ def test_clang_compile():
         cmd = ['clang', file_path, '-o', f'{tmpdir}/c_example']
         subprocess.run(cmd, check=True)
         assert os.path.exists(f'{tmpdir}/c_example')
+
+def test_c_parser2():
+    file_path = 'tests/c_parser/c_example_size_t.c'
+    c_parser = CParser(file_path)
+    c_parser.print_ast()
+
+    assert len(c_parser.get_functions()) == 2
+    assert len(c_parser.get_structs()) == 0
+
+    main_function_deps = c_parser.get_function_info('main').function_dependencies
+    assert set([function.name for function in main_function_deps]) == {
+        'foo',
+    }
+
+def test_function_get_declaration():
+    file_path = 'tests/c_parser/c_example_size_t.c'
+    c_parser = CParser(file_path)
+
+    foo = c_parser.get_function_info('foo')
+    foo_declaration_node = foo.get_declaration_node()
+    assert foo_declaration_node is not None
+
+    foo_start_line = foo.node.extent.start.line
+    foo_declaration_start_line = foo_declaration_node.extent.start.line
+    print(f'foo_start_line: {foo_start_line}, foo_declaration_start_line: {foo_declaration_start_line}')
+    assert foo_declaration_start_line < foo_start_line
+
+    main = c_parser.get_function_info('main')
+    main_declaration_node = main.get_declaration_node()
+    assert main_declaration_node is None
+
+
+def test_global_var():
+    file_path = 'tests/c_parser/c_example_global_var.c'
+    c_parser = CParser(file_path)
+
+    assert len(c_parser.get_functions()) == 1
+    assert len(c_parser.get_structs()) == 0
+
+    main_function_deps = c_parser.get_function_info('main').global_vars_dependencies
+    assert set([var.displayname for var in main_function_deps]) == {
+        'global_var',
+    }

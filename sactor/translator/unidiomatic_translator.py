@@ -4,7 +4,7 @@ from typing import override
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
-from sactor.data_types import DataTypes
+from sactor.data_types import DataType
 from sactor.c_parser import CParser, FunctionInfo, StructInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
@@ -53,10 +53,10 @@ class UnidiomaticTranslator(Translator):
             self.translate_struct(struct)
 
         match struct_union.data_type:
-            case DataTypes.STRUCT:
+            case DataType.STRUCT:
                 rust_s_u = rust_ast_parser.get_struct_definition(
                     self.c2rust_translation, struct_union.name)
-            case DataTypes.UNION:
+            case DataType.UNION:
                 rust_s_u = rust_ast_parser.get_union_definition(
                     self.c2rust_translation, struct_union.name)
             case _:
@@ -166,6 +166,8 @@ The function uses the following structs/unions, which are already translated as 
         used_global_var_nodes = function.global_vars_dependencies
         used_global_vars = []
         for node in used_global_var_nodes:
+            if node.location is not None and node.location.file.name != function.node.location.file.name:
+                continue
             tokens = node.get_tokens()
             used_global_vars.append(
                 ' '.join([token.spelling for token in tokens]))

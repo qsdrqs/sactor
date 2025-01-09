@@ -1,10 +1,13 @@
-from .struct_info import StructInfo
-from .enum_info import EnumInfo
+from clang import cindex
 from clang.cindex import Cursor
+
+from .enum_info import EnumInfo
+from .struct_info import StructInfo
+
 
 class FunctionInfo:
     def __init__(self, node, name, return_type, arguments, location, called_functions=None, used_structs=None, used_global_vars=None, used_enums=None):
-        self.node = node
+        self.node: Cursor = node
         self.name: str = name
         self.return_type = return_type
         self.arguments = arguments
@@ -55,8 +58,19 @@ class FunctionInfo:
 
         return count
 
+    def get_declaration_node(self):
+        canonical = self.node.canonical
+
+        if canonical and canonical.kind == cindex.CursorKind.FUNCTION_DECL and not canonical.is_definition():
+            return canonical
+
+        return None
+
     def __hash__(self):
         return hash(self.name) + hash(self.location)
 
     def __eq__(self, other):
         return self.name == other.name
+
+    def __repr__(self):
+        return f"FunctionInfo({self.get_signature()})"

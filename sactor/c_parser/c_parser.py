@@ -1,7 +1,9 @@
-import ctypes
 import sys
 
 from clang import cindex
+from clang.cindex import Cursor
+
+from sactor import utils
 
 from .enum_info import EnumInfo
 from .function_info import FunctionInfo
@@ -11,9 +13,17 @@ from .struct_info import StructInfo
 class CParser:
     def __init__(self, filename):
         self.filename = filename
+
+        # Parse the C file
+        index = cindex.Index.create()
+        self.compiler_include_paths = utils.get_compiler_include_paths()
+        args = ['-x', 'c', '-std=c99']
+        args.extend([f"-I{path}" for path in self.compiler_include_paths])
+        self.translation_unit = index.parse(self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+
         structs_unions_list = self._extract_structs_unions()
         self._structs_unions = dict((struct_union.name, struct_union)
-                                   for struct_union in structs_unions_list)
+                                    for struct_union in structs_unions_list)
         self._update_structs_unions()
 
         functions_list = self._extract_functions()
@@ -25,6 +35,9 @@ class CParser:
             return file.read()
 
     def get_struct_info(self, struct_name):
+        """
+        Raises ValueError if the function is not found.
+        """
         if struct_name in self._structs_unions:
             return self._structs_unions[struct_name]
         raise ValueError(f"Struct/Union {struct_name} not found")
@@ -33,6 +46,9 @@ class CParser:
         return list(self._structs_unions.values())
 
     def get_function_info(self, function_name):
+        """
+        Raises ValueError if the function is not found.
+        """
         if function_name in self._functions:
             return self._functions[function_name]
         raise ValueError(f"Function {function_name} not found")
@@ -44,10 +60,8 @@ class CParser:
         """
         Parses the C file and extracts struct and union information, including dependencies.
         """
-        index = cindex.Index.create()
-        translation_unit = index.parse(self.filename)
         structs_unions = self._collect_structs_and_unions(
-            translation_unit.cursor)
+            self.translation_unit.cursor)
         return structs_unions
 
     def _update_function_dependencies(self, function: FunctionInfo):
@@ -99,25 +113,9 @@ class CParser:
         """
         Parses the C file and extracts function information.
         """
-        index = cindex.Index.create()
-        translation_unit = index.parse(self.filename)
-        function_names = self._collect_function_names(translation_unit.cursor)
         functions = self._extract_function_info(
-            translation_unit.cursor, function_names)
+            self.translation_unit.cursor)
         return functions
-
-    def _collect_function_names(self, node):
-        """
-        Collects the names of all functions
-        """
-        names = set()
-        if node.kind == cindex.CursorKind.FUNCTION_DECL:
-            if node.is_definition():
-                if node.location.file and node.location.file.name == self.filename:
-                    names.add(node.spelling)
-        for child in node.get_children():
-            names.update(self._collect_function_names(child))
-        return names
 
     def _collect_structs_and_unions(self, node):
         structs = []
@@ -125,22 +123,24 @@ class CParser:
             # Exclude structs declared in system headers
             if node.location and not self._is_in_system_header(node):
                 name = node.spelling
-                if name.find("unnamed at") == -1:  # ignore unnamed structs TODO: is this good?
+                # ignore unnamed structs TODO: is this good?
+                if name.find("unnamed at") == -1:
                     location = f"{node.location.file}:{node.location.line}"
                     dependencies = []
-                    structs.append(StructInfo(node, name, location, dependencies))
+                    structs.append(StructInfo(
+                        node, name, location, dependencies))
         for child in node.get_children():
             structs.extend(self._collect_structs_and_unions(child))
         return structs
 
-    def _extract_function_info(self, node, function_names):
+    def _extract_function_info(self, node):
         """
         Recursively extracts function information from the AST.
         """
         functions = []
         if node.kind == cindex.CursorKind.FUNCTION_DECL:
             if node.is_definition():
-                if node.location.file and node.location.file.name == self.filename:
+                if not self._is_in_system_header(node):
                     name = node.spelling
                     return_type = node.result_type.spelling
                     arguments = [(arg.spelling, arg.type.spelling)
@@ -169,7 +169,7 @@ class CParser:
                                      called_functions, used_structs, used_global_vars, used_enums))
         for child in node.get_children():
             functions.extend(
-                self._extract_function_info(child, function_names))
+                self._extract_function_info(child))
         return functions
 
     def _collect_function_dependencies(self, node, function_names):
@@ -219,7 +219,7 @@ class CParser:
         """
         used_global_vars = set()
         for child in node.get_children():
-            if child.kind == cindex.CursorKind.DECL_REF_EXPR:
+            if child.kind == cindex.CursorKind.DECL_REF_EXPR and not self._is_in_system_header(child):
                 referenced_cursor = child.referenced
                 if referenced_cursor.kind == cindex.CursorKind.VAR_DECL:
                     if referenced_cursor.storage_class == cindex.StorageClass.STATIC or referenced_cursor.linkage == cindex.LinkageKind.EXTERNAL:
@@ -234,7 +234,7 @@ class CParser:
         """
         used_enums = set()
         for child in node.get_children():
-            if child.kind == cindex.CursorKind.DECL_REF_EXPR:
+            if child.kind == cindex.CursorKind.DECL_REF_EXPR and not self._is_in_system_header(child):
                 referenced_cursor = child.referenced
                 if referenced_cursor.kind == cindex.CursorKind.ENUM_CONSTANT_DECL:
                     enum_info = EnumInfo(referenced_cursor, referenced_cursor.spelling,
@@ -259,38 +259,37 @@ class CParser:
     def extract_function_code(self, function_name):
         """
         Extracts the code of the function with the given name from the file.
+
+        Raises ValueError if the function is not found
         """
-        index = cindex.Index.create()
-        translation_unit = index.parse(self.filename)
-        for node in translation_unit.cursor.get_children():
-            if node.kind == cindex.CursorKind.FUNCTION_DECL and node.spelling == function_name:
-                node = node.get_definition()
-                with open(self.filename, "r") as file:
-                    lines = file.readlines()
-                    start_line = node.extent.start.line - 1
-                    end_line = node.extent.end.line
-                    return "".join(lines[start_line:end_line])
-        return None
+        function = self.get_function_info(function_name)
+        function_node = function.node
+        if not function_node.is_definition():
+            function_node = function_node.get_definition()
+
+        with open(self.filename, "r") as file:
+            lines = file.readlines()
+            start_line = function_node.extent.start.line - 1
+            end_line = function_node.extent.end.line
+            return "".join(lines[start_line:end_line])
 
     def extract_struct_union_definition_code(self, struct_union_name):
         """
         Extracts the code of the struct or union definition with the given name from the file.
         handle the `typedef struct` and `struct` cases
-        """
-        index = cindex.Index.create()
-        translation_unit = index.parse(self.filename)
-        for node in translation_unit.cursor.get_children():
-            if (node.kind == cindex.CursorKind.TYPE_REF
-                or node.kind == cindex.CursorKind.UNION_DECL
-                    or node.kind == cindex.CursorKind.STRUCT_DECL) and node.spelling == struct_union_name:
-                node = node.get_definition()
-                with open(self.filename, "r") as file:
-                    lines = file.readlines()
-                    start_line = node.extent.start.line - 1
-                    end_line = node.extent.end.line
-                    return "".join(lines[start_line:end_line])
 
-        return None
+        Raises ValueError if the function is not found
+        """
+        struct_union = self.get_struct_info(struct_union_name)
+        struct_union_node = struct_union.node
+        if not struct_union_node.is_definition():
+            struct_union_node = struct_union_node.get_definition()
+
+        with open(self.filename, "r") as file:
+            lines = file.readlines()
+            start_line = struct_union_node.extent.start.line - 1
+            end_line = struct_union_node.extent.end.line
+            return "".join(lines[start_line:end_line])
 
     def _is_in_system_header(self, node):
         """
@@ -299,7 +298,31 @@ class CParser:
         node_definition = node.get_definition()
         if node_definition is None:
             return True
+        try:
+            node_file_name = node_definition.location.file.name
+        except AttributeError:
+            return False
+        # search for the file in the include paths
+        for include_path in self.compiler_include_paths:
+            if node_file_name.startswith(include_path):
+                return True
+
         return bool(cindex.conf.lib.clang_Location_isInSystemHeader(node.location))
+
+    def print_ast(self, node=None, indent=0):
+        """
+        Prints the AST of the given node.
+        """
+        if node is None:
+            node = self.translation_unit.cursor
+            for child in node.get_children():
+                self.print_ast(child, indent)
+        if node.location.file is None or node.location.file.name != self.filename:
+            # don't print nodes from other files
+            return
+        print(' ' * indent, node.kind, node.spelling, node.location)
+        for child in node.get_children():
+            self.print_ast(child, indent + 2)
 
     def statistic(self):
         result = ""
@@ -363,13 +386,3 @@ class CParser:
 
         return result
 
-
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python parse_c.py <c_file>")
-        sys.exit(1)
-    filename = sys.argv[1]
-
-
-if __name__ == '__main__':
-    main()

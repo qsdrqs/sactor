@@ -1,5 +1,5 @@
 from sactor import utils
-from sactor.data_types import DataTypes
+from sactor.data_types import DataType
 
 
 def test_merge_configs():
@@ -39,7 +39,7 @@ def test_rename_signature():
         signature,
         "foo",
         "bar",
-        DataTypes.FUNCTION
+        DataType.FUNCTION
     ) == renamed_signature
 
     signature = "fn changeStudentName(student: Student, name: String) -> Student;"
@@ -49,5 +49,5 @@ def test_rename_signature():
         signature,
         "Student",
         "CStudent",
-        DataTypes.STRUCT
+        DataType.STRUCT
     ) == renamed_signature

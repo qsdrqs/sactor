@@ -4,7 +4,7 @@ from typing import override
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
-from sactor.data_types import DataTypes
+from sactor.data_types import DataType
 from sactor.llm import LLM
 
 from .verifier import Verifier
@@ -68,7 +68,7 @@ class IdiomaticVerifier(Verifier):
                     original_signature_renamed,
                     struct_name,
                     f"C{struct_name}",
-                    DataTypes.STRUCT
+                    DataType.STRUCT
                 )
 
         uses = rust_ast_parser.get_uses_code(idiomatic_impl)
@@ -77,7 +77,7 @@ class IdiomaticVerifier(Verifier):
             idiomatic_signature,
             function_name,
             f"{function_name}_idiomatic",
-            DataTypes.FUNCTION
+            DataType.FUNCTION
         )
         convert_back_prompt = ""
         if struct_signature_dependency_names:

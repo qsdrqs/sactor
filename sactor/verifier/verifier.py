@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo
+from sactor.c_parser import c_parser_utils
 
 from .verifier_types import VerifyResult
 
@@ -117,9 +118,6 @@ class Verifier(ABC):
         for line in lines:
             if line.find("--------Entering function: ") != -1:
                 in_feedback = True
-
-            if line.find("----------------------------------") != -1:
-                in_feedback = False
             if in_feedback:
                 feedback += line + '\n'
 
@@ -175,24 +173,7 @@ class Verifier(ABC):
             f"{self.embed_test_rust_dir}/target/debug")
         return self._run_tests(target, env, test_number, valgrind)
 
-    def _remove_c_code(self, c_function: FunctionInfo, filename, prefix=False):
-        def remove_prefix(set_of_strings):
-            """
-            Some items in the list may be the prefix of other items, remove the prefix items, only keep the longest items
-            """
-            longest_items = []
-
-            for string, start, end in set_of_strings:
-                is_prefix = False
-                for other_string, _, _ in set_of_strings:
-                    if string != other_string and other_string.startswith(string):
-                        is_prefix = True
-                        break
-                if not is_prefix:
-                    longest_items.append((string, start, end))
-
-            return longest_items
-
+    def _mutate_c_code(self, c_function: FunctionInfo, filename, prefix=False) -> str:
         # remove the c code of the function, but keep the function signature
         node = c_function.node
         location = node.location
@@ -220,6 +201,7 @@ class Verifier(ABC):
             lines[start_line] = signature + "\n"
 
         # change global variables to extern
+        # TODO: move this to c_parser.utils
         used_global_token_spellings = []
         used_global_vars = c_function.global_vars_dependencies
         for var_node in used_global_vars:
@@ -253,6 +235,18 @@ class Verifier(ABC):
                 lines[i] = ""
             lines[start_line] = ' '.join(token_spellings) + ';\n'
 
+        # remove `static` from the function signature in function dependencies
+        source_code = "".join(lines)
+        for function_dependency in c_function.function_dependencies:
+            file = function_dependency.node.location.file.name
+            if file != filename:
+                continue
+
+            source_code = c_parser_utils.remove_function_static_decorator(
+                function_dependency.name, source_code)
+
+        lines = source_code.split("\n")
+
         # add fflush(stdout);fflush(stderr); to the end of the printf stmt # TODO: dirty hack
         for i in range(len(lines)):
             if 'printf' in lines[i]:
@@ -262,7 +256,7 @@ class Verifier(ABC):
                     j += 1
                 lines[j] = lines[j].replace(';', ';fflush(stdout);fflush(stderr);')
 
-        return "".join(lines)
+        return "\n".join(lines)
 
     def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures: list[str] | None = None, prefix=False) -> tuple[VerifyResult, str | None]:
         name = c_function.name
@@ -294,7 +288,7 @@ extern "C" {{
                 f"Failed to compile Rust code for function {name}")
 
         library_path = f"{self.embed_test_rust_dir}/target/debug/lib{name}.so"
-        c_code_removed = self._remove_c_code(c_function, filename, prefix)
+        c_code_removed = self._mutate_c_code(c_function, filename, prefix)
 
         os.makedirs(self.embed_test_c_dir, exist_ok=True)
 

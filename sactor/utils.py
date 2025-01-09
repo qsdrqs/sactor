@@ -1,10 +1,12 @@
 import os
+import subprocess
+import tempfile
 import shutil
 
 import tomli as toml
 
 from sactor import rust_ast_parser
-from sactor.data_types import DataTypes
+from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 
 
@@ -66,8 +68,10 @@ def find_project_root():
 
 
 def get_temp_dir():
-    return '/tmp/sactor'
-    # return tempfile.mkdtemp(prefix='sactor_')
+    # tmpdir = tempfile.mkdtemp(prefix='sactor_')
+    tmpdir = '/tmp/sactor'
+    os.makedirs(tmpdir, exist_ok=True)
+    return tmpdir
 
 
 def parse_llm_result(llm_result, *args):
@@ -178,7 +182,7 @@ def normalize_string(output: str) -> str:
     return '\n'.join(lines)
 
 
-def rename_rust_function_signature(signature: str, old_name: str, new_name: str, data_type: DataTypes) -> str:
+def rename_rust_function_signature(signature: str, old_name: str, new_name: str, data_type: DataType) -> str:
     has_tail_comma = False
     if signature.strip().endswith(";"):
         signature = signature.replace(";", "")
@@ -186,11 +190,11 @@ def rename_rust_function_signature(signature: str, old_name: str, new_name: str,
 
     signature = signature + "{}"
     match data_type:
-        case DataTypes.FUNCTION:
+        case DataType.FUNCTION:
             signature = rust_ast_parser.rename_function(signature, old_name, new_name)
-        case DataTypes.UNION:
+        case DataType.UNION:
             signature = rust_ast_parser.rename_struct_union(signature, old_name, new_name)
-        case DataTypes.STRUCT:
+        case DataType.STRUCT:
             signature = rust_ast_parser.rename_struct_union(signature, old_name, new_name)
         case _:
             raise ValueError(f"Unknown data type {data_type}")
@@ -202,4 +206,30 @@ def rename_rust_function_signature(signature: str, old_name: str, new_name: str,
         signature = signature + ";"
 
     return signature
+
+def get_compiler_include_paths() -> list[str]:
+    if shutil.which("clang"):
+        compiler = "clang"
+    elif shutil.which("gcc"):
+        compiler = "gcc"
+    else:
+        raise OSError("No C compiler found")
+    cmd = [compiler, '-v', '-E', '-x', 'c', '/dev/null']
+    result = subprocess.run(cmd, stderr=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL)
+    compile_output = result.stderr.decode()
+    search_include_paths = []
+
+    add_include_path = False
+    for line in compile_output.split('\n'):
+        if line.startswith('#include <...> search starts here:'):
+            add_include_path = True
+            continue
+        if line.startswith('End of search list.'):
+            break
+
+        if add_include_path:
+            search_include_paths.append(line.strip())
+
+    return search_include_paths
 

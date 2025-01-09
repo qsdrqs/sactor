@@ -1,6 +1,3 @@
-import os
-import shutil
-import subprocess
 import tempfile
 
 import pytest
@@ -8,6 +5,7 @@ import pytest
 from sactor.c_parser import CParser
 from sactor.test_generator import ExecutableTestGenerator
 from tests.ollama_llm import ollama_llm
+from tests.utils import c_file_executable
 
 
 @pytest.fixture
@@ -28,28 +26,6 @@ def mock_query_impl(prompt, model, original=None, llm_instance=None):
 @pytest.fixture
 def llm():
     yield from ollama_llm(mock_query_impl)
-
-
-def c_file_executable(file_path):
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        compiler = None
-        if shutil.which("gcc"):
-            compiler = "gcc"
-        elif shutil.which("clang"):
-            compiler = "clang"
-
-        assert compiler is not None
-        os.makedirs(tmpdirname, exist_ok=True)
-        subprocess.run([
-            compiler,
-            file_path,
-            "-o",
-            f"{tmpdirname}/a.out",
-            '-ftrapv',
-        ], check=True)
-
-        executable = f"{tmpdirname}/a.out"
-        yield (executable, file_path)
 
 
 @pytest.fixture

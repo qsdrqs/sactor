@@ -55,6 +55,9 @@ class Sactor:
         self.struct_order = self.divider.get_struct_order()
         self.function_order = self.divider.get_function_order()
 
+        print("Struct order: ", self.struct_order)
+        print("Function order: ", self.function_order)
+
         self.c2rust = C2Rust(self.input_file)
         self.combiner = ProgramCombiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
                                         self.test_cmd_path, self.build_dir)

@@ -30,6 +30,7 @@ ollama = "^0.4.5"
 [tool.poetry.group.dev.dependencies]
 autopep8 = "^2.3.1"
 isort = "^5.13.2"
+debugpy = "^1.8.11"
 
 [tool.poetry.scripts]
 sactor = "sactor:__main__.main"
