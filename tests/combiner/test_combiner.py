@@ -61,6 +61,12 @@ def test_combine():
         with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/combined.rs', 'r') as f:
             expected_code = f.read()
 
+        with open(os.path.join(result_path, 'clippy_stat.json'), 'r') as f:
+            stat = f.read()
+        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/clippy_stat.json', 'r') as f:
+            expected_stat = f.read()
+
+        assert utils.normalize_string(stat) == utils.normalize_string(expected_stat)
         assert utils.normalize_string(combined_code) == utils.normalize_string(expected_code)
 
 def test_combine_idiomatic():
@@ -93,4 +99,10 @@ def test_combine_idiomatic():
         with open('tests/c_examples/course_manage/result/translated_code_idiomatic/combined.rs', 'r') as f:
             expected_code = f.read()
 
+        with open(os.path.join(result_path, 'clippy_stat.json'), 'r') as f:
+            stat = f.read()
+        with open('tests/c_examples/course_manage/result/translated_code_idiomatic/clippy_stat.json', 'r') as f:
+            expected_stat = f.read()
+
+        assert utils.normalize_string(stat) == utils.normalize_string(expected_stat)
         assert utils.normalize_string(combined_code) == utils.normalize_string(expected_code)

@@ -1,6 +1,6 @@
+import json
 import os
 import re
-import json
 import subprocess
 from typing import override
 
@@ -21,7 +21,7 @@ class ProgramCombiner(Combiner):
 
         self.verifier = E2EVerifier(test_cmd_path, build_path)
         self.build_path = build_path
-        self.warning_stat = {}
+        self.clippy_stat = {}
 
     @override
     def combine(self, result_dir_with_type: str) -> tuple[CombineResult, str | None]:
@@ -94,13 +94,16 @@ class ProgramCombiner(Combiner):
                os.path.join(build_program, "Cargo.toml")]
 
         result = subprocess.run(
+            # Can have both warnings and errors, but this is not compile error
             cmd, capture_output=True)
+
+        has_error = False
         if result.returncode != 0:
-            print(f"Error: Failed to run cargo clippy: {result.stderr}")
-            return CombineResult.RUSTFIX_FAILED, None
+            has_error = True
 
         # collect warnings count
-        self._stat_warnings(build_program, result.stderr.decode("utf-8"))
+        self._stat_warnings_errors(
+            build_program, result.stderr.decode("utf-8"), has_error)
 
         # copy the combined code to the result directory
         cmd = ["cp", "-f",
@@ -108,12 +111,12 @@ class ProgramCombiner(Combiner):
         result = subprocess.run(cmd, check=True, capture_output=True)
 
         # save the warning stat
-        with open(os.path.join(result_dir_with_type, "warning_stat.json"), "w") as f:
-            json.dump(self.warning_stat, f, indent=4)
+        with open(os.path.join(result_dir_with_type, "clippy_stat.json"), "w") as f:
+            json.dump(self.clippy_stat, f, indent=4)
 
         return CombineResult.SUCCESS, output_code
 
-    def _get_warning_count(self, compiler_output: str) -> int:
+    def _get_warning_error_count(self, compiler_output: str, has_error: bool) -> tuple[int, int]:
         warnings_count = 0
         compiler_output_lines = compiler_output.split("\n")
         for output in compiler_output_lines:
@@ -124,28 +127,77 @@ class ProgramCombiner(Combiner):
                 warnings_count = int(total_match.group(1))
                 break
 
-        return warnings_count
+        errors_count = 0
+        if has_error:
+            for output in compiler_output_lines:
+                error_pattern = re.compile(
+                    r'.*could not compile `program` (bin "program") due to (\d+) previous errors.*')
+                error_match = error_pattern.match(output)
+                if error_match:
+                    errors_count = int(error_match.group(1))
+                    break
 
+        return warnings_count, errors_count
 
-    def _stat_warnings(self, build_dir, compiler_output: str):
+    def _stat_warnings_errors(self, build_dir, compiler_output: str, has_errror: bool):
         compiler_output_lines = compiler_output.split("\n")
-        total_warnings = self._get_warning_count(compiler_output)
+        total_warnings, total_errors = self._get_warning_error_count(
+            compiler_output, has_errror)
         warning_types = []
+        error_types = []
 
         print(
             f"Found {total_warnings} warnings in the combined code")
+        print(
+            f"Found {total_errors} errors in the combined code")
         for output in compiler_output_lines:
-            note_pattern = re.compile(
+            note_warning_pattern = re.compile(
                 r'.*= note: `#\[warn\((.*)\)\]` on by default.*')
-            note_match = note_pattern.match(output)
-            if note_match:
-                warning_type = note_match.group(1)
+            warning_match = note_warning_pattern.match(output)
+            note_error_pattern = re.compile(
+                r'.*= note: `#\[deny\((.*)\)\]` on by default.*')
+            error_match = note_error_pattern.match(output)
+            if warning_match:
+                warning_type = warning_match.group(1)
                 warning_types.append(warning_type)
+            elif error_match:
+                error_type = error_match.group(1)
+                error_types.append(error_type)
 
-        self.warning_stat["total_warnings"] = total_warnings
+        self.clippy_stat["total_warnings"] = total_warnings
+        self.clippy_stat["total_errors"] = total_errors
+        self.clippy_stat["warnings"] = {}
+        self.clippy_stat["errors"] = {}
+
+        # remove errors
+        current_count = total_errors
+        suppress_lines = 0
+        for error_type in error_types:
+            # write #![allow(error_type)] to the top of the file to suppress the error
+            with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:
+                code = f.read()
+
+            code = f"#![allow({error_type})]\n{code}"
+            with open(os.path.join(build_dir, "src", "main.rs"), "w") as f:
+                f.write(code)
+            suppress_lines += 1
+
+            # re-run cargo clippy
+            cmd = ["cargo", "clippy", "--manifest-path",
+                   os.path.join(build_dir, "Cargo.toml")]
+            result = subprocess.run(
+                cmd, capture_output=True, check=True)
+
+            _, new_error_count = self._get_warning_error_count(
+                result.stderr.decode("utf-8"), has_errror)
+            diff = current_count - new_error_count
+            self.clippy_stat["errors"][error_type] = diff
+            current_count = new_error_count
+
+        if current_count != 0:
+            self.clippy_stat["errors"]["unknown"] = current_count
 
         current_count = total_warnings
-        suppress_lines = 0
         for warning_type in warning_types:
             # write #![allow(warning_type)] to the top of the file to suppress the warning
             with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:
@@ -162,13 +214,14 @@ class ProgramCombiner(Combiner):
             result = subprocess.run(
                 cmd, capture_output=True, check=True)
 
-            new_count = self._get_warning_count(result.stderr.decode("utf-8"))
-            diff = current_count - new_count
-            self.warning_stat[warning_type] = diff
-            current_count = new_count
+            new_warning_cout, _ = self._get_warning_error_count(
+                result.stderr.decode("utf-8"), has_errror)
+            diff = current_count - new_warning_cout
+            self.clippy_stat["warnings"][warning_type] = diff
+            current_count = new_warning_cout
 
         if current_count != 0:
-            self.warning_stat["unknown"] = current_count
+            self.clippy_stat["warnings"]["unknown"] = current_count
 
         # remove the suppress lines
         with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:

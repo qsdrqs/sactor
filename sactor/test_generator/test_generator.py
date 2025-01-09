@@ -28,8 +28,6 @@ class TestGenerator(ABC):
             '--leak-check=no',
             '--',
         ]
-        self.valgrind_cmd = [
-        ]
 
     @abstractmethod
     def generate_tests(self, count) -> TestGeneratorResult:
