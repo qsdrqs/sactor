@@ -4,19 +4,35 @@ import shutil
 from abc import ABC, abstractmethod
 
 from sactor.c_parser import CParser
-from sactor.llm import LLM
+from sactor.llm import llm_factory
 from .test_generator_types import TestGeneratorResult
 
 
 class TestGenerator(ABC):
-    def __init__(self, llm: LLM, c_parser: CParser, test_samples, input_document=None, max_attempts=6):
-        self.llm = llm
+    def __init__(
+        self,
+        config,
+        file_path,
+        test_samples,
+        test_samples_path=None,
+        input_document=None,
+        max_attempts=6,
+    ):
         self.init_test_samples = test_samples
         self.test_samples = test_samples
-        self.c_parser = c_parser
-        self.input_document = input_document
+        self.file_path = file_path
+        if input_document:
+            with open(input_document, 'r') as f:
+                self.input_document = f.read()
+        else:
+            self.input_document = None
         self.test_samples_output = []
         self.max_attempts = max_attempts
+
+        # get the LLM
+        self.llm = llm_factory(config)
+
+        self.c_parser = CParser(file_path)
 
         # check valgrind existence
         if shutil.which('valgrind') is None:
@@ -29,6 +45,13 @@ class TestGenerator(ABC):
             '--',
         ]
 
+        # parse the test_samples path
+        if test_samples_path:
+            with open(test_samples_path, 'r') as f:
+                test_samples = json.load(f)
+            for sample in test_samples:
+                self.test_samples.append(sample['input']) # only append the input, ignore the output
+
     @abstractmethod
     def generate_tests(self, count) -> TestGeneratorResult:
         pass
@@ -38,10 +61,10 @@ class TestGenerator(ABC):
         pass
 
     def _check_runner_exist(self):
-        # check if `sactor-test-runner` is installed
-        if shutil.which('sactor-test-runner') is None:
+        # check if `sactor` is installed
+        if shutil.which('sactor') is None:
             raise ValueError(
-                "sactor-test-runner is not installed. Please install sactor first.")
+                "sactor is not installed. Please install sactor first.")
 
     def export_test_samples(self, file_path):
         os.makedirs(os.path.dirname(file_path), exist_ok=True)

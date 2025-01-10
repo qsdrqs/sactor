@@ -1,0 +1,8 @@
+{
+    "total_warnings": 7,
+    "total_errors": 0,
+    "warnings": {
+        "non_snake_case": 7
+    },
+    "errors": {}
+}

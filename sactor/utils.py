@@ -150,14 +150,19 @@ def _merge_configs(config, default_config):
 
     return config_out
 
-
-def try_load_config(config_file=None):
+def load_default_config():
     proj_root = find_project_root()
     # load default config
     if not os.path.exists(os.path.join(proj_root, "sactor.default.toml")):
         raise FileNotFoundError("Could not find sactor.default.toml")
     with open(os.path.join(proj_root, "sactor.default.toml"), 'rb') as f:
         default_config = toml.load(f)
+
+    return default_config
+
+def try_load_config(config_file=None):
+    proj_root = find_project_root()
+    default_config = load_default_config()
 
     if config_file is None:
         config_file = os.path.join(proj_root, "sactor.toml")
@@ -207,13 +212,18 @@ def rename_rust_function_signature(signature: str, old_name: str, new_name: str,
 
     return signature
 
-def get_compiler_include_paths() -> list[str]:
+def get_compiler() -> str:
     if shutil.which("clang"):
         compiler = "clang"
     elif shutil.which("gcc"):
         compiler = "gcc"
     else:
         raise OSError("No C compiler found")
+
+    return compiler
+
+def get_compiler_include_paths() -> list[str]:
+    compiler = get_compiler()
     cmd = [compiler, '-v', '-E', '-x', 'c', '/dev/null']
     result = subprocess.run(cmd, stderr=subprocess.PIPE,
                             stdout=subprocess.DEVNULL)
@@ -232,4 +242,25 @@ def get_compiler_include_paths() -> list[str]:
             search_include_paths.append(line.strip())
 
     return search_include_paths
+
+def compile_c_executable(file_path) -> str:
+    '''
+    Compile a C file to a executable file, return the path to the executable
+    '''
+
+    compiler = get_compiler()
+    tmpdir = os.path.join(get_temp_dir(), "c_compile")
+    os.makedirs(tmpdir, exist_ok=True)
+    executable_path = os.path.join(tmpdir, os.path.basename(file_path) + ".out")
+
+    cmd = [
+        compiler,
+        file_path,
+        '-o',
+        executable_path,
+        '-ftrapv', # enable overflow checking
+    ]
+    subprocess.run(cmd, check=True) # raise exception if failed
+
+    return executable_path
 

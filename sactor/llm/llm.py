@@ -12,14 +12,12 @@ class LLM(ABC):
     def __init__(self, config, encoding=None, system_msg=None):
         self.config = config
         if system_msg is None:
-            system_msg = '''
-You are an expert in translating code from C to Rust. You will take all information from the user as reference, and will output the translated code into the format that the user wants.
-'''
+            system_msg = config['general']['system_message']
 
         self.system_msg = system_msg
 
         if not encoding:
-            encoding = "o200k_base"  # default encoding, for gpt-4o
+            encoding = config['general']['encoding']
 
         self.enc = tiktoken.get_encoding(encoding)
         self.costed_input_tokens = []

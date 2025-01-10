@@ -2,7 +2,7 @@ import tempfile
 
 import pytest
 
-from sactor.c_parser import CParser
+from sactor import utils
 from sactor.test_generator import ExecutableTestGenerator
 from tests.ollama_llm import ollama_llm
 from tests.utils import c_file_executable
@@ -42,21 +42,22 @@ def c_file_executable_scanf():
 
 def test_generate_tests(llm, test_samples, c_file_executable_arguments):
     executable, file_path = c_file_executable_arguments
-    c_parser = CParser(file_path)
+    config = utils.load_default_config()
 
-    genetor = ExecutableTestGenerator(
-        llm=llm,
+    generator = ExecutableTestGenerator(
+        config=config,
+        file_path=file_path,
         test_samples=test_samples,
-        c_parser=c_parser,
         executable=executable,
         feed_as_arguments=True
     )
-    genetor.generate_tests(10)
-    assert len(genetor.test_samples) == 12
-    assert len(genetor.test_samples_output) == 12
+    generator.llm = llm # mock llm
+    generator.generate_tests(10)
+    assert len(generator.test_samples) == 12
+    assert len(generator.test_samples_output) == 12
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        genetor.create_test_task(
+        generator.create_test_task(
             f'{tmpdirname}/test_task.json', f'{tmpdirname}/sample_tests.json')
         with open(f'{tmpdirname}/test_task.json', 'r') as f:
             test_task = f.read()
@@ -71,21 +72,22 @@ def test_generate_tests(llm, test_samples, c_file_executable_arguments):
 
 def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
     executable, file_path = c_file_executable_scanf
-    c_parser = CParser(file_path)
+    config = utils.load_default_config()
 
-    genetor = ExecutableTestGenerator(
-        llm=llm,
+    generator = ExecutableTestGenerator(
+        config=config,
+        file_path=file_path,
         test_samples=test_samples,
-        c_parser=c_parser,
         executable=executable,
         feed_as_arguments=False
     )
-    genetor.generate_tests(10)
-    assert len(genetor.test_samples) == 12
-    assert len(genetor.test_samples_output) == 12
+    generator.llm = llm # mock llm
+    generator.generate_tests(10)
+    assert len(generator.test_samples) == 12
+    assert len(generator.test_samples_output) == 12
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        genetor.create_test_task(
+        generator.create_test_task(
             f'{tmpdirname}/test_task.json', f'{tmpdirname}/sample_tests.json')
         with open(f'{tmpdirname}/test_task.json', 'r') as f:
             test_task = f.read()

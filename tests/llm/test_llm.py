@@ -10,7 +10,7 @@ from sactor.llm import AzureOpenAILLM, OpenAILLM
 @pytest.fixture
 def azure_llm():
     # patch environment variables
-    config = utils.try_load_config()
+    config = utils.load_default_config()
     config["AzureOpenAI"] = {
         "api_key": "mocked_value",
         "endpoint": "mocked_value",
@@ -29,7 +29,7 @@ def azure_llm():
 
 @pytest.fixture
 def openai_llm():
-    config = utils.try_load_config()
+    config = utils.load_default_config()
     config["OpenAI"] = {
         "api_key": "mocked_value",
         "model": "mocked_value",

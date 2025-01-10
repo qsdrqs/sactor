@@ -30,7 +30,7 @@ option with the `sactor` command.
 
 ## Usage
 
-### Test Command in Sactor
+### Test Command in `sactor run-tests`
 
 The `test_command_path` option in the configuration file specifies the path that
 contains the end-to-end test commands. It should be a json file with the following
@@ -65,3 +65,24 @@ optional and can be arbitrary key-value pairs can be added to the test command.
 executable.
 
 Command is executed in the same working directory where the json file is located.
+
+### Test Samples in `sactor generate-tests`
+
+The `test_samples_path` option in the configuration file specifies the path that
+contains the test samples to be used for generating test commands. It should be
+a json file with the following format:
+
+```json
+[
+    {
+        "input": "a b \n c d",
+        "output": "c d \n a b"
+    }
+    ...
+]
+```
+
+Each item in the list is a test sample that will be used to generate test commands.
+"input" is the input to the test command, and "output" is the expected output of
+the test command. Only "input" is required for each test sample. "output" is optional
+and will not be used for generating tests.

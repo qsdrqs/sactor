@@ -4,7 +4,7 @@ from sactor import thirdparty, utils
 from sactor.c_parser import CParser
 from sactor.combiner import CombineResult, ProgramCombiner
 from sactor.divider import Divider
-from sactor.llm import AzureOpenAILLM, OllamaLLM, OpenAILLM
+from sactor.llm import llm_factory
 from sactor.thirdparty import C2Rust, Crown
 from sactor.translator import (IdiomaticTranslator, TranslateResult,
                                Translator, UnidiomaticTranslator)
@@ -63,16 +63,7 @@ class Sactor:
                                         self.test_cmd_path, self.build_dir)
 
         # Initialize LLM
-        match self.config['general'].get("llm"):
-            case "AzureOpenAI":
-                self.llm = AzureOpenAILLM(self.config)
-            case "OpenAI":
-                self.llm = OpenAILLM(self.config)
-            case "Ollama":
-                self.llm = OllamaLLM(self.config)
-            case _:
-                raise ValueError(
-                    f"Invalid LLM type: {self.config['general'].get('llm')}")
+        self.llm = llm_factory(self.config)
 
         self.c2rust_translation = None
 

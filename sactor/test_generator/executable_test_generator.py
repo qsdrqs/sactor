@@ -4,8 +4,7 @@ import subprocess
 from typing import override
 
 from sactor import utils
-from sactor.llm import LLM
-from sactor.sactor import CParser
+from sactor.llm import llm_factory
 
 from .test_generator import TestGenerator
 from .test_generator_types import TestGeneratorResult
@@ -14,10 +13,11 @@ from .test_generator_types import TestGeneratorResult
 class ExecutableTestGenerator(TestGenerator):
     def __init__(
         self,
-        llm: LLM,
-        c_parser: CParser,
+        config,
+        file_path,
         test_samples,
-        executable,
+        test_samples_path=None,
+        executable=None,
         feed_as_arguments=True,
         input_document=None,
         whole_program=False,
@@ -25,18 +25,22 @@ class ExecutableTestGenerator(TestGenerator):
         max_attempts=6,
     ):
         super().__init__(
-            llm=llm,
+            config=config,
+            file_path=file_path,
             test_samples=test_samples,
-            c_parser=c_parser,
+            test_samples_path=test_samples_path,
             input_document=input_document,
             max_attempts=max_attempts,
         )
-        self.executable = executable
         self.feed_as_arguments = feed_as_arguments
         self.timeout_seconds = timeout_seconds
         self.whole_program = whole_program
 
-        # Check if test samples are valid
+        if executable is None:
+            # try to compile the file
+            executable = utils.compile_c_executable(file_path)
+        self.executable = executable
+
         for sample in self.init_test_samples:
             self._execute_test_sample(sample)
 
@@ -224,7 +228,7 @@ You should only provide **VALID** inputs for the target C program. You can provi
         # Write the test task
         tasks = []
         for i in range(len(self.test_samples)):
-            command = f'sactor-test-runner --type bin {os.path.abspath(test_sample_path)} %t {i}'
+            command = f'sactor run-tests --type bin {os.path.abspath(test_sample_path)} %t {i}'
             if self.feed_as_arguments:
                 command += f' --feed-as-args'
             else:

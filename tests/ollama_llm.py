@@ -7,7 +7,7 @@ from sactor.llm import OllamaLLM
 
 def ollama_llm(mock_query_impl):
     original_query = OllamaLLM._query_impl
-    config = utils.try_load_config()
+    config = utils.load_default_config()
     llm = OllamaLLM(config)
     try:
         ollama.chat(

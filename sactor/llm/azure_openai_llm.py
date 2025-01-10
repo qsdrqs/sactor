@@ -2,7 +2,7 @@ from typing import override
 
 from openai import AzureOpenAI
 
-from . import LLM
+from .llm import LLM
 
 
 class AzureOpenAILLM(LLM):

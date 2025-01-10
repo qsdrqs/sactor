@@ -2,7 +2,7 @@ from typing import override
 
 from ollama import Client
 
-from . import LLM
+from .llm import LLM
 
 
 class OllamaLLM(LLM):

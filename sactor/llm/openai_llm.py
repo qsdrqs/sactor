@@ -2,7 +2,7 @@ from typing import override
 
 from openai import OpenAI
 
-from . import LLM
+from .llm import LLM
 
 
 class OpenAILLM(LLM):

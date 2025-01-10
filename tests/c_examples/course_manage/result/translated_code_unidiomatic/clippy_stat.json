@@ -1,0 +1,10 @@
+{
+    "total_warnings": 11,
+    "total_errors": 0,
+    "warnings": {
+        "clippy::manual_c_str_literals": 2,
+        "clippy::missing_safety_doc": 1,
+        "non_snake_case": 8
+    },
+    "errors": {}
+}

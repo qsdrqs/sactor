@@ -34,7 +34,6 @@ debugpy = "^1.8.11"
 
 [tool.poetry.scripts]
 sactor = "sactor:__main__.main"
-sactor-test-runner = "sactor.test_runner:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

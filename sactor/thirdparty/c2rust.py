@@ -29,6 +29,7 @@ class C2Rust(ThirdParty):
             raise OSError("c2rust executable not found")
 
         tmpdir = os.path.join(utils.get_temp_dir(), "c2rust")
+        os.makedirs(tmpdir, exist_ok=True)
         filename_noext = os.path.splitext(self.filename)[0]
         tmp_filename = os.path.join(
             tmpdir, os.path.basename(self.filename))

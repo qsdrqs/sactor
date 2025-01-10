@@ -6,7 +6,7 @@ from sactor.llm import AzureOpenAILLM
 
 def azure_llm(mock_query_impl):
     original_query = AzureOpenAILLM._query_impl
-    config = utils.try_load_config()
+    config = utils.load_default_config()
     if config['AzureOpenAI']['api_key'] == 'your-api-key':
         # default values
         config["AzureOpenAI"] = {
