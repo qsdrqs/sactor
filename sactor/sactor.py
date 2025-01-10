@@ -55,6 +55,15 @@ class Sactor:
         self.struct_order = self.divider.get_struct_order()
         self.function_order = self.divider.get_function_order()
 
+        for function_pairs in self.function_order:
+            if len(function_pairs) > 1:
+                raise ValueError(
+                    "Circular dependencies for functions is not supported yet")
+        for struct_pairs in self.struct_order:
+            if len(struct_pairs) > 1:
+                raise ValueError(
+                    "Circular dependencies for structs is not supported yet")
+
         print("Struct order: ", self.struct_order)
         print("Function order: ", self.function_order)
 

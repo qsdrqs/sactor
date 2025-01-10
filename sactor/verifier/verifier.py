@@ -6,8 +6,7 @@ import subprocess
 from abc import ABC, abstractmethod
 
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import FunctionInfo
-from sactor.c_parser import c_parser_utils
+from sactor.c_parser import FunctionInfo, c_parser_utils
 
 from .verifier_types import VerifyResult
 
@@ -68,7 +67,7 @@ class Verifier(ABC):
 
         # Try format the Rust code
         cmd = ["cargo", "fmt", "--manifest-path",
-                f"{self.build_attempt_path}/Cargo.toml"]
+               f"{self.build_attempt_path}/Cargo.toml"]
         result = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
@@ -249,12 +248,9 @@ class Verifier(ABC):
 
         # add fflush(stdout);fflush(stderr); to the end of the printf stmt # TODO: dirty hack
         for i in range(len(lines)):
-            if 'printf' in lines[i]:
-                # find the end of the printf stmt
-                j = i
-                while ';' not in lines[j]:
-                    j += 1
-                lines[j] = lines[j].replace(';', ';fflush(stdout);fflush(stderr);')
+            if '#include' in lines[i] and ('stdio.h' in lines[i] or 'cstdio' in lines[i]):
+                lines[i] = lines[i] + '\n' \
+                    + '#define printf(fmt, ...) (printf(fmt, ##__VA_ARGS__), fflush(stdout), fflush(stderr))'
 
         return "\n".join(lines)
 
