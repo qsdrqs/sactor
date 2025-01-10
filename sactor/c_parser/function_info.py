@@ -6,7 +6,19 @@ from .struct_info import StructInfo
 
 
 class FunctionInfo:
-    def __init__(self, node, name, return_type, arguments, location, called_functions=None, used_structs=None, used_global_vars=None, used_enums=None):
+    def __init__(
+        self,
+        node,
+        name,
+        return_type,
+        arguments,
+        location,
+        called_functions=None,
+        used_structs=None,
+        used_global_vars=None,
+        used_enums=None,
+        used_type_aliases=None,
+    ):
         self.node: Cursor = node
         self.name: str = name
         self.return_type = return_type
@@ -16,6 +28,7 @@ class FunctionInfo:
         self.struct_dependencies: list[StructInfo] = used_structs if used_structs is not None else []
         self.global_vars_dependencies: list[Cursor] = used_global_vars if used_global_vars is not None else []
         self.enum_dependencies: list[EnumInfo] = used_enums if used_enums is not None else []
+        self.type_alias_dependencies: dict[str, str] = used_type_aliases if used_type_aliases is not None else {}
 
     def get_signature(self, function_name_sub=None):
         return_type = self.return_type
@@ -35,15 +48,31 @@ class FunctionInfo:
         struct_dependencies_tbl = {}
         for struct in self.struct_dependencies:
             struct_dependencies_tbl[struct.name] = struct
-        structs_in_signature = []
+        structs_in_signature = set()
         for name in struct_dependencies_tbl:
             if self.return_type.find(name) != -1:
-                structs_in_signature.append(struct_dependencies_tbl[name])
+                structs_in_signature.add(struct_dependencies_tbl[name])
             for _, arg_type in self.arguments:
                 if arg_type.find(name) != -1:
-                    structs_in_signature.append(struct_dependencies_tbl[name])
+                    structs_in_signature.add(struct_dependencies_tbl[name])
 
-        return structs_in_signature
+        # check type aliases
+        for type_alias in self.type_alias_dependencies.keys():
+            if self.return_type.find(type_alias) != -1:
+                struct_name = self.type_alias_dependencies[type_alias]
+                if struct_name in struct_dependencies_tbl:
+                    structs_in_signature.add(struct_dependencies_tbl[struct_name])
+                else:
+                    print(f"Warning: {struct_name} not found in struct_dependencies_tbl")
+            for _, arg_type in self.arguments:
+                if arg_type.find(type_alias) != -1:
+                    struct_name = self.type_alias_dependencies[type_alias]
+                    if struct_name in struct_dependencies_tbl:
+                        structs_in_signature.add(struct_dependencies_tbl[struct_name])
+                    else:
+                        print(f"Warning: {struct_name} not found in struct_dependencies_tbl")
+
+        return list(structs_in_signature)
 
     def get_arg_types(self):
         return [arg_type for _, arg_type in self.arguments]

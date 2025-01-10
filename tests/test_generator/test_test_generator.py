@@ -42,10 +42,8 @@ def c_file_executable_scanf():
 
 def test_generate_tests(llm, test_samples, c_file_executable_arguments):
     executable, file_path = c_file_executable_arguments
-    config = utils.load_default_config()
 
     generator = ExecutableTestGenerator(
-        config=config,
         file_path=file_path,
         test_samples=test_samples,
         executable=executable,
@@ -58,24 +56,22 @@ def test_generate_tests(llm, test_samples, c_file_executable_arguments):
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         generator.create_test_task(
-            f'{tmpdirname}/test_task.json', f'{tmpdirname}/sample_tests.json')
+            f'{tmpdirname}/test_task.json', f'{tmpdirname}/test_samples.json')
         with open(f'{tmpdirname}/test_task.json', 'r') as f:
             test_task = f.read()
-        with open(f'{tmpdirname}/sample_tests.json', 'r') as f:
-            sample_tests = f.read()
+        with open(f'{tmpdirname}/test_samples.json', 'r') as f:
+            test_samples = f.read()
 
     with open('tests/c_examples/add/test_task/test_task.json', 'r') as f:
         assert test_task == f.read().replace('${PLACE_HOLDER}', tmpdirname)
-    with open('tests/c_examples/add/test_task/sample_tests.json', 'r') as f:
-        assert sample_tests == f.read()
+    with open('tests/c_examples/add/test_task/test_samples.json', 'r') as f:
+        assert test_samples == f.read()
 
 
 def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
     executable, file_path = c_file_executable_scanf
-    config = utils.load_default_config()
 
     generator = ExecutableTestGenerator(
-        config=config,
         file_path=file_path,
         test_samples=test_samples,
         executable=executable,
@@ -88,13 +84,13 @@ def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         generator.create_test_task(
-            f'{tmpdirname}/test_task.json', f'{tmpdirname}/sample_tests.json')
+            f'{tmpdirname}/test_task.json', f'{tmpdirname}/test_samples.json')
         with open(f'{tmpdirname}/test_task.json', 'r') as f:
             test_task = f.read()
-        with open(f'{tmpdirname}/sample_tests.json', 'r') as f:
-            sample_tests = f.read()
+        with open(f'{tmpdirname}/test_samples.json', 'r') as f:
+            test_samples = f.read()
 
     with open('tests/c_examples/add_scanf/test_task/test_task.json', 'r') as f:
         assert test_task == f.read().replace('${PLACE_HOLDER}', tmpdirname)
-    with open('tests/c_examples/add_scanf/test_task/sample_tests.json', 'r') as f:
-        assert sample_tests == f.read()
+    with open('tests/c_examples/add_scanf/test_task/test_samples.json', 'r') as f:
+        assert test_samples == f.read()

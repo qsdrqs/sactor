@@ -145,7 +145,17 @@ The struct uses the following structs/unions, which are already translated as (y
 {joined_dependencies_code}
 ```
 '''
-
+        used_type_aliases = struct_union.type_aliases
+        if len(used_type_aliases) > 0:
+            used_type_aliases_kv_pairs = [
+                f'{alias} = {used_type}' for alias, used_type in used_type_aliases.items()]
+            joint_used_type_aliases = '\n'.join(used_type_aliases_kv_pairs)
+            prompt += f'''
+The struct uses the following type aliases, which are defined as:
+```rust
+{joint_used_type_aliases}
+```
+'''
         # define output format
         prompt += f'''
 Output the translated struct into this format (wrap with the following tags):
@@ -344,6 +354,17 @@ Try to avoid using pointers in the function arguments and return values if possi
 This function uses the following structs/unions, which are already translated as (you don't need to include them in your translation, and **you can not modify them**):
 ```rust
 {joint_struct_code}
+```
+'''
+        used_type_aliases = function.type_alias_dependencies
+        if len(used_type_aliases) > 0:
+            used_type_aliases_kv_pairs = [
+                f'{alias} = {used_type}' for alias, used_type in used_type_aliases.items()]
+            joint_used_type_aliases = '\n'.join(used_type_aliases_kv_pairs)
+            prompt += f'''
+The function uses the following type aliases, which are defined as:
+```rust
+{joint_used_type_aliases}
 ```
 '''
         if len(function_depedency_signatures) > 0:

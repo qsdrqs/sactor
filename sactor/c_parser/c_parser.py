@@ -1,7 +1,4 @@
-import sys
-
 from clang import cindex
-from clang.cindex import Cursor
 
 from sactor import utils
 
@@ -19,7 +16,10 @@ class CParser:
         self.compiler_include_paths = utils.get_compiler_include_paths()
         args = ['-x', 'c', '-std=c99']
         args.extend([f"-I{path}" for path in self.compiler_include_paths])
-        self.translation_unit = index.parse(self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+        self.translation_unit = index.parse(
+            self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+
+        self._type_alias: dict[str, str] = self._extract_type_alias()
 
         structs_unions_list = self._extract_structs_unions()
         self._structs_unions = dict((struct_union.name, struct_union)
@@ -56,6 +56,18 @@ class CParser:
     def get_functions(self) -> list[FunctionInfo]:
         return list(self._functions.values())
 
+    def _extract_type_alias(self):
+        """
+        Extracts type aliases (typedefs) from the C file.
+        Returns a dictionary mapping alias names to their original types.
+        """
+        type_alias = {}
+
+        # Start processing from the translation unit
+        self._process_typedef(self.translation_unit.cursor, type_alias)
+
+        return type_alias
+
     def _extract_structs_unions(self) -> list[StructInfo]:
         """
         Parses the C file and extracts struct and union information, including dependencies.
@@ -63,6 +75,27 @@ class CParser:
         structs_unions = self._collect_structs_and_unions(
             self.translation_unit.cursor)
         return structs_unions
+
+    def _process_typedef(self, node, type_alias: dict[str, str]):
+        if node.kind == cindex.CursorKind.TYPEDEF_DECL:
+            # Skip system headers
+            if node.location and not self._is_in_system_header(node):
+                alias_name = node.spelling
+
+                # Get the underlying type
+                underlying_type = node.underlying_typedef_type
+                if underlying_type:
+                    target_spelling = underlying_type.spelling
+                    # handle the `typedef struct` and `struct` cases
+                    if target_spelling.startswith("struct ") or target_spelling.startswith("union "):
+                        target_spelling = target_spelling.split(" ")[1]
+                    if target_spelling.strip() == alias_name.strip():
+                        # Skip self-referencing typedefs
+                        return
+                    type_alias[alias_name] = target_spelling
+
+        for child in node.get_children():
+            self._process_typedef(child, type_alias)
 
     def _update_function_dependencies(self, function: FunctionInfo):
         """
@@ -88,10 +121,16 @@ class CParser:
         node = struct_union.node
         used_struct_names = self._collect_structs_unions_dependencies(node)
         used_structs = set()
+        type_aliases = {}
         for used_struct_name in used_struct_names:
             # Add the struct to the dependencies if it exists and is not the same as the current struct
             if used_struct_name in self._structs_unions and used_struct_name != struct_union.name:
                 used_structs.add(self._structs_unions[used_struct_name])
+            elif used_struct_name in self._type_alias:
+                original_struct_name = self._type_alias[used_struct_name]
+                if original_struct_name in self._structs_unions and original_struct_name != struct_union.name:
+                    used_structs.add(self._structs_unions[self._type_alias[used_struct_name]])
+                type_aliases[used_struct_name] = self._type_alias[used_struct_name]
 
         struct_union.dependencies = list(used_structs)
 
@@ -154,10 +193,17 @@ class CParser:
                     used_struct_names = self._collect_structs_unions_dependencies(
                         node)
                     used_structs = set()
+                    used_type_aliases = {}
                     for used_struct_name in used_struct_names:
                         if used_struct_name in self._structs_unions:
                             used_structs.add(
                                 self._structs_unions[used_struct_name])
+                        elif used_struct_name in self._type_alias:
+                            original_struct_name = self._type_alias[used_struct_name]
+                            if original_struct_name in self._structs_unions:
+                                used_structs.add(
+                                    self._structs_unions[self._type_alias[used_struct_name]])
+                            used_type_aliases[used_struct_name] = self._type_alias[used_struct_name]
 
                     # Collect global variables
                     used_global_vars = self._collect_global_variable_dependencies(
@@ -165,8 +211,18 @@ class CParser:
                     # Collect enums
                     used_enums = self._collect_enum_dependencies(node)
 
-                    functions.append(FunctionInfo(node, name, return_type, arguments, location,
-                                     called_functions, used_structs, used_global_vars, used_enums))
+                    functions.append(FunctionInfo(
+                        node,
+                        name,
+                        return_type,
+                        arguments,
+                        location,
+                        called_functions,
+                        used_structs,
+                        used_global_vars,
+                        used_enums,
+                        used_type_aliases
+                    ))
         for child in node.get_children():
             functions.extend(
                 self._extract_function_info(child))
@@ -385,4 +441,3 @@ class CParser:
             result += "-" * 40 + "\n"
 
         return result
-

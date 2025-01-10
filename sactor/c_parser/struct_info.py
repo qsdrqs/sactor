@@ -5,11 +5,12 @@ from sactor.data_types import DataType
 
 
 class StructInfo:
-    def __init__(self, node, name, location, dependencies=None):
+    def __init__(self, node, name, location, dependencies=None, type_aliases=None):
         self.node: Cursor = node
         self.name: str = name
         self.location = location
         self.dependencies: list[StructInfo] = dependencies if dependencies is not None else []
+        self.type_aliases: dict[str, str] = type_aliases if type_aliases is not None else {}
         # determine datatype of struct
         if node.kind == cindex.CursorKind.STRUCT_DECL:
             self.data_type = DataType.STRUCT

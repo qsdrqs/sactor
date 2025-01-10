@@ -162,6 +162,17 @@ The function uses the following structs/unions, which are already translated as 
 {joint_code_of_structs}
 ```
 '''
+        used_type_aliases = function.type_alias_dependencies
+        if len(used_type_aliases) > 0:
+            used_type_aliases_kv_pairs = [
+                f'{alias} = {used_type}' for alias, used_type in used_type_aliases.items()]
+            joint_used_type_aliases = '\n'.join(used_type_aliases_kv_pairs)
+            prompt += f'''
+The function uses the following type aliases, which are defined as:
+```c
+{joint_used_type_aliases}
+```
+'''
 
         used_global_var_nodes = function.global_vars_dependencies
         used_global_vars = []

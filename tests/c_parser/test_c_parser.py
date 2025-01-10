@@ -98,3 +98,13 @@ def test_global_var():
     assert set([var.displayname for var in main_function_deps]) == {
         'global_var',
     }
+
+def test_typedef():
+    file_path = 'tests/c_examples/typedef/typedef_sample.c'
+    c_parser = CParser(file_path)
+    print(c_parser._type_alias)
+
+    assert len(c_parser.get_functions()) == 2
+    calculate_distance = c_parser.get_function_info('calculate_distance')
+    assert len(calculate_distance.get_structs_in_signature()) == 1
+    assert len(calculate_distance.struct_dependencies) == 1

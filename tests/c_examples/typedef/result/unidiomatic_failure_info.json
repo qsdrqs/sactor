@@ -1,0 +1,24 @@
+{
+    "calculate_distance": {
+        "type": "function",
+        "errors": [
+            {
+                "type": "COMPILE_ERROR",
+                "message": "    Updating crates.io index\n     Locking 6 packages to latest compatible versions\n   Compiling proc-macro2 v1.0.92\n   Compiling unicode-ident v1.0.14\n   Compiling syn v1.0.109\n   Compiling libc v0.2.169\n   Compiling quote v1.0.38\n   Compiling sactor_proc_macros v0.1.0 (/home/qsdrqs/.cache/sactor-attempt/build_attempt/sactor_proc_macros)\n   Compiling build_attempt v0.1.0 (/home/qsdrqs/.cache/sactor-attempt/build_attempt)\nerror[E0425]: cannot find function `sqrt` in crate `libc`\n  --> src/lib.rs:11:20\n   |\n11 |     unsafe { libc::sqrt(dx * dx + dy * dy) }\n   |                    ^^^^ not found in `libc`\n\nFor more information about this error, try `rustc --explain E0425`.\nerror: could not compile `build_attempt` (lib) due to 1 previous error\n"
+            }
+        ]
+    },
+    "main": {
+        "type": "function",
+        "errors": [
+            {
+                "type": "COMPILE_ERROR",
+                "message": "    Updating crates.io index\n     Locking 6 packages to latest compatible versions\n   Compiling proc-macro2 v1.0.92\n   Compiling unicode-ident v1.0.14\n   Compiling syn v1.0.109\n   Compiling libc v0.2.169\n   Compiling quote v1.0.38\n   Compiling sactor_proc_macros v0.1.0 (/home/qsdrqs/.cache/sactor-attempt/build_attempt/sactor_proc_macros)\n   Compiling build_attempt v0.1.0 (/home/qsdrqs/.cache/sactor-attempt/build_attempt)\nerror[E0308]: mismatched types\n  --> src/lib.rs:22:21\n   |\n22 |         x: unsafe { libc::atof(CString::new(args[1].as_str()).unwrap().as_ptr()) },\n   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f32`, found `f64`\n\nerror[E0308]: mismatched types\n  --> src/lib.rs:23:21\n   |\n23 |         y: unsafe { libc::atof(CString::new(args[2].as_str()).unwrap().as_ptr()) },\n   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f32`, found `f64`\n\nerror[E0308]: mismatched types\n  --> src/lib.rs:26:21\n   |\n26 |         x: unsafe { libc::atof(CString::new(args[3].as_str()).unwrap().as_ptr()) },\n   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f32`, found `f64`\n\nerror[E0308]: mismatched types\n  --> src/lib.rs:27:21\n   |\n27 |         y: unsafe { libc::atof(CString::new(args[4].as_str()).unwrap().as_ptr()) },\n   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f32`, found `f64`\n\nFor more information about this error, try `rustc --explain E0308`.\nerror: could not compile `build_attempt` (lib) due to 4 previous errors\n"
+            },
+            {
+                "type": "COMPILE_ERROR",
+                "message": "    Updating crates.io index\n     Locking 6 packages to latest compatible versions\n   Compiling proc-macro2 v1.0.92\n   Compiling unicode-ident v1.0.14\n   Compiling syn v1.0.109\n   Compiling libc v0.2.169\n   Compiling quote v1.0.38\n   Compiling sactor_proc_macros v0.1.0 (/home/qsdrqs/.cache/sactor-attempt/build_attempt/sactor_proc_macros)\n   Compiling build_attempt v0.1.0 (/home/qsdrqs/.cache/sactor-attempt/build_attempt)\nerror[E0133]: call to unsafe function `calculate_distance` is unsafe and requires unsafe function or block\n  --> src/lib.rs:31:33\n   |\n31 |     println!(\"Distance: {:.1}\", calculate_distance(p1, p2));\n   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function\n   |\n   = note: consult the function's documentation for information on how to avoid undefined behavior\n\nFor more information about this error, try `rustc --explain E0133`.\nerror: could not compile `build_attempt` (lib) due to 1 previous error\n"
+            }
+        ]
+    }
+}

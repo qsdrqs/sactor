@@ -1,0 +1,8 @@
+{
+    "total_warnings": 0,
+    "total_errors": 0,
+    "warnings": {
+        "unused_unsafe": 0
+    },
+    "errors": {}
+}

@@ -10,7 +10,7 @@ from tests.test_generator.test_test_generator import (
 
 
 def test_test_runner(c_file_executable_arguments):
-    test_samples_path = 'tests/c_examples/add/test_task/sample_tests.json'
+    test_samples_path = 'tests/c_examples/add/test_task/test_samples.json'
     with open(test_samples_path, 'r') as file:
         test_samples_output = json.load(file)
 
@@ -26,7 +26,7 @@ def test_test_runner(c_file_executable_arguments):
         assert diff is None or diff == ''
 
 def test_test_runner2(c_file_executable_scanf):
-    test_samples_path = 'tests/c_examples/add_scanf/test_task/sample_tests.json'
+    test_samples_path = 'tests/c_examples/add_scanf/test_task/test_samples.json'
     with open(test_samples_path, 'r') as file:
         test_samples_output = json.load(file)
 
@@ -42,7 +42,7 @@ def test_test_runner2(c_file_executable_scanf):
         assert diff is None or diff == ''
 
 def test_test_runner_e2e(c_file_executable_arguments):
-    test_samples_path = 'tests/c_examples/add/test_task/sample_tests.json'
+    test_samples_path = 'tests/c_examples/add/test_task/test_samples.json'
     test_task = 'tests/c_examples/add/test_task/test_task.json'
     abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
 
@@ -57,7 +57,7 @@ def test_test_runner_e2e(c_file_executable_arguments):
         assert result[0] == VerifyResult.SUCCESS
 
 def test_test_runner_e2e_2(c_file_executable_scanf):
-    test_samples_path = 'tests/c_examples/add_scanf/test_task/sample_tests.json'
+    test_samples_path = 'tests/c_examples/add_scanf/test_task/test_samples.json'
     test_task = 'tests/c_examples/add_scanf/test_task/test_task.json'
     abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
 

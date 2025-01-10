@@ -1,50 +1,50 @@
 [
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 0 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 0 --feed-as-stdin",
         "test_id": 0
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 1 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 1 --feed-as-stdin",
         "test_id": 1
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 2 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 2 --feed-as-stdin",
         "test_id": 2
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 3 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 3 --feed-as-stdin",
         "test_id": 3
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 4 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 4 --feed-as-stdin",
         "test_id": 4
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 5 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 5 --feed-as-stdin",
         "test_id": 5
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 6 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 6 --feed-as-stdin",
         "test_id": 6
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 7 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 7 --feed-as-stdin",
         "test_id": 7
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 8 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 8 --feed-as-stdin",
         "test_id": 8
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 9 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 9 --feed-as-stdin",
         "test_id": 9
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 10 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 10 --feed-as-stdin",
         "test_id": 10
     },
     {
-        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/sample_tests.json %t 11 --feed-as-stdin",
+        "command": "sactor run-tests --type bin ${PLACE_HOLDER}/test_samples.json %t 11 --feed-as-stdin",
         "test_id": 11
     }
 ]

@@ -3,6 +3,7 @@ import os
 import shutil
 from abc import ABC, abstractmethod
 
+from sactor import utils
 from sactor.c_parser import CParser
 from sactor.llm import llm_factory
 from .test_generator_types import TestGeneratorResult
@@ -11,9 +12,9 @@ from .test_generator_types import TestGeneratorResult
 class TestGenerator(ABC):
     def __init__(
         self,
-        config,
         file_path,
         test_samples,
+        config_path=None,
         test_samples_path=None,
         input_document=None,
         max_attempts=6,
@@ -28,9 +29,10 @@ class TestGenerator(ABC):
             self.input_document = None
         self.test_samples_output = []
         self.max_attempts = max_attempts
+        self.config = utils.try_load_config(config_path)
 
         # get the LLM
-        self.llm = llm_factory(config)
+        self.llm = llm_factory(self.config)
 
         self.c_parser = CParser(file_path)
 

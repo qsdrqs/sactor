@@ -2,8 +2,9 @@ import argparse
 import sys
 
 from sactor import Sactor
-from sactor.test_runner import ExecutableTestRunner, TestRunnerResult
 from sactor.test_generator import ExecutableTestGenerator, TestGeneratorResult
+from sactor.test_runner import ExecutableTestRunner, TestRunnerResult
+
 
 def parse_translate(parser):
     parser.add_argument(
@@ -21,6 +22,7 @@ def parse_translate(parser):
         '--config',
         '-c',
         type=str,
+        dest='config_file',
         help='The configuration file to use'
     )
 
@@ -56,6 +58,7 @@ def parse_translate(parser):
         action='store_true',
         help='Only translate C code into unidiomatic Rust code, skipping the idiomatic translation'
     )
+
 
 def parse_run_tests(parser):
     parser.add_argument(
@@ -96,6 +99,7 @@ def parse_run_tests(parser):
         help='Only avaliable for binary targets. If set, the test samples will be fed to the target program via stdin.'
     )
 
+
 def parse_generate_tests(parser):
     parser.add_argument(
         'input_file',
@@ -106,7 +110,21 @@ def parse_generate_tests(parser):
     parser.add_argument(
         'count',
         type=int,
-        help='The number of test samples to generate'
+        help='The number of total test samples expected. This will include the test samples provided in the test_samples_path'
+    )
+
+    parser.add_argument(
+        '--out-test-sample-path',
+        '-os',
+        type=str,
+        help='The path to the test samples output json file, default to `$PWD/test_task/test_samples.json`'
+    )
+
+    parser.add_argument(
+        '--out-test-task-path',
+        '-ot',
+        type=str,
+        help='The path to the test task output json file, default to `$PWD/test_task/test_task.json`'
     )
 
     parser.add_argument(
@@ -120,11 +138,12 @@ def parse_generate_tests(parser):
         '--config',
         '-c',
         type=str,
+        dest='config_file',
         help='The configuration file to use'
     )
 
     parser.add_argument(
-        '--test-samples',
+        '--test-samples_path',
         '-s',
         type=str,
         help='The path to the test samples output json file, if any, need to follow the format specified in the README'
@@ -167,19 +186,21 @@ def parse_generate_tests(parser):
         help='Only avaliable for binary targets. If set, the test samples will be fed to the target program via stdin.'
     )
 
+
 def translate(args):
     sactor = Sactor(
         input_file=args.input_file,
         test_cmd_path=args.test_command_path,
         build_dir=args.build_dir,
         result_dir=args.result_dir,
-        config_file=args.config,
+        config_file=args.config_file,
         no_verify=args.no_verify,
         unidiomatic_only=args.unidiomatic_only,
         llm_stat=args.llm_stat
     )
 
     sactor.run()
+
 
 def run_tests(parser, args):
     if args.type == 'lib':
@@ -223,6 +244,7 @@ def run_tests(parser, args):
     else:
         raise ValueError(f'Invalid type: {args.type}')
 
+
 def generate_tests(parser, args):
     if args.type == 'lib':
         if args.feed_as_args is not None:
@@ -246,9 +268,9 @@ def generate_tests(parser, args):
 
     if args.type == 'bin':
         test_generator = ExecutableTestGenerator(
-            args.config,
-            args.input_file,
-            test_samples=[], # test samples provided from test_samples_path in command line mode
+            config_path=args.config_file,
+            file_path=args.input_file,
+            test_samples=[],  # test samples provided from test_samples_path in command line mode
             test_samples_path=args.test_samples_path,
             executable=args.executable,
             input_document=args.input_document,
@@ -259,6 +281,7 @@ def generate_tests(parser, args):
         result = test_generator.generate_tests(args.count)
         if result == TestGeneratorResult.SUCCESS:
             print('✅ Tests generated successfully!')
+            test_generator.create_test_task(args.out_test_sample_path, args.out_test_task_path)
             sys.exit(0)
         else:
             print('❌ Failed to generate tests')

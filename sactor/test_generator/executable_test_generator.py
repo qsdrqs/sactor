@@ -13,9 +13,9 @@ from .test_generator_types import TestGeneratorResult
 class ExecutableTestGenerator(TestGenerator):
     def __init__(
         self,
-        config,
         file_path,
         test_samples,
+        config_path=None,
         test_samples_path=None,
         executable=None,
         feed_as_arguments=True,
@@ -25,7 +25,7 @@ class ExecutableTestGenerator(TestGenerator):
         max_attempts=6,
     ):
         super().__init__(
-            config=config,
+            config_path=config_path,
             file_path=file_path,
             test_samples=test_samples,
             test_samples_path=test_samples_path,
@@ -39,6 +39,8 @@ class ExecutableTestGenerator(TestGenerator):
         if executable is None:
             # try to compile the file
             executable = utils.compile_c_executable(file_path)
+
+        executable = os.path.abspath(executable) # get the absolute path
         self.executable = executable
 
         for sample in self.init_test_samples:
@@ -221,6 +223,14 @@ You should only provide **VALID** inputs for the target C program. You can provi
         Create the test task from the generated test samples
         '''
         self._check_runner_exist()
+
+        pwd = os.getcwd()
+        if task_path is None or test_sample_path is None:
+            os.makedirs(f'{pwd}/test_task', exist_ok=True)
+        if task_path is None:
+            task_path = f'{pwd}/test_task/test_task.json'
+        if test_sample_path is None:
+            test_sample_path = f'{pwd}/test_task/test_samples.json'
 
         # Write test samples to the test
         self.export_test_samples(test_sample_path)
