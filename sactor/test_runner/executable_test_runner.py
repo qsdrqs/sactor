@@ -14,10 +14,12 @@ class ExecutableTestRunner(TestRunner):
         test_samples_path: str,
         target: str,
         feed_as_arguments=True,
+        timeout_seconds=60,
     ):
         super().__init__(
             test_samples_path=test_samples_path,
-            target=target
+            target=target,
+            timeout_seconds=timeout_seconds,
         )
         self.feed_as_arguments = feed_as_arguments
 
@@ -41,22 +43,29 @@ class ExecutableTestRunner(TestRunner):
         test_sample_input = test_sample['input']
         test_sample_output = test_sample['output']
 
-        if self.feed_as_arguments:
-            feed_input_str = f'{self.target} {test_sample_input}'
-            cmd = feed_input_str.split()
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-        else:
-            cmd = self.target
-            result = subprocess.run(
-                cmd,
-                input=test_sample_input.encode(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+        try:
+            if self.feed_as_arguments:
+                feed_input_str = f'{self.target} {test_sample_input}'
+                cmd = feed_input_str.split()
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=self.timeout_seconds,
+                )
+            else:
+                cmd = self.target
+                result = subprocess.run(
+                    cmd,
+                    input=test_sample_input.encode(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=self.timeout_seconds,
+                )
+        except subprocess.TimeoutExpired as e:
+            print(f'Test {test_sample_number} timed out: {e}')
+            raise ValueError(f'Test {test_sample_number} timed out: {e}')
+
 
         target_output = utils.normalize_string(
             result.stdout.decode() + result.stderr.decode())

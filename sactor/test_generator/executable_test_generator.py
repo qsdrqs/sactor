@@ -31,9 +31,9 @@ class ExecutableTestGenerator(TestGenerator):
             test_samples_path=test_samples_path,
             input_document=input_document,
             max_attempts=max_attempts,
+            timeout_seconds=timeout_seconds,
         )
         self.feed_as_arguments = feed_as_arguments
-        self.timeout_seconds = timeout_seconds
         self.whole_program = whole_program
 
         if executable is None:

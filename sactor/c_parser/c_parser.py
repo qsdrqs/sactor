@@ -130,7 +130,7 @@ class CParser:
                 original_struct_name = self._type_alias[used_struct_name]
                 if original_struct_name in self._structs_unions and original_struct_name != struct_union.name:
                     used_structs.add(self._structs_unions[self._type_alias[used_struct_name]])
-                type_aliases[used_struct_name] = self._type_alias[used_struct_name]
+                type_aliases[used_struct_name] = original_struct_name
 
         struct_union.dependencies = list(used_structs)
 
