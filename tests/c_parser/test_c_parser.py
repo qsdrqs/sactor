@@ -21,6 +21,16 @@ def test_c_parser():
         'printUsage',
     }
 
+def test_c_parser_get_signature():
+    file_path = 'tests/c_examples/course_manage/course_manage.c'
+    c_parser = CParser(file_path)
+
+    update_student_info = c_parser.get_function_info('updateStudentInfo')
+    assert update_student_info.get_signature() == 'void updateStudentInfo ( struct Student * student , const char * newName , int newAge )'
+
+    print_usage = c_parser.get_function_info('printUsage')
+    assert print_usage.get_signature() == 'void printUsage ( )'
+
 def test_c_parser_struct_dependency():
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)

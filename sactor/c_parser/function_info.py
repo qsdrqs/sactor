@@ -31,18 +31,22 @@ class FunctionInfo:
         self.type_alias_dependencies: dict[str, str] = used_type_aliases if used_type_aliases is not None else {}
 
     def get_signature(self, function_name_sub=None):
-        return_type = self.return_type
-        function_name = self.name if function_name_sub is None else function_name_sub
-        arg_list = []
-        for arg_name, arg_type in self.arguments:
-            if arg_type.find("[") == -1 and arg_type.find("]") == -1:
-                arg_list.append(f"{arg_type} {arg_name}")
-            else:
-                # int[] a -> int a[]
-                arg_list.append(
-                    f"{arg_type.replace('[', '').replace(']', '')} {arg_name}[]")
-        signature = f"{return_type} {function_name}({', '.join(arg_list)})"
-        return signature
+        '''
+        function_name_sub is used to substitute the function name in the signature
+        '''
+        tokens = []
+        for token in self.node.get_tokens():
+            if token.kind.name == 'PUNCTUATION' and token.spelling == '{':
+                break
+            tokens.append(token.spelling)
+
+        signature = ' '.join(tokens)
+
+        # If a function name substitution is requested, replace the original name
+        if function_name_sub is not None:
+            signature = signature.replace(self.name, function_name_sub)
+
+        return signature.strip()
 
     def get_structs_in_signature(self) -> list[StructInfo]:
         struct_dependencies_tbl = {}
