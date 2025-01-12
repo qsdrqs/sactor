@@ -12,7 +12,13 @@ from .verifier_types import VerifyResult
 
 
 class Verifier(ABC):
-    def __init__(self, test_cmd_path: str, build_path=None, no_feedback=False):
+    def __init__(
+        self,
+        test_cmd_path: str,
+        build_path=None,
+        no_feedback=False,
+        extra_compile_command=None,
+    ):
         if build_path:
             self.build_path = build_path
         else:
@@ -25,6 +31,7 @@ class Verifier(ABC):
         self.embed_test_c_dir = os.path.join(self.build_path, "embed_test_c")
         self.test_cmd_path = test_cmd_path
         self.no_feedback = no_feedback
+        self.extra_compile_command = extra_compile_command
 
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
@@ -254,7 +261,14 @@ class Verifier(ABC):
 
         return "\n".join(lines)
 
-    def _embed_test_rust(self, c_function: FunctionInfo, rust_code, function_dependency_signatures: list[str] | None = None, prefix=False) -> tuple[VerifyResult, str | None]:
+    def _embed_test_rust(
+        self,
+        c_function: FunctionInfo,
+        rust_code,
+        function_dependency_signatures: list[str] | None = None,
+        prefix=False,
+        idiomatic=False
+    ) -> tuple[VerifyResult, str | None]:
         name = c_function.name
         filename = c_function.node.location.file.name
 
@@ -283,7 +297,6 @@ extern "C" {{
             raise RuntimeError(
                 f"Failed to compile Rust code for function {name}")
 
-        library_path = f"{self.embed_test_rust_dir}/target/debug/lib{name}.so"
         c_code_removed = self._mutate_c_code(c_function, filename, prefix)
 
         os.makedirs(self.embed_test_c_dir, exist_ok=True)
@@ -292,8 +305,11 @@ extern "C" {{
             f.write(c_code_removed)
 
         # compile the C code
-        c_compile_cmd = ['gcc', '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
+        compiler = utils.get_compiler()
+        c_compile_cmd = [compiler, '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
             self.embed_test_c_dir, f'{name}.c'), f'-L{self.embed_test_rust_dir}/target/debug', f'-l{name}']
+        if self.extra_compile_command:
+            c_compile_cmd.extend(self.extra_compile_command.split())
         print(c_compile_cmd)
         res = subprocess.run(c_compile_cmd)
         if res.returncode != 0:
@@ -310,8 +326,12 @@ extern "C" {{
             # rerun with feedback from `trace_fn`
             print(
                 f"Error: Failed to run tests for function {name}, rerun with feedback")
-            rust_code = rust_ast_parser.add_attr_to_function(
-                rust_code, name, "#[sactor_proc_macros::trace_fn]")
+            if idiomatic:
+                rust_code = rust_ast_parser.add_attr_to_function(
+                    rust_code, f'{name}_idiomatic', "#[sactor_proc_macros::trace_fn]")
+            else:
+                rust_code = rust_ast_parser.add_attr_to_function(
+                    rust_code, name, "#[sactor_proc_macros::trace_fn]")
             utils.create_rust_proj(
                 rust_code, name, self.embed_test_rust_dir, is_lib=True)
             res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
@@ -322,6 +342,7 @@ extern "C" {{
 
             previous_result = result
 
+            # TODO: improve feedback: 1. pointers not printable 2. main function doesn't have valid feedback
             result = self._run_tests_with_rust(
                 f'{self.embed_test_c_dir}/{name}', failed_test_number, valgrind=True)
 

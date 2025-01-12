@@ -60,7 +60,6 @@ def test_idiomatic_translator(llm):
     max_attempts = 6
 
     with tempfile.TemporaryDirectory() as tempdir:
-        tempdir = '/tmp/course_manage'
         translator = IdiomaticTranslator(
             llm,
             c2rust_content,

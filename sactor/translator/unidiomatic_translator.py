@@ -23,6 +23,7 @@ class UnidiomaticTranslator(Translator):
         max_attempts,
         build_path=None,
         result_path=None,
+        extra_compile_command=None,
     ) -> None:
         super().__init__(
             llm=llm,
@@ -36,7 +37,11 @@ class UnidiomaticTranslator(Translator):
             self.result_path, "translated_code_unidiomatic/structs")
         self.translated_function_path = os.path.join(
             self.result_path, "translated_code_unidiomatic/functions")
-        self.verifier = verifier.UnidiomaticVerifier(test_cmd_path, build_path)
+        self.verifier = verifier.UnidiomaticVerifier(
+            test_cmd_path,
+            build_path=build_path,
+            extra_compile_command=extra_compile_command
+        )
 
     @override
     def _translate_struct_impl(
@@ -240,6 +245,14 @@ It failed to compile with the following error message:
 ```
 Analyzing the error messages, think about the possible reasons, and try to avoid this error.
 '''
+            # for redefine error
+            assert verify_result[1] is not None
+            if verify_result[1].find("is defined multiple times") != -1:
+                prompt += f'''
+The error message may be cause your translation includes other functions or structs (maybe the dependencies).
+Remember, you should only provide the translation for the function and necessary `use` statements. The system will automatically include the dependencies in the final translation.
+'''
+
         elif verify_result[0] == VerifyResult.TEST_ERROR:
             prompt += f'''
 Lastly, the function is translated as:
@@ -275,7 +288,14 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         try:
             llm_result = utils.parse_llm_result(result, "function")
         except:
-            error_message = f"Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed"
+            error_message = f'''
+Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
+----FUNCTION----
+```rust
+// Your translated function here
+```
+----END FUNCTION----
+'''
             print(error_message)
             self.append_failure_info(
                 function.name, "COMPILE_ERROR", error_message

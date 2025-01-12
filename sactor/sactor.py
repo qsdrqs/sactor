@@ -16,12 +16,14 @@ class Sactor:
         self,
         input_file: str,
         test_cmd_path: str,
+        is_executable,
         build_dir=None,
         result_dir=None,
         config_file=None,
         no_verify=False,
         unidiomatic_only=False,
         llm_stat=None,
+        extra_compile_command=None,
     ):
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
@@ -39,6 +41,8 @@ class Sactor:
         self.config_file = config_file
         self.no_verify = no_verify
         self.unidiomatic_only = unidiomatic_only
+        self.extra_compile_command = extra_compile_command
+        self.is_executable = is_executable
 
         self.config = utils.try_load_config(self.config_file)
 
@@ -85,7 +89,7 @@ class Sactor:
             raise ValueError(
                 f"Failed to translate unidiomatic code: {result}")
         combine_result, _ = self.combiner.combine(os.path.join(
-            self.result_dir, "translated_code_unidiomatic"))
+            self.result_dir, "translated_code_unidiomatic"), is_executable=self.is_executable)
         if combine_result != CombineResult.SUCCESS:
             raise ValueError(
                 f"Failed to combine translated code for unidiomatic translation: {combine_result}")
@@ -99,7 +103,7 @@ class Sactor:
                     f"Failed to translate idiomatic code: {result}")
 
             combine_result, _ = self.combiner.combine(os.path.join(
-                self.result_dir, "translated_code_idiomatic"))
+                self.result_dir, "translated_code_idiomatic"), is_executable=self.is_executable)
             if combine_result != CombineResult.SUCCESS:
                 raise ValueError(
                     f"Failed to combine translated code for idiomatic translation: {combine_result}")
@@ -119,6 +123,7 @@ class Sactor:
             max_attempts=self.config['general']['max_translation_attempts'],
             build_path=self.build_dir,
             result_path=self.result_dir,
+            extra_compile_command=self.extra_compile_command,
         )
         return translator
 
@@ -159,6 +164,7 @@ class Sactor:
             max_verifier_harness_attempts=self.config['general']['max_verifier_harness_attempts'],
             build_path=self.build_dir,
             result_path=self.result_dir,
+            extra_compile_command=self.extra_compile_command,
         )
 
         return translator

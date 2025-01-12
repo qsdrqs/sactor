@@ -40,7 +40,6 @@ def test_combine():
 
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_unidiomatic'
     with tempfile.TemporaryDirectory() as tempdir:
-        tempdir = '/tmp/course_manage'
         build_path = os.path.join(tempdir, 'build')
         result_path = os.path.join(tempdir, 'result', 'translated_code_unidiomatic')
         shutil.copytree(result_dir_with_type, result_path, dirs_exist_ok=True)
@@ -53,7 +52,7 @@ def test_combine():
             build_path
         )
 
-        combiner_result, _ = combiner.combine(result_path)
+        combiner_result, _ = combiner.combine(result_path, is_executable=True)
         assert combiner_result == CombineResult.SUCCESS
         assert os.path.exists(os.path.join(result_path, 'combined.rs'))
         with open(os.path.join(result_path, 'combined.rs'), 'r') as f:
@@ -78,7 +77,6 @@ def test_combine_idiomatic():
 
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_idiomatic'
     with tempfile.TemporaryDirectory() as tempdir:
-        tempdir = '/tmp/course_manage'
         build_path = os.path.join(tempdir, 'build')
         result_path = os.path.join(tempdir, 'result', 'translated_code_idiomatic')
         shutil.copytree(result_dir_with_type, result_path, dirs_exist_ok=True)
@@ -91,7 +89,7 @@ def test_combine_idiomatic():
             build_path
         )
 
-        combiner_result, _ = combiner.combine(result_path)
+        combiner_result, _ = combiner.combine(result_path, is_executable=True)
         assert combiner_result == CombineResult.SUCCESS
         assert os.path.exists(os.path.join(result_path, 'combined.rs'))
         with open(os.path.join(result_path, 'combined.rs'), 'r') as f:

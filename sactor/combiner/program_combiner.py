@@ -15,16 +15,17 @@ from .rust_code import RustCode
 
 
 class ProgramCombiner(Combiner):
-    def __init__(self, functions: list[FunctionInfo], structs: list[StructInfo], test_cmd_path, build_path):
+    def __init__(self, functions: list[FunctionInfo], structs: list[StructInfo], test_cmd_path, build_path, extra_compile_command=None):
         self.functions = functions
         self.structs = structs
 
-        self.verifier = E2EVerifier(test_cmd_path, build_path)
+        self.verifier = E2EVerifier(
+            test_cmd_path, build_path, extra_compile_command=extra_compile_command)
         self.build_path = build_path
         self.clippy_stat = {}
 
     @override
-    def combine(self, result_dir_with_type: str) -> tuple[CombineResult, str | None]:
+    def combine(self, result_dir_with_type: str, is_executable: bool) -> tuple[CombineResult, str | None]:
         file_path = os.path.join(result_dir_with_type, 'combined.rs')
         if os.path.exists(file_path):
             print("Skip combining: combined.rs already exists")
@@ -47,7 +48,8 @@ class ProgramCombiner(Combiner):
         output_code = self._combine_code(function_code, struct_code)
 
         # verify the combined code
-        result = self.verifier.e2e_verify(output_code, executable=True)
+        result = self.verifier.e2e_verify(
+            output_code, is_executable=is_executable)
         if result[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to verify the combined code: {result[1]}")
             match result[0]:
@@ -65,7 +67,7 @@ class ProgramCombiner(Combiner):
             rust_code=output_code,
             proj_name="program",
             path=build_program,
-            is_lib=False
+            is_lib=not is_executable
         )
 
         # format the code

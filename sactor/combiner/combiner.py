@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
-from .rust_code import RustCode
 from .combiner_types import CombineResult
+from .rust_code import RustCode
 
 
 class Combiner(ABC):

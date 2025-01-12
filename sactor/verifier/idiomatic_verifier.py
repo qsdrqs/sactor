@@ -18,10 +18,17 @@ class IdiomaticVerifier(Verifier):
         llm: LLM,
         max_attempts,
         build_path=None,
+        no_feedback=False,
+        extra_compile_command=None,
         result_path=None,
         unidiomatic_result_path=None,
     ):
-        super().__init__(test_cmd_path, build_path)
+        super().__init__(
+            test_cmd_path,
+            build_path=build_path,
+            no_feedback=no_feedback,
+            extra_compile_command=extra_compile_command
+        )
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")
         self.struct_test_harness_dir = os.path.join(
@@ -168,15 +175,21 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
             llm_result = utils.parse_llm_result(result, "function")
             function_result = llm_result["function"]
         except:
-            error = (VerifyResult.COMPILE_ERROR,
-                      "Output does not wrapped in the correct format!")
+            error_message = f'''
+Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
+----FUNCTION----
+```rust
+// Your translated function here
+```
+----END FUNCTION----
+'''
             return self._function_generate_test_harness(
                 function_name,
                 idiomatic_impl,
                 original_signature,
                 idiomatic_signature,
                 struct_signature_dependency_names,
-                verify_result=error,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
                 error_translation=result,
                 attempts=attempts+1
             )
@@ -370,7 +383,14 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
             llm_result = utils.parse_llm_result(result, "function")
             function_result = llm_result["function"]
         except:
-            error_message = "Error: Output does not wrapped in the correct format!"
+            error_message = f'''
+Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
+----FUNCTION----
+```rust
+// Your translated function here
+```
+----END FUNCTION----
+'''
             print(error_message)
             return self._struct_generate_test_harness(
                 struct_name,
@@ -548,7 +568,8 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
         test_error = self._embed_test_rust(
             function,
             harness_code,
-            prefix=prefix
+            prefix=prefix,
+            idiomatic=True
         )
 
         if test_error[0] != VerifyResult.SUCCESS:

@@ -11,11 +11,29 @@ from .verifier_types import VerifyResult
 
 
 class UnidiomaticVerifier(Verifier):
-    def __init__(self, test_cmd_path, build_path=None):
-        super().__init__(test_cmd_path, build_path)
+    def __init__(
+        self,
+        test_cmd_path: str,
+        build_path=None,
+        no_feedback=False,
+        extra_compile_command=None,
+    ):
+        super().__init__(
+            test_cmd_path,
+            build_path=build_path,
+            no_feedback=no_feedback,
+            extra_compile_command=extra_compile_command
+        )
 
     @override
-    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], function_dependency_signatures, has_prefix) -> tuple[VerifyResult, str | None]:
+    def verify_function(
+        self,
+        function: FunctionInfo,
+        function_code: str,
+        struct_code: dict[str, str],
+        function_dependency_signatures,
+        has_prefix,
+    ) -> tuple[VerifyResult, str | None]:
         functions = {function.name: function_code}
         combiner = PartialCombiner(functions, struct_code)
         result, combined_code = combiner.combine()

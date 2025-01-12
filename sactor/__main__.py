@@ -19,6 +19,13 @@ def parse_translate(parser):
     )
 
     parser.add_argument(
+        '--type',
+        choices=['bin', 'lib'],
+        required=True,
+        help='Whether the target is a binary program or a library'
+    )
+
+    parser.add_argument(
         '--config',
         '-c',
         type=str,
@@ -59,6 +66,13 @@ def parse_translate(parser):
         help='Only translate C code into unidiomatic Rust code, skipping the idiomatic translation'
     )
 
+    parser.add_argument(
+        '--extra-compile-command',
+        '-e',
+        type=str,
+        help='The extra compile command to use to compile the C code', # TODO: dirty implement, remove this later
+    )
+
 
 def parse_run_tests(parser):
     parser.add_argument(
@@ -82,7 +96,7 @@ def parse_run_tests(parser):
         '--type',
         choices=['bin', 'lib'],
         required=True,
-        help='The type of the target program/library'
+        help='Whether the target is a binary program or a library'
     )
 
     parser.add_argument(
@@ -131,7 +145,7 @@ def parse_generate_tests(parser):
         '--type',
         choices=['bin', 'lib'],
         required=True,
-        help='The type of the target program/library'
+        help='Whether the target is a binary program or a library'
     )
 
     parser.add_argument(
@@ -188,6 +202,7 @@ def parse_generate_tests(parser):
 
 
 def translate(args):
+    is_executable = args.type == 'bin'
     sactor = Sactor(
         input_file=args.input_file,
         test_cmd_path=args.test_command_path,
@@ -196,7 +211,9 @@ def translate(args):
         config_file=args.config_file,
         no_verify=args.no_verify,
         unidiomatic_only=args.unidiomatic_only,
-        llm_stat=args.llm_stat
+        llm_stat=args.llm_stat,
+        extra_compile_command=args.extra_compile_command,
+        is_executable=is_executable
     )
 
     sactor.run()
