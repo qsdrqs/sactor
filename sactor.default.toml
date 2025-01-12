@@ -2,6 +2,7 @@
 llm = "AzureOpenAI" # you only need to configure the llm you want to use
 max_translation_attempts = 6
 max_verifier_harness_attempts = 6
+timeout_seconds = 60 # timeout for the execution of generated code
 system_message = '''
 You are an expert in translating code from C to Rust. You will take all information from the user as reference, and will output the translated code into the format that the user wants.
 '''
@@ -29,3 +30,10 @@ model = "llama3.3"
 [Ollama.headers]
 # Add any headers you want to send with the request
 # Authorization = "Bearer your-token"
+
+[test_generator]
+max_attempts = 6
+timeout_seconds = 60
+
+[test_runner]
+timeout_seconds = 60

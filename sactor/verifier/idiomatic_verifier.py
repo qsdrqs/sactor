@@ -16,7 +16,7 @@ class IdiomaticVerifier(Verifier):
         self,
         test_cmd_path,
         llm: LLM,
-        max_attempts,
+        config,
         build_path=None,
         no_feedback=False,
         extra_compile_command=None,
@@ -25,6 +25,7 @@ class IdiomaticVerifier(Verifier):
     ):
         super().__init__(
             test_cmd_path,
+            config=config,
             build_path=build_path,
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command
@@ -34,7 +35,7 @@ class IdiomaticVerifier(Verifier):
         self.struct_test_harness_dir = os.path.join(
             self.build_path, "struct_test_harness")
         self.llm = llm
-        self.max_attempts = max_attempts
+        self.max_attempts = self.config['general']['max_verifier_harness_attempts']
         if result_path is not None:
             self.result_path = result_path
         else:

@@ -3,6 +3,7 @@ import pytest
 from sactor.c_parser import CParser
 from sactor.verifier import IdiomaticVerifier, VerifyResult
 from tests.azure_llm import azure_llm, general_mock_query_impl
+from tests.utils import config
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
     if prompt.find('There are two structs: Student and CStudent') != -1:
@@ -18,13 +19,13 @@ def llm():
     yield from azure_llm(mock_query_impl)
 
 
-def test_struct_harness(llm):
+def test_struct_harness(llm, config):
     c_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(c_path)
     verifier = IdiomaticVerifier(
         'tests/c_examples/course_manage/course_manage_test.json',
         llm=llm,
-        max_attempts=6
+        config=config
     )
     struct_path1 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Course.rs"
     struct_path2 = "tests/c_examples/course_manage/result/translated_code_unidiomatic/structs/Student.rs"

@@ -8,6 +8,7 @@ from sactor import rust_ast_parser
 from sactor.c_parser import CParser
 from sactor.combiner.partial_combiner import PartialCombiner
 from sactor.verifier import UnidiomaticVerifier, Verifier, VerifyResult
+from tests.utils import config
 
 
 def test_verify_test_cmd():
@@ -49,9 +50,9 @@ def rust_code():
     return combined_code
 
 
-def test_embed_test(c_parser, rust_code):
+def test_embed_test(c_parser, rust_code, config):
     verifier = UnidiomaticVerifier(
-        'tests/c_examples/course_manage/course_manage_test.json')
+        'tests/c_examples/course_manage/course_manage_test.json', config)
     result = verifier._embed_test_rust(
         c_parser.get_function_info("updateStudentInfo"),
         rust_code=rust_code,
@@ -62,7 +63,7 @@ def test_embed_test(c_parser, rust_code):
 
 def test_embed_test_wrong(c_parser, rust_code):
     verifier = UnidiomaticVerifier(
-        'tests/c_examples/course_manage/course_manage_test_wrong.json')
+        'tests/c_examples/course_manage/course_manage_test_wrong.json', config)
     result = verifier._embed_test_rust(
         c_parser.get_function_info("updateStudentInfo"),
         rust_code=rust_code,

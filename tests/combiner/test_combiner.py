@@ -1,11 +1,12 @@
-import tempfile
 import os
 import shutil
+import tempfile
 
 from sactor import utils
 from sactor.c_parser import CParser
 from sactor.combiner import ProgramCombiner
 from sactor.combiner.combiner_types import CombineResult
+from tests.utils import config
 
 
 def test_merge_groups():
@@ -31,7 +32,7 @@ def test_merge_groups():
     ]
 
 
-def test_combine():
+def test_combine(config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
@@ -41,11 +42,13 @@ def test_combine():
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_unidiomatic'
     with tempfile.TemporaryDirectory() as tempdir:
         build_path = os.path.join(tempdir, 'build')
-        result_path = os.path.join(tempdir, 'result', 'translated_code_unidiomatic')
+        result_path = os.path.join(
+            tempdir, 'result', 'translated_code_unidiomatic')
         shutil.copytree(result_dir_with_type, result_path, dirs_exist_ok=True)
         os.remove(os.path.join(result_path, 'combined.rs'))
 
         combiner = ProgramCombiner(
+            config,
             functions,
             structs,
             'tests/c_examples/course_manage/course_manage_test.json',
@@ -65,10 +68,13 @@ def test_combine():
         with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/clippy_stat.json', 'r') as f:
             expected_stat = f.read()
 
-        assert utils.normalize_string(stat) == utils.normalize_string(expected_stat)
-        assert utils.normalize_string(combined_code) == utils.normalize_string(expected_code)
+        assert utils.normalize_string(
+            stat) == utils.normalize_string(expected_stat)
+        assert utils.normalize_string(
+            combined_code) == utils.normalize_string(expected_code)
 
-def test_combine_idiomatic():
+
+def test_combine_idiomatic(config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
@@ -78,11 +84,14 @@ def test_combine_idiomatic():
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_idiomatic'
     with tempfile.TemporaryDirectory() as tempdir:
         build_path = os.path.join(tempdir, 'build')
-        result_path = os.path.join(tempdir, 'result', 'translated_code_idiomatic')
+        result_path = os.path.join(
+            tempdir, 'result', 'translated_code_idiomatic')
         shutil.copytree(result_dir_with_type, result_path, dirs_exist_ok=True)
-        os.remove(os.path.join(result_path, 'combined.rs')) # remove existing combined.rs
+        # remove existing combined.rs
+        os.remove(os.path.join(result_path, 'combined.rs'))
 
         combiner = ProgramCombiner(
+            config,
             functions,
             structs,
             'tests/c_examples/course_manage/course_manage_test.json',
@@ -102,5 +111,7 @@ def test_combine_idiomatic():
         with open('tests/c_examples/course_manage/result/translated_code_idiomatic/clippy_stat.json', 'r') as f:
             expected_stat = f.read()
 
-        assert utils.normalize_string(stat) == utils.normalize_string(expected_stat)
-        assert utils.normalize_string(combined_code) == utils.normalize_string(expected_code)
+        assert utils.normalize_string(
+            stat) == utils.normalize_string(expected_stat)
+        assert utils.normalize_string(
+            combined_code) == utils.normalize_string(expected_code)

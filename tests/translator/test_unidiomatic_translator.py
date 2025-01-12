@@ -7,6 +7,7 @@ from sactor.c_parser import CParser
 from sactor.translator import UnidiomaticTranslator
 from sactor.translator.translator_types import TranslateResult
 from tests.azure_llm import azure_llm
+from tests.utils import config
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
@@ -19,7 +20,7 @@ def llm():
     yield from azure_llm(mock_query_impl)
 
 
-def test_unidiomatic_translator(llm):
+def test_unidiomatic_translator(llm, config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c2rust_path = 'tests/c_examples/course_manage/course_manage_c2rust.rs'
 
@@ -32,9 +33,9 @@ def test_unidiomatic_translator(llm):
         translator = UnidiomaticTranslator(
             llm=llm,
             c2rust_translation=c2rust_content,
+            config=config,
             c_parser=c_parser,
             test_cmd_path='tests/c_examples/course_manage/course_manage_test.json',
-            max_attempts=1,
             result_path=tempdir
         )
 

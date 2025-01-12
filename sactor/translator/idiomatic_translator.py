@@ -21,8 +21,7 @@ class IdiomaticTranslator(Translator):
         crown_result: Crown,
         c_parser: CParser,
         test_cmd_path,
-        max_attempts,
-        max_verifier_harness_attempts=None,
+        config,
         build_path=None,
         unidiomatic_result_path=None,
         result_path=None,
@@ -31,7 +30,7 @@ class IdiomaticTranslator(Translator):
         super().__init__(
             llm=llm,
             c_parser=c_parser,
-            max_attempts=max_attempts,
+            config=config,
             result_path=result_path,
         )
         self.c2rust_translation = c2rust_translation
@@ -45,13 +44,11 @@ class IdiomaticTranslator(Translator):
         else:
             self.unidiomatic_result_path = self.result_path
 
-        if max_verifier_harness_attempts is None:
-            max_verifier_harness_attempts = max_attempts
         self.verifier = verifier.IdiomaticVerifier(
             test_cmd_path,
             llm=llm,
+            config=config,
             build_path=build_path,
-            max_attempts=max_verifier_harness_attempts,
             result_path=result_path,
             unidiomatic_result_path=self.unidiomatic_result_path,
             extra_compile_command=extra_compile_command,

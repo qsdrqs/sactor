@@ -100,6 +100,14 @@ def parse_run_tests(parser):
     )
 
     parser.add_argument(
+        '--config',
+        '-c',
+        type=str,
+        dest='config_file',
+        help='The configuration file to use'
+    )
+
+    parser.add_argument(
         "--feed-as-args",
         action='store_true',
         default=None,
@@ -244,6 +252,7 @@ def run_tests(parser, args):
         test_runner = ExecutableTestRunner(
             args.test_samples_path,
             args.target,
+            config_path=args.config_file,
             feed_as_arguments=feed_as_args
         )
         result = test_runner.run_test(args.test_sample_number)
@@ -292,7 +301,6 @@ def generate_tests(parser, args):
             executable=args.executable,
             input_document=args.input_document,
             feed_as_arguments=feed_as_args,
-            timeout_seconds=args.timeout
         )
 
         result = test_generator.generate_tests(args.count)

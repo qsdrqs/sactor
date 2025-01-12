@@ -6,11 +6,11 @@ import pytest
 from sactor import utils
 from sactor.llm import AzureOpenAILLM, OpenAILLM
 
+from tests.utils import config
 
 @pytest.fixture
-def azure_llm():
+def azure_llm(config):
     # patch environment variables
-    config = utils.load_default_config()
     config["AzureOpenAI"] = {
         "api_key": "mocked_value",
         "endpoint": "mocked_value",
@@ -28,8 +28,7 @@ def azure_llm():
 
 
 @pytest.fixture
-def openai_llm():
-    config = utils.load_default_config()
+def openai_llm(config):
     config["OpenAI"] = {
         "api_key": "mocked_value",
         "model": "mocked_value",

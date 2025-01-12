@@ -15,10 +15,12 @@ class Verifier(ABC):
     def __init__(
         self,
         test_cmd_path: str,
+        config,
         build_path=None,
         no_feedback=False,
         extra_compile_command=None,
     ):
+        self.config = config
         if build_path:
             self.build_path = build_path
         else:

@@ -21,8 +21,6 @@ class ExecutableTestGenerator(TestGenerator):
         feed_as_arguments=True,
         input_document=None,
         whole_program=False,
-        timeout_seconds=60,
-        max_attempts=6,
     ):
         super().__init__(
             config_path=config_path,
@@ -30,8 +28,6 @@ class ExecutableTestGenerator(TestGenerator):
             test_samples=test_samples,
             test_samples_path=test_samples_path,
             input_document=input_document,
-            max_attempts=max_attempts,
-            timeout_seconds=timeout_seconds,
         )
         self.feed_as_arguments = feed_as_arguments
         self.whole_program = whole_program

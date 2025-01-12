@@ -72,8 +72,13 @@ class Sactor:
         print("Function order: ", self.function_order)
 
         self.c2rust = C2Rust(self.input_file)
-        self.combiner = ProgramCombiner(self.c_parser.get_functions(), self.c_parser.get_structs(),
-                                        self.test_cmd_path, self.build_dir)
+        self.combiner = ProgramCombiner(
+            self.config,
+            self.c_parser.get_functions(),
+            self.c_parser.get_structs(),
+            self.test_cmd_path,
+            self.build_dir
+        )
 
         # Initialize LLM
         self.llm = llm_factory(self.config)
@@ -120,7 +125,7 @@ class Sactor:
             self.c2rust_translation,
             self.c_parser,
             self.test_cmd_path,
-            max_attempts=self.config['general']['max_translation_attempts'],
+            config=self.config,
             build_path=self.build_dir,
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
@@ -160,8 +165,7 @@ class Sactor:
             crown_result=crown,
             c_parser=self.c_parser,
             test_cmd_path=self.test_cmd_path,
-            max_attempts=self.config['general']['max_translation_attempts'],
-            max_verifier_harness_attempts=self.config['general']['max_verifier_harness_attempts'],
+            config=self.config,
             build_path=self.build_dir,
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,

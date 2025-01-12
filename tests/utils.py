@@ -1,7 +1,10 @@
 import os
+import pytest
 import shutil
 import subprocess
 import tempfile
+
+from sactor.utils import load_default_config
 
 def c_file_executable(file_path):
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -46,3 +49,7 @@ def can_compile(code: str) -> bool:
             return False
 
         return True
+
+@pytest.fixture
+def config():
+    return load_default_config()

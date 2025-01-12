@@ -11,9 +11,9 @@ from .translator_types import TranslateResult
 
 
 class Translator(ABC):
-    def __init__(self, llm: LLM, c_parser: CParser, max_attempts, result_path=None):
+    def __init__(self, llm: LLM, c_parser: CParser, config, result_path=None):
         self.llm = llm
-        self.max_attempts = max_attempts
+        self.max_attempts = config['general']['max_translation_attempts']
         self.c_parser = c_parser
         self.failure_info = {}
 

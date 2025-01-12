@@ -13,13 +13,13 @@ class ExecutableTestRunner(TestRunner):
         self,
         test_samples_path: str,
         target: str,
+        config_path=None,
         feed_as_arguments=True,
-        timeout_seconds=60,
     ):
         super().__init__(
             test_samples_path=test_samples_path,
             target=target,
-            timeout_seconds=timeout_seconds,
+            config_path=config_path,
         )
         self.feed_as_arguments = feed_as_arguments
 

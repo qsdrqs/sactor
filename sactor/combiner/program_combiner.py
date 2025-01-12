@@ -15,7 +15,16 @@ from .rust_code import RustCode
 
 
 class ProgramCombiner(Combiner):
-    def __init__(self, functions: list[FunctionInfo], structs: list[StructInfo], test_cmd_path, build_path, extra_compile_command=None):
+    def __init__(
+        self,
+        config,
+        functions: list[FunctionInfo],
+        structs: list[StructInfo],
+        test_cmd_path,
+        build_path,
+        extra_compile_command=None,
+    ):
+        self.config = config
         self.functions = functions
         self.structs = structs
 

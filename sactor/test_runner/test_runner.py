@@ -1,15 +1,18 @@
 import json
 from abc import ABC, abstractmethod
 
+from sactor import utils
+
 from .test_runner_types import TestRunnerResult
 
 
 class TestRunner(ABC):
-    def __init__(self, test_samples_path: str, target, timeout_seconds=60):
+    def __init__(self, test_samples_path: str, target, config_path=None):
         with open(test_samples_path, 'r') as file:
             self.test_samples_output: list[dict] = json.load(file)
 
-        self.timeout_seconds = timeout_seconds
+        self.config = utils.try_load_config(config_path)
+        self.timeout_seconds = self.config['test_runner']['timeout_seconds']
         self.target = target
 
     @abstractmethod

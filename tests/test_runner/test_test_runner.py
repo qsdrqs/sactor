@@ -5,8 +5,10 @@ import tempfile
 from sactor.test_runner import ExecutableTestRunner
 from sactor.test_runner import TestRunnerResult as Result
 from sactor.verifier import UnidiomaticVerifier, VerifyResult
+from sactor import utils
 from tests.test_generator.test_test_generator import (
     c_file_executable_arguments, c_file_executable_scanf)
+from tests.utils import config
 
 
 def test_test_runner(c_file_executable_arguments):
@@ -41,7 +43,7 @@ def test_test_runner2(c_file_executable_scanf):
         assert result == Result.PASSED
         assert diff is None or diff == ''
 
-def test_test_runner_e2e(c_file_executable_arguments):
+def test_test_runner_e2e(c_file_executable_arguments, config):
     test_samples_path = 'tests/c_examples/add/test_task/test_samples.json'
     test_task = 'tests/c_examples/add/test_task/test_task.json'
     abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
@@ -52,11 +54,11 @@ def test_test_runner_e2e(c_file_executable_arguments):
         with open(f'{tmpdirname}/test_task.json', 'w') as f:
             f.write(test_task)
 
-        verifier = UnidiomaticVerifier(f'{tmpdirname}/test_task.json')
+        verifier = UnidiomaticVerifier(f'{tmpdirname}/test_task.json', config=config)
         result = verifier._run_tests(c_file_executable_arguments[0])
         assert result[0] == VerifyResult.SUCCESS
 
-def test_test_runner_e2e_2(c_file_executable_scanf):
+def test_test_runner_e2e_2(c_file_executable_scanf, config):
     test_samples_path = 'tests/c_examples/add_scanf/test_task/test_samples.json'
     test_task = 'tests/c_examples/add_scanf/test_task/test_task.json'
     abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
@@ -67,6 +69,6 @@ def test_test_runner_e2e_2(c_file_executable_scanf):
         with open(f'{tmpdirname}/test_task.json', 'w') as f:
             f.write(test_task)
 
-        verifier = UnidiomaticVerifier(f'{tmpdirname}/test_task.json')
+        verifier = UnidiomaticVerifier(f'{tmpdirname}/test_task.json', config=config)
         result = verifier._run_tests(c_file_executable_scanf[0])
         assert result[0] == VerifyResult.SUCCESS

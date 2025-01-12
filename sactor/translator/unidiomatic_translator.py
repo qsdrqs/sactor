@@ -20,7 +20,7 @@ class UnidiomaticTranslator(Translator):
         c2rust_translation,
         c_parser: CParser,
         test_cmd_path,
-        max_attempts,
+        config,
         build_path=None,
         result_path=None,
         extra_compile_command=None,
@@ -28,7 +28,7 @@ class UnidiomaticTranslator(Translator):
         super().__init__(
             llm=llm,
             c_parser=c_parser,
-            max_attempts=max_attempts,
+            config=config,
             result_path=result_path,
         )
         self.c2rust_translation = c2rust_translation
@@ -39,6 +39,7 @@ class UnidiomaticTranslator(Translator):
             self.result_path, "translated_code_unidiomatic/functions")
         self.verifier = verifier.UnidiomaticVerifier(
             test_cmd_path,
+            config=config,
             build_path=build_path,
             extra_compile_command=extra_compile_command
         )
