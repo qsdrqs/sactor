@@ -486,8 +486,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if result != CombineResult.SUCCESS or combined_code is None:
             raise ValueError(f"Failed to combine the function {function.name}")
 
-        unsafe_count = rust_ast_parser.count_unsafe_blocks(combined_code)
-        # if unsafe_count > 0:
+        total, unsafe = rust_ast_parser.count_unsafe_tokens(combined_code)
+        # if unsafe > 0:
         #     # TODO: may allow unsafe blocks in the future
         #     return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
 

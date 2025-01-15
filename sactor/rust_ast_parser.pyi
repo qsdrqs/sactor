@@ -11,7 +11,7 @@ def add_attr_to_struct_union(code:str,struct_union_name:str,attr:str) -> str:
 def add_derive_to_struct_union(code:str,struct_union_name:str,derive:str) -> str:
     ...
 
-def count_unsafe_blocks(code:str) -> int:
+def count_unsafe_tokens(code:str) -> tuple[int, int]:
     ...
 
 def expose_function_to_c(source_code:str,function_name:str) -> str:

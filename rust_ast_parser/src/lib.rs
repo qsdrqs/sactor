@@ -10,7 +10,7 @@ use syn::{
     spanned::Spanned,
     token,
     visit_mut::VisitMut,
-    Abi, AttrStyle, Attribute, Expr, File, LitStr, Meta, Result, Token,
+    Abi, AttrStyle, Attribute, File, LitStr, Meta, Result, Token,
 };
 
 fn parse_src(source_code: &str) -> PyResult<File> {
@@ -308,29 +308,58 @@ fn rename_struct_union(code: &str, old_name: &str, new_name: &str) -> PyResult<S
     Ok(prettyplease::unparse(&ast))
 }
 
-struct UnsafeBlockCounter {
-    count: usize,
+struct TokenCounter {
+    total_tokens: usize,
+    unsafe_tokens: usize,
 }
 
-impl syn::visit_mut::VisitMut for UnsafeBlockCounter {
-    fn visit_expr_mut(&mut self, expr: &mut Expr) {
-        // Check if the expression is an unsafe block
-        if let syn::Expr::Unsafe(_) = expr {
-            self.count += 1;
+fn count_tokens(tokens: proc_macro2::TokenStream) -> usize {
+    let mut total = 0;
+    for token in tokens.into_iter() {
+        match &token {
+            proc_macro2::TokenTree::Group(group) => {
+                total += count_tokens(group.stream());
+            }
+            _ => {
+                total += 1;
+            }
         }
+    }
+    total
+}
 
-        // Continue visiting the rest of the tree
-        syn::visit_mut::visit_expr_mut(self, expr);
+impl syn::visit_mut::VisitMut for TokenCounter {
+    fn visit_item_fn_mut(&mut self, func: &mut syn::ItemFn) {
+        if func.sig.unsafety.is_some() {
+            let unsafe_tokens = count_tokens(func.block.to_token_stream());
+            self.unsafe_tokens += unsafe_tokens;
+            self.total_tokens += unsafe_tokens;
+        } else {
+            self.total_tokens += count_tokens(func.block.to_token_stream());
+            syn::visit_mut::visit_item_fn_mut(self, func);
+        }
+    }
+
+    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
+        if let syn::Expr::Unsafe(unsafe_expr) = expr {
+            let unsafe_tokens = count_tokens(unsafe_expr.block.to_token_stream());
+            self.unsafe_tokens += unsafe_tokens;
+        } else {
+            syn::visit_mut::visit_expr_mut(self, expr);
+        }
     }
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-fn count_unsafe_blocks(code: &str) -> PyResult<usize> {
+fn count_unsafe_tokens(code: &str) -> PyResult<(usize, usize)> {
     let mut ast = parse_src(code)?;
-    let mut counter = UnsafeBlockCounter { count: 0 };
+    let mut counter = TokenCounter {
+        total_tokens: 0,
+        unsafe_tokens: 0,
+    };
     counter.visit_file_mut(&mut ast);
-    Ok(counter.count)
+    Ok((counter.total_tokens, counter.unsafe_tokens))
 }
 
 pub struct ParsedAttribute(pub Attribute);
@@ -547,7 +576,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(unidiomatic_function_cleanup, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
-    m.add_function(wrap_pyfunction!(count_unsafe_blocks, m)?)?;
+    m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;
     Ok(())
 }
 

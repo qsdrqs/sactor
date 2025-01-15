@@ -47,8 +47,30 @@ def test_rename_function_signature():
     new_signature = rust_ast_parser.rename_function(signature, "add", "addition")
     assert signature.count('add') == new_signature.count('addition')
 
-def test_count_unsafe(code):
-    assert rust_ast_parser.count_unsafe_blocks(code) == 1
+def test_count_unsafe():
+    code1 = '''
+use std::collections::HashMap;
+use libc::c_int;
+fn use_foo(foo: Foo) -> i32 {
+    unsafe {
+        foo.a + foo.b
+    }
+}
+'''
+    assert rust_ast_parser.count_unsafe_tokens(code1) == (8, 7)
+    code2 = '''
+fn use_foo(foo: Foo) -> i32 {
+    foo.a + foo.b
+}
+'''
+    assert rust_ast_parser.count_unsafe_tokens(code2) == (7, 0)
+    code3 = '''
+unsafe fn use_foo(foo: Foo) -> i32 {
+    foo.a + foo.b
+}
+'''
+    assert rust_ast_parser.count_unsafe_tokens(code3) == (7, 7)
+
 
 def test_get_standalone_uses_code_paths():
     code = '''
