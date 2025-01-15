@@ -41,4 +41,12 @@ def test_run_tests5():
     assert result[0] == VerifyResult.TEST_ERROR
     assert result[1] == "Some error message\n"
 
+def test_run_timeout():
+    verifier = get_unidiomatic_verifier(
+        "tests/verifier/mock_results/timeout.json")
+    verifier.config['general']['timeout_seconds'] = 2
+    result = verifier._run_tests("")
+    assert result[0] == VerifyResult.TEST_TIMEOUT
+    print(result[1])
+
 

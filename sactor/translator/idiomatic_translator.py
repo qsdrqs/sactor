@@ -26,6 +26,7 @@ class IdiomaticTranslator(Translator):
         unidiomatic_result_path=None,
         result_path=None,
         extra_compile_command=None,
+        executable_object=None,
     ):
         super().__init__(
             llm=llm,
@@ -52,6 +53,7 @@ class IdiomaticTranslator(Translator):
             result_path=result_path,
             unidiomatic_result_path=self.unidiomatic_result_path,
             extra_compile_command=extra_compile_command,
+            executable_object=executable_object,
         )
         self.crown_result = crown_result
 
@@ -197,6 +199,9 @@ It failed the following tests:
 ```
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
+        elif verify_result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
         try:
@@ -419,7 +424,7 @@ The error message may be cause your translation includes other functions or stru
 Remember, you should only provide the translation for the function and necessary `use` statements. The system will automatically include the dependencies in the final translation.
 '''
 
-        elif verify_result[0] == VerifyResult.TEST_ERROR:
+        elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             prompt += f'''
 Lastly, the function is translated as:
 ```rust

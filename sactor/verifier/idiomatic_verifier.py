@@ -16,19 +16,21 @@ class IdiomaticVerifier(Verifier):
         self,
         test_cmd_path,
         llm: LLM,
-        config,
+        config: dict,
         build_path=None,
         no_feedback=False,
         extra_compile_command=None,
         result_path=None,
         unidiomatic_result_path=None,
+        executable_object=None,
     ):
         super().__init__(
             test_cmd_path,
             config=config,
             build_path=build_path,
             no_feedback=no_feedback,
-            extra_compile_command=extra_compile_command
+            extra_compile_command=extra_compile_command,
+            executable_object=executable_object,
         )
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")
@@ -157,7 +159,7 @@ It failed to compile with the following error message:
 ```
 Analyzing the error messages, think about the possible reasons, and try to avoid this error.
 '''
-        elif verify_result[0] == VerifyResult.TEST_ERROR:
+        elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             prompt += f'''
 Lastly, the function is translated as:
 ```rust
@@ -169,6 +171,9 @@ It failed the following tests:
 ```
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
+        elif verify_result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
 
@@ -365,7 +370,7 @@ It failed to compile with the following error message:
 ```
 Analyzing the error messages, think about the possible reasons, and try to avoid this error.
 '''
-        elif verify_result[0] == VerifyResult.TEST_ERROR:
+        elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             prompt += f'''
 Lastly, the function is translated as:
 ```rust
@@ -377,6 +382,9 @@ It failed the following tests:
 ```
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
+        elif verify_result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
 
@@ -479,9 +487,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             raise ValueError(f"Failed to combine the function {function.name}")
 
         unsafe_count = rust_ast_parser.count_unsafe_blocks(combined_code)
-        if unsafe_count > 0:
-            # TODO: may allow unsafe blocks in the future
-            return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
+        # if unsafe_count > 0:
+        #     # TODO: may allow unsafe blocks in the future
+        #     return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
 
         # Try to compile the Rust code
         function_name = function.name

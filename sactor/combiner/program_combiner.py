@@ -4,7 +4,7 @@ import re
 import subprocess
 from typing import override
 
-from sactor import utils
+from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo
 from sactor.thirdparty.rustfmt import RustFmt
 from sactor.verifier import E2EVerifier, VerifyResult
@@ -17,24 +17,36 @@ from .rust_code import RustCode
 class ProgramCombiner(Combiner):
     def __init__(
         self,
-        config,
+        config: dict,
         functions: list[FunctionInfo],
         structs: list[StructInfo],
         test_cmd_path,
         build_path,
+        is_executable: bool,
         extra_compile_command=None,
+        executable_object=None,
     ):
         self.config = config
         self.functions = functions
         self.structs = structs
 
         self.verifier = E2EVerifier(
-            test_cmd_path, build_path, extra_compile_command=extra_compile_command)
+            test_cmd_path,
+            config,
+            build_path=build_path,
+            extra_compile_command=extra_compile_command,
+            executable_object=executable_object,
+        )
+        self.is_executable = is_executable
         self.build_path = build_path
         self.clippy_stat = {}
+        if is_executable:
+            self.source_name = "main.rs"
+        else:
+            self.source_name = "lib.rs"
 
     @override
-    def combine(self, result_dir_with_type: str, is_executable: bool) -> tuple[CombineResult, str | None]:
+    def combine(self, result_dir_with_type: str, is_idiomatic=False) -> tuple[CombineResult, str | None]:
         file_path = os.path.join(result_dir_with_type, 'combined.rs')
         if os.path.exists(file_path):
             print("Skip combining: combined.rs already exists")
@@ -57,18 +69,34 @@ class ProgramCombiner(Combiner):
         output_code = self._combine_code(function_code, struct_code)
 
         # verify the combined code
-        result = self.verifier.e2e_verify(
-            output_code, is_executable=is_executable)
-        if result[0] != VerifyResult.SUCCESS:
-            print(f"Error: Failed to verify the combined code: {result[1]}")
-            match result[0]:
-                case VerifyResult.COMPILE_ERROR:
-                    return CombineResult.COMPILE_FAILED, None
-                case VerifyResult.TEST_ERROR:
-                    return CombineResult.TEST_FAILED, None
-                case _:
-                    raise ValueError(
-                        f"Unexpected error during verification: {result[0]}")
+        skip_test = False
+        if not self.is_executable:
+            if not is_idiomatic:
+                # expose functions to C for all the functions
+                e2e_code = output_code
+                for function in self.functions:
+                    e2e_code = rust_ast_parser.expose_function_to_c(
+                        e2e_code, function.name)
+            else:
+                # idiomatic code does not need to expose functions to C
+                e2e_code = output_code
+                skip_test = True # e2e test can not be run on idiomatic code, because of the api mismatch to C
+        else:
+            e2e_code = output_code
+
+        if not skip_test:
+            result = self.verifier.e2e_verify(
+                e2e_code)
+            if result[0] != VerifyResult.SUCCESS:
+                print(f"Error: Failed to verify the combined code: {result[1]}")
+                match result[0]:
+                    case VerifyResult.COMPILE_ERROR:
+                        return CombineResult.COMPILE_FAILED, None
+                    case VerifyResult.TEST_ERROR:
+                        return CombineResult.TEST_FAILED, None
+                    case _:
+                        raise ValueError(
+                            f"Unexpected error during verification: {result[0]}")
 
         # create a rust project
         build_program = os.path.join(self.build_path, "program")
@@ -76,7 +104,7 @@ class ProgramCombiner(Combiner):
             rust_code=output_code,
             proj_name="program",
             path=build_program,
-            is_lib=not is_executable
+            is_lib=not self.is_executable
         )
 
         # format the code
@@ -118,7 +146,7 @@ class ProgramCombiner(Combiner):
 
         # copy the combined code to the result directory
         cmd = ["cp", "-f",
-               os.path.join(build_program, "src", "main.rs"), file_path]
+               os.path.join(build_program, "src", self.source_name), file_path]
         result = subprocess.run(cmd, check=True, capture_output=True)
 
         # save the warning stat
@@ -132,7 +160,7 @@ class ProgramCombiner(Combiner):
         compiler_output_lines = compiler_output.split("\n")
         for output in compiler_output_lines:
             total_pattern = re.compile(
-                r'.*`program` \(bin "program"\) generated (\d+) warnings.*')
+                    r'.*`program` \((?:bin "program"|lib)\) generated (\d+) warnings.*')
             total_match = total_pattern.match(output)
             if total_match:
                 warnings_count = int(total_match.group(1))
@@ -142,7 +170,7 @@ class ProgramCombiner(Combiner):
         if has_error:
             for output in compiler_output_lines:
                 error_pattern = re.compile(
-                    r'.*could not compile `program` (bin "program") due to (\d+) previous errors.*')
+                    r'.*could not compile `program` \((?:bin "program"|lib)\) due to (\d+) previous errors.*')
                 error_match = error_pattern.match(output)
                 if error_match:
                     errors_count = int(error_match.group(1))
@@ -185,11 +213,11 @@ class ProgramCombiner(Combiner):
         suppress_lines = 0
         for error_type in error_types:
             # write #![allow(error_type)] to the top of the file to suppress the error
-            with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:
+            with open(os.path.join(build_dir, "src", self.source_name), "r") as f:
                 code = f.read()
 
             code = f"#![allow({error_type})]\n{code}"
-            with open(os.path.join(build_dir, "src", "main.rs"), "w") as f:
+            with open(os.path.join(build_dir, "src", self.source_name), "w") as f:
                 f.write(code)
             suppress_lines += 1
 
@@ -211,11 +239,11 @@ class ProgramCombiner(Combiner):
         current_count = total_warnings
         for warning_type in warning_types:
             # write #![allow(warning_type)] to the top of the file to suppress the warning
-            with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:
+            with open(os.path.join(build_dir, "src", self.source_name), "r") as f:
                 code = f.read()
 
             code = f"#![allow({warning_type})]\n{code}"
-            with open(os.path.join(build_dir, "src", "main.rs"), "w") as f:
+            with open(os.path.join(build_dir, "src", self.source_name), "w") as f:
                 f.write(code)
             suppress_lines += 1
 
@@ -235,11 +263,11 @@ class ProgramCombiner(Combiner):
             self.clippy_stat["warnings"]["unknown"] = current_count
 
         # remove the suppress lines
-        with open(os.path.join(build_dir, "src", "main.rs"), "r") as f:
+        with open(os.path.join(build_dir, "src", self.source_name), "r") as f:
             code = f.read()
 
         code_lines = code.split("\n")
         code_lines = code_lines[suppress_lines:]
         code = "\n".join(code_lines)
-        with open(os.path.join(build_dir, "src", "main.rs"), "w") as f:
+        with open(os.path.join(build_dir, "src", self.source_name), "w") as f:
             f.write(code)

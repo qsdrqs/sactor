@@ -1,4 +1,5 @@
 import os
+from sys import executable
 
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
@@ -24,6 +25,7 @@ class Sactor:
         unidiomatic_only=False,
         llm_stat=None,
         extra_compile_command=None,
+        executable_object=None,
     ):
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
@@ -43,6 +45,10 @@ class Sactor:
         self.unidiomatic_only = unidiomatic_only
         self.extra_compile_command = extra_compile_command
         self.is_executable = is_executable
+        self.executable_object = executable_object
+        if not is_executable and executable_object is None:
+            raise ValueError(
+                "executable_object must be provided for library translation")
 
         self.config = utils.try_load_config(self.config_file)
 
@@ -77,7 +83,10 @@ class Sactor:
             self.c_parser.get_functions(),
             self.c_parser.get_structs(),
             self.test_cmd_path,
-            self.build_dir
+            self.build_dir,
+            extra_compile_command=self.extra_compile_command,
+            executable_object=self.executable_object,
+            is_executable=self.is_executable,
         )
 
         # Initialize LLM
@@ -93,8 +102,10 @@ class Sactor:
         if result != TranslateResult.SUCCESS:
             raise ValueError(
                 f"Failed to translate unidiomatic code: {result}")
-        combine_result, _ = self.combiner.combine(os.path.join(
-            self.result_dir, "translated_code_unidiomatic"), is_executable=self.is_executable)
+        combine_result, _ = self.combiner.combine(
+            os.path.join(self.result_dir, "translated_code_unidiomatic"),
+            is_idiomatic=False,
+        )
         if combine_result != CombineResult.SUCCESS:
             raise ValueError(
                 f"Failed to combine translated code for unidiomatic translation: {combine_result}")
@@ -107,8 +118,10 @@ class Sactor:
                 raise ValueError(
                     f"Failed to translate idiomatic code: {result}")
 
-            combine_result, _ = self.combiner.combine(os.path.join(
-                self.result_dir, "translated_code_idiomatic"), is_executable=self.is_executable)
+            combine_result, _ = self.combiner.combine(
+                os.path.join(self.result_dir, "translated_code_idiomatic"),
+                is_idiomatic=True,
+            )
             if combine_result != CombineResult.SUCCESS:
                 raise ValueError(
                     f"Failed to combine translated code for idiomatic translation: {combine_result}")
@@ -129,6 +142,7 @@ class Sactor:
             build_path=self.build_dir,
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
+            executable_object=self.executable_object,
         )
         return translator
 
@@ -169,6 +183,7 @@ class Sactor:
             build_path=self.build_dir,
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
+            executable_object=self.executable_object,
         )
 
         return translator

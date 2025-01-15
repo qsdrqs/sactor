@@ -20,10 +20,11 @@ class UnidiomaticTranslator(Translator):
         c2rust_translation,
         c_parser: CParser,
         test_cmd_path,
-        config,
+        config: dict,
         build_path=None,
         result_path=None,
         extra_compile_command=None,
+        executable_object=None,
     ) -> None:
         super().__init__(
             llm=llm,
@@ -41,7 +42,8 @@ class UnidiomaticTranslator(Translator):
             test_cmd_path,
             config=config,
             build_path=build_path,
-            extra_compile_command=extra_compile_command
+            extra_compile_command=extra_compile_command,
+            executable_object=executable_object,
         )
 
     @override
@@ -399,7 +401,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     function.name, "COMPILE_ERROR", compile_error)
                 # Try to translate the function again, with the error message
 
-            elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK:
+            elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK or result[0] == VerifyResult.TEST_TIMEOUT:
                 # TODO: maybe simply retry the translation here
                 test_error = result[1]
                 self.append_failure_info(

@@ -15,10 +15,11 @@ class Verifier(ABC):
     def __init__(
         self,
         test_cmd_path: str,
-        config,
+        config: dict,
         build_path=None,
         no_feedback=False,
         extra_compile_command=None,
+        executable_object=None,
     ):
         self.config = config
         if build_path:
@@ -34,6 +35,7 @@ class Verifier(ABC):
         self.test_cmd_path = test_cmd_path
         self.no_feedback = no_feedback
         self.extra_compile_command = extra_compile_command
+        self.executable_object = executable_object
 
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
@@ -143,19 +145,25 @@ class Verifier(ABC):
             '--',
         ]
 
+        timeout = self.config['general']['timeout_seconds']
+
         for i, cmd in enumerate(test_cmds):
             if test_number is not None and i != test_number:
                 continue
             print(cmd)
             if valgrind:
                 cmd = valgrind_cmd + cmd
-            res = subprocess.run(
-                cmd,
-                env=env,
-                cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            try:
+                res = subprocess.run(
+                    cmd,
+                    env=env,
+                    cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as e:
+                return (VerifyResult.TEST_TIMEOUT, f'Failed to run test due to timeout: {e}', i)
             print(res.stdout.decode())
             print(res.stderr.decode())
             if res.returncode != 0:
@@ -312,6 +320,8 @@ extern "C" {{
             self.embed_test_c_dir, f'{name}.c'), f'-L{self.embed_test_rust_dir}/target/debug', f'-l{name}']
         if self.extra_compile_command:
             c_compile_cmd.extend(self.extra_compile_command.split())
+        if self.executable_object:
+            c_compile_cmd.extend(self.executable_object.split())
         print(c_compile_cmd)
         res = subprocess.run(c_compile_cmd)
         if res.returncode != 0:
@@ -335,7 +345,7 @@ extern "C" {{
                 rust_code = rust_ast_parser.add_attr_to_function(
                     rust_code, name, "#[sactor_proc_macros::trace_fn]")
             utils.create_rust_proj(
-                rust_code, name, self.embed_test_rust_dir, is_lib=True)
+                rust_code, name, self.embed_test_rust_dir, is_lib=True, proc_macro=True)
             res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
             if res.returncode != 0:

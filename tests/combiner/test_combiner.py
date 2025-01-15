@@ -31,6 +31,20 @@ def test_merge_groups():
         'use a::g::*;',
     ]
 
+def test_handle_ffi_libc_conflict():
+    all_uses = [
+        ['std', 'ffi', 'c_void'],
+        ['std', 'ffi', 'c_int'],
+        ['libc', 'c_void'],
+    ]
+
+    combiner = ProgramCombiner.__new__(ProgramCombiner)
+    merged_uses = combiner._merge_uses(all_uses)
+    assert merged_uses == [
+        'use std::ffi::c_int;',
+        'use libc::c_void;'
+    ]
+
 
 def test_combine(config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
@@ -52,10 +66,11 @@ def test_combine(config):
             functions,
             structs,
             'tests/c_examples/course_manage/course_manage_test.json',
-            build_path
+            build_path,
+            is_executable=True
         )
 
-        combiner_result, _ = combiner.combine(result_path, is_executable=True)
+        combiner_result, _ = combiner.combine(result_path)
         assert combiner_result == CombineResult.SUCCESS
         assert os.path.exists(os.path.join(result_path, 'combined.rs'))
         with open(os.path.join(result_path, 'combined.rs'), 'r') as f:
@@ -95,10 +110,11 @@ def test_combine_idiomatic(config):
             functions,
             structs,
             'tests/c_examples/course_manage/course_manage_test.json',
-            build_path
+            build_path,
+            is_executable=True
         )
 
-        combiner_result, _ = combiner.combine(result_path, is_executable=True)
+        combiner_result, _ = combiner.combine(result_path)
         assert combiner_result == CombineResult.SUCCESS
         assert os.path.exists(os.path.join(result_path, 'combined.rs'))
         with open(os.path.join(result_path, 'combined.rs'), 'r') as f:

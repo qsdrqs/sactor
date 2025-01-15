@@ -14,17 +14,19 @@ class UnidiomaticVerifier(Verifier):
     def __init__(
         self,
         test_cmd_path: str,
-        config,
+        config: dict,
         build_path=None,
         no_feedback=False,
         extra_compile_command=None,
+        executable_object=None,
     ):
         super().__init__(
             test_cmd_path,
             config=config,
             build_path=build_path,
             no_feedback=no_feedback,
-            extra_compile_command=extra_compile_command
+            extra_compile_command=extra_compile_command,
+            executable_object=executable_object,
         )
 
     @override

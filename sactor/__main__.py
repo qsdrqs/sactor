@@ -1,5 +1,6 @@
 import argparse
 import sys
+import os
 
 from sactor import Sactor
 from sactor.test_generator import ExecutableTestGenerator, TestGeneratorResult
@@ -68,10 +69,18 @@ def parse_translate(parser):
 
     parser.add_argument(
         '--extra-compile-command',
-        '-e',
         type=str,
         help='The extra compile command to use to compile the C code', # TODO: dirty implement, remove this later
     )
+
+    parser.add_argument(
+        '--executable-object',
+        '-e',
+        type=str,
+        default=None,
+        help='The path to the executable object file, required and only required for library targets'
+    )
+
 
 
 def parse_run_tests(parser):
@@ -209,8 +218,12 @@ def parse_generate_tests(parser):
     )
 
 
-def translate(args):
+def translate(parser, args):
     is_executable = args.type == 'bin'
+    if not is_executable:
+        if args.executable_object is None:
+            parser.error('Executable object must be provided for library targets')
+
     sactor = Sactor(
         input_file=args.input_file,
         test_cmd_path=args.test_command_path,
@@ -221,7 +234,8 @@ def translate(args):
         unidiomatic_only=args.unidiomatic_only,
         llm_stat=args.llm_stat,
         extra_compile_command=args.extra_compile_command,
-        is_executable=is_executable
+        is_executable=is_executable,
+        executable_object=args.executable_object
     )
 
     sactor.run()
@@ -249,9 +263,10 @@ def run_tests(parser, args):
         feed_as_args = False
 
     if args.type == 'bin':
+        target = os.path.abspath(args.target)
         test_runner = ExecutableTestRunner(
             args.test_samples_path,
-            args.target,
+            target,
             config_path=args.config_file,
             feed_as_arguments=feed_as_args
         )
@@ -353,7 +368,7 @@ def main():
 
     match args.subcommand:
         case 'translate':
-            translate(args)
+            translate(parser, args)
         case 'run-tests':
             run_tests(parser, args)
         case 'generate-tests':

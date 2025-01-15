@@ -12,7 +12,7 @@ class AzureOpenAILLM(LLM):
     '''
     def __init__(self, config, encoding=None, system_msg=None):
         super().__init__(
-                config,
+            config,
             encoding=encoding,
             system_msg=system_msg
         )

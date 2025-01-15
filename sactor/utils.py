@@ -10,39 +10,32 @@ from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 
 
-def create_rust_proj(rust_code, proj_name, path, is_lib):
+def create_rust_proj(rust_code, proj_name, path, is_lib: bool, proc_macro=False):
     if os.path.exists(path):
         shutil.rmtree(path)
     os.makedirs(os.path.join(path, "src"), exist_ok=True)
 
-    with open(f"{path}/Cargo.toml", "w") as f:
-        if is_lib:
-            f.write(f'''
+    manifest = f'''
 [package]
 name = "{proj_name}"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-libc = "0.2.159"
-sactor_proc_macros = {{ path = "./sactor_proc_macros" }}
+libc = "0.2.159"'''
+    if proc_macro:
+        manifest += '''
+sactor_proc_macros = { path = "./sactor_proc_macros" }'''
 
+    if is_lib:
+        manifest += f'''
 [lib]
 name = "{proj_name}"
-crate-type = ["cdylib"]
-''')
-        else:
-            # bin
-            f.write(f'''
-[package]
-name = "{proj_name}"
-version = "0.1.0"
-edition = "2021"
+crate-type = ["cdylib"]'''
 
-[dependencies]
-libc = "0.2.159"
-sactor_proc_macros = {{ path = "./sactor_proc_macros" }}
-''')
+
+    with open(f"{path}/Cargo.toml", "w") as f:
+        f.write(manifest)
 
     if is_lib:
         with open(f"{path}/src/lib.rs", "w") as f:
@@ -51,11 +44,12 @@ sactor_proc_macros = {{ path = "./sactor_proc_macros" }}
         with open(f"{path}/src/main.rs", "w") as f:
             f.write(rust_code)
 
-    proj_root = find_project_root()
-    sactor_proc_macros_path = os.path.join(proj_root, "sactor_proc_macros")
-    # Copy sactor_proc_macros to the project
-    shutil.copytree(sactor_proc_macros_path,
-                    os.path.join(path, "sactor_proc_macros"))
+    if proc_macro:
+        proj_root = find_project_root()
+        sactor_proc_macros_path = os.path.join(proj_root, "sactor_proc_macros")
+        # Copy sactor_proc_macros to the project
+        shutil.copytree(sactor_proc_macros_path,
+                        os.path.join(path, "sactor_proc_macros"))
 
 
 def find_project_root():
