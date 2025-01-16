@@ -36,6 +36,7 @@ class ProgramCombiner(Combiner):
             build_path=build_path,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            is_executable=is_executable,
         )
         self.is_executable = is_executable
         self.build_path = build_path

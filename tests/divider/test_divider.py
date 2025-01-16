@@ -11,6 +11,12 @@ class MockInfo:
     def get_dependencies(self):
         return self.dependencies
 
+    def __repr__(self):
+        return self.name
+
+    def __str__(self):
+        return self.name
+
 @pytest.fixture
 def divider():
     c_parser = CParser('tests/c_examples/course_manage/course_manage.c')
@@ -69,6 +75,21 @@ def test_extract_order3(divider):
             result3 == [[d], [f], [c], [b], [a], [e]] or
             result3 == [[f], [d], [c], [b], [a], [e]])
 
+def test_extract_order4(divider):
+    # Test case 1: A->[B, C], B->C, C->[B, D], D->[]
+    a = MockInfo("A", [])
+    b = MockInfo("B", [])
+    c = MockInfo("C", [])
+    d = MockInfo("D", [])
+
+    a.dependencies = [b, c]
+    b.dependencies = [c]
+    c.dependencies = [b, d]
+    d.dependencies = []
+
+    test4_lst = [a, b, c, d]
+    result1 = divider._extract_order(test4_lst, lambda x: x.get_dependencies())
+    assert result1 == [[d], [b, c], [a]]
 
 def test_function_order(divider):
     function_order = divider.get_function_order()

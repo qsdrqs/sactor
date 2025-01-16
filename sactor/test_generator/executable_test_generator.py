@@ -57,7 +57,7 @@ class ExecutableTestGenerator(TestGenerator):
                 cmd = self.executable
                 result = subprocess.run(
                     self.valgrind_cmd + [cmd],
-                    input=test_sample.encode(),
+                    input=test_sample.encode() + '\n'.encode(),
                     capture_output=True,
                     timeout=self.timeout_seconds,
                 )
@@ -82,7 +82,7 @@ class ExecutableTestGenerator(TestGenerator):
             cmd = self.executable
             result = subprocess.run(
                 cmd,
-                input=test_sample.encode(),
+                input=test_sample.encode() + '\n'.encode(),
                 capture_output=True,
                 timeout=self.timeout_seconds,
             )
@@ -90,8 +90,12 @@ class ExecutableTestGenerator(TestGenerator):
         return utils.normalize_string(result.stdout.decode() + result.stderr.decode())
 
     def _generate_test_impl(self, count, counter_examples=None, attempt=0) -> TestGeneratorResult:
-        if count <= 0:
+        if count < 0:
             raise ValueError(f"Invalid count: {count}")
+
+        if count == 0:
+            # don't need to generate any test cases
+            return TestGeneratorResult.SUCCESS
 
         if attempt >= self.max_attempts:
             print(f"Max attempts exceeded: {attempt}")
@@ -221,12 +225,17 @@ You should only provide **VALID** inputs for the target C program. You can provi
         self._check_runner_exist()
 
         pwd = os.getcwd()
-        if task_path is None or test_sample_path is None:
-            os.makedirs(f'{pwd}/test_task', exist_ok=True)
         if task_path is None:
             task_path = f'{pwd}/test_task/test_task.json'
         if test_sample_path is None:
             test_sample_path = f'{pwd}/test_task/test_samples.json'
+
+        task_path_dir = os.path.dirname(task_path)
+        if task_path_dir:
+            os.makedirs(task_path_dir, exist_ok=True)
+        test_sample_path_dir = os.path.dirname(test_sample_path)
+        if test_sample_path_dir:
+            os.makedirs(test_sample_path_dir, exist_ok=True)
 
         # Write test samples to the test
         self.export_test_samples(test_sample_path)
@@ -246,6 +255,5 @@ You should only provide **VALID** inputs for the target C program. You can provi
                 }
             )
 
-        os.makedirs(os.path.dirname(task_path), exist_ok=True)
         with open(task_path, 'w') as f:
             json.dump(tasks, f, indent=4)

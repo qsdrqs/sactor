@@ -69,6 +69,8 @@ class TestGenerator(ABC):
                 "sactor is not installed. Please install sactor first.")
 
     def export_test_samples(self, file_path):
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        dir = os.path.dirname(file_path)
+        if dir:
+            os.makedirs(dir, exist_ok=True)
         with open(file_path, 'w') as f:
             json.dump(self.test_samples_output, f, indent=4)

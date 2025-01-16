@@ -307,6 +307,12 @@ def generate_tests(parser, args):
         assert args.feed_as_stdin
         feed_as_args = False
 
+    if args.out_test_task_path and not args.out_test_task_path.endswith('.json'):
+        parser.error('The test task output path should end with .json')
+
+    if args.out_test_sample_path and not args.out_test_sample_path.endswith('.json'):
+        parser.error('The test samples output path should end with .json')
+
     if args.type == 'bin':
         test_generator = ExecutableTestGenerator(
             config_path=args.config_file,

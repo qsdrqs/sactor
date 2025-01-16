@@ -57,7 +57,7 @@ class ExecutableTestRunner(TestRunner):
                 cmd = self.target
                 result = subprocess.run(
                     cmd,
-                    input=test_sample_input.encode(),
+                    input=test_sample_input.encode() + '\n'.encode(),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=self.timeout_seconds,

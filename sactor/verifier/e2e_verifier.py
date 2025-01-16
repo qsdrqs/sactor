@@ -16,7 +16,7 @@ class E2EVerifier(Verifier):
         build_path=None,
         no_feedback=False,
         extra_compile_command=None,
-        is_executable=False,
+        is_executable=True,
         executable_object=None,
     ):
         super().__init__(
