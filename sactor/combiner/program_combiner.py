@@ -2,7 +2,7 @@ import json
 import os
 import re
 import subprocess
-from typing import override
+from typing import override, Optional
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo
@@ -47,7 +47,7 @@ class ProgramCombiner(Combiner):
             self.source_name = "lib.rs"
 
     @override
-    def combine(self, result_dir_with_type: str, is_idiomatic=False) -> tuple[CombineResult, str | None]:
+    def combine(self, result_dir_with_type: str, is_idiomatic=False) -> tuple[CombineResult, Optional[str]]:
         file_path = os.path.join(result_dir_with_type, 'combined.rs')
         if os.path.exists(file_path):
             print("Skip combining: combined.rs already exists")

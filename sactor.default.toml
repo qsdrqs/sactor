@@ -22,6 +22,17 @@ model = "gpt-4o" # change this to your own model
 # organization = "your-organization" # uncomment this line if you are using an organization
 # project_id = "your-project-id" # uncomment this line if you are using a project id
 
+[Anthropic]
+api_key = "your-api-key"
+model = "claude-3-5-sonnet-latest" # change this to your own model
+max_tokens = 2048 # maximum number of tokens to generate for each request
+# temperature  = 1 # Uncomment this line if you want to set a temperature
+
+[Google]
+api_key = "your-api-key"
+model = 'gemini-2.0-flash-exp' # change this to your own model
+# temperature = 1 # Uncomment this line if you want to set a temperature
+
 [Ollama]
 host = "http://127.0.0.1:11434"
 model = "llama3.3"

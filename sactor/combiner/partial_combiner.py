@@ -1,4 +1,4 @@
-from typing import override
+from typing import override, Optional
 
 from .combiner import Combiner
 from .combiner_types import CombineResult
@@ -12,7 +12,7 @@ class PartialCombiner(Combiner):
 
 
     @override
-    def combine(self) -> tuple[CombineResult, str | None]:
+    def combine(self) -> tuple[CombineResult, Optional[str]]:
         function_code: dict[str, RustCode] = {}
         struct_code: dict[str, RustCode] = {}
         # Initialize the function_code and struct_code dictionaries

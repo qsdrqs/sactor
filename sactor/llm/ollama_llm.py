@@ -36,7 +36,7 @@ class OllamaLLM(LLM):
         messages.append({"role": "user", "content": f"{prompt}"})
 
         temperature = self.config['Ollama'].get(
-            'temperature')  # default is vary by model
+            'temperature')  # default value varies by model
 
         resp = self.client.chat(
             model=model,

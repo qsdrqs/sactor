@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from .combiner_types import CombineResult
 from .rust_code import RustCode
@@ -52,5 +53,5 @@ class Combiner(ABC):
         return output_code
 
     @abstractmethod
-    def combine(self, *args, **kwargs) -> tuple[CombineResult, str | None]:
+    def combine(self, *args, **kwargs) -> tuple[CombineResult, Optional[str]]:
         pass

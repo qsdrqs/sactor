@@ -1,6 +1,6 @@
 import difflib
 import subprocess
-from typing import override
+from typing import override, Optional
 
 from sactor import utils
 
@@ -23,7 +23,7 @@ class ExecutableTestRunner(TestRunner):
         )
         self.feed_as_arguments = feed_as_arguments
 
-    def _compare_outputs(self, actual: str, expected: str) -> tuple[TestRunnerResult, str | None]:
+    def _compare_outputs(self, actual: str, expected: str) -> tuple[TestRunnerResult, Optional[str]]:
         if actual == expected:
             return TestRunnerResult.PASSED, None
 
@@ -34,7 +34,7 @@ class ExecutableTestRunner(TestRunner):
         return TestRunnerResult.FAILED, diff_text
 
     @override
-    def run_test(self, test_sample_number: int) -> tuple[TestRunnerResult, str | None]:
+    def run_test(self, test_sample_number: int) -> tuple[TestRunnerResult, Optional[str]]:
         len_test_samples_output = len(self.test_samples_output)
         if test_sample_number >= len_test_samples_output or test_sample_number < 0:
             raise ValueError(

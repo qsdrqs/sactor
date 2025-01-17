@@ -26,6 +26,8 @@ pytest = "^8.3.4"
 pytest-cov = "^6.0.0"
 tomli = "^2.2.1"
 ollama = "^0.4.5"
+anthropic = "^0.43.0"
+google-genai = "^0.5.0"
 
 [tool.poetry.group.dev.dependencies]
 autopep8 = "^2.3.1"

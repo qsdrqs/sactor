@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, c_parser_utils
@@ -69,10 +70,10 @@ class Verifier(ABC):
             return False
 
     @abstractmethod
-    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], *args, **kwargs) -> tuple[VerifyResult, str | None]:
+    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], *args, **kwargs) -> tuple[VerifyResult, Optional[str]]:
         pass
 
-    def _try_compile_rust_code_impl(self, rust_code, executable=False) -> tuple[VerifyResult, str | None]:
+    def _try_compile_rust_code_impl(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
         utils.create_rust_proj(rust_code, "build_attempt",
                                self.build_attempt_path, is_lib=(not executable))
 
@@ -101,7 +102,7 @@ class Verifier(ABC):
             print("Rust code compiled successfully")
             return (VerifyResult.SUCCESS, None)
 
-    def _try_compile_rust_code(self, rust_code, executable=False) -> tuple[VerifyResult, str | None]:
+    def _try_compile_rust_code(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
         return self._try_compile_rust_code_impl(rust_code, executable)
 
     def _load_test_cmd(self, target) -> list[list[str]]:
@@ -133,7 +134,7 @@ class Verifier(ABC):
 
         return feedback
 
-    def _run_tests(self, target, env=None, test_number=None, valgrind=False) -> tuple[VerifyResult, str | None, int | None]:
+    def _run_tests(self, target, env=None, test_number=None, valgrind=False) -> tuple[VerifyResult, Optional[str], Optional[int]]:
         if env is None:
             env = os.environ.copy()
         test_cmds = self._load_test_cmd(target)
@@ -181,7 +182,7 @@ class Verifier(ABC):
 
         return (VerifyResult.SUCCESS, None, None)
 
-    def _run_tests_with_rust(self, target, test_number=None, valgrind=False) -> tuple[VerifyResult, str | None, int | None]:
+    def _run_tests_with_rust(self, target, test_number=None, valgrind=False) -> tuple[VerifyResult, Optional[str], Optional[int]]:
         # get absolute path of the target
         target = os.path.abspath(target)
         env = os.environ.copy()
@@ -278,7 +279,7 @@ class Verifier(ABC):
         function_dependency_signatures: list[str] | None = None,
         prefix=False,
         idiomatic=False
-    ) -> tuple[VerifyResult, str | None]:
+    ) -> tuple[VerifyResult, Optional[str]]:
         name = c_function.name
         filename = c_function.node.location.file.name
 

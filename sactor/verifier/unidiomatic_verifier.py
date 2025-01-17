@@ -1,6 +1,6 @@
 import os
 import subprocess
-from typing import override
+from typing import override, Optional
 
 from sactor import rust_ast_parser
 from sactor.c_parser import FunctionInfo
@@ -37,7 +37,7 @@ class UnidiomaticVerifier(Verifier):
         struct_code: dict[str, str],
         function_dependency_signatures,
         has_prefix,
-    ) -> tuple[VerifyResult, str | None]:
+    ) -> tuple[VerifyResult, Optional[str]]:
         functions = {function.name: function_code}
         combiner = PartialCombiner(functions, struct_code)
         result, combined_code = combiner.combine()
@@ -63,7 +63,7 @@ class UnidiomaticVerifier(Verifier):
         return (VerifyResult.SUCCESS, None)
 
     @override
-    def _try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None) -> tuple[VerifyResult, str | None]:
+    def _try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None) -> tuple[VerifyResult, Optional[str]]:
         if function_dependency_signatures:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)

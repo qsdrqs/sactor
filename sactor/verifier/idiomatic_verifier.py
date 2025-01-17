@@ -1,5 +1,5 @@
 import os
-from typing import override
+from typing import override, Optional
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo
@@ -58,7 +58,7 @@ class IdiomaticVerifier(Verifier):
         original_signature,
         idiomatic_signature,
         struct_signature_dependency_names: list[str] = [],
-        verify_result: tuple[VerifyResult, str | None] = (
+        verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
@@ -250,11 +250,11 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         unidiomatic_struct_code: str,
         idiomatic_struct_code: str,
         struct_dependencies: list[StructInfo],
-        verify_result: tuple[VerifyResult, str | None] = (
+        verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
-    ) -> tuple[VerifyResult, str | None]:
+    ) -> tuple[VerifyResult, Optional[str]]:
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to get compilable test harness for function {struct_name} after {self.max_attempts} attempts")
@@ -477,7 +477,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         function_dependencies_code: dict[str, str],
         unidiomatic_signature,
         prefix=False,
-    ) -> tuple[VerifyResult, str | None]:
+    ) -> tuple[VerifyResult, Optional[str]]:
         functions = function_dependencies_code.copy()
         functions[function.name] = function_code
 

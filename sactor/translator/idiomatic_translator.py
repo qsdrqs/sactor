@@ -1,5 +1,5 @@
 import os
-from typing import override
+from typing import override, Optional
 
 import sactor.translator as translator
 import sactor.verifier as verifier
@@ -61,7 +61,7 @@ class IdiomaticTranslator(Translator):
     def _translate_struct_impl(
         self,
         struct_union: StructInfo,
-        verify_result: tuple[VerifyResult, str | None] = (
+        verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
@@ -255,7 +255,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     def _translate_function_impl(
         self,
         function: FunctionInfo,
-        verify_result: tuple[VerifyResult, str | None] = (
+        verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,

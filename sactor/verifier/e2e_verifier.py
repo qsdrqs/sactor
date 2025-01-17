@@ -1,6 +1,6 @@
 import os
 import subprocess
-from typing import override
+from typing import override, Optional
 
 from sactor import utils
 
@@ -33,7 +33,7 @@ class E2EVerifier(Verifier):
     def verify_function(self):
         raise NotImplementedError("Can not verify function in E2EVerifier")
 
-    def e2e_verify(self, code: str) -> tuple[VerifyResult, str | None]:
+    def e2e_verify(self, code: str) -> tuple[VerifyResult, Optional[str]]:
         # try compile the code
         compile_result = self._try_compile_rust_code(code, self.is_executable)
 

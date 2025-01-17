@@ -1,5 +1,6 @@
 import json
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from sactor import utils
 
@@ -16,5 +17,5 @@ class TestRunner(ABC):
         self.target = target
 
     @abstractmethod
-    def run_test(self, test_sample_number: int) -> tuple[TestRunnerResult, str | None]:
+    def run_test(self, test_sample_number: int) -> tuple[TestRunnerResult, Optional[str]]:
         pass

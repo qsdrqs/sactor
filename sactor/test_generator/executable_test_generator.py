@@ -103,7 +103,7 @@ class ExecutableTestGenerator(TestGenerator):
 
         # Generate test cases
         prompt = ''
-        system_message = "You are an expert to write end-to-end tests for a C program."
+        system_message = "You are an expert to write end-to-end tests for a C program." # TODO: config it
 
         if not self.whole_program:
             # only extract the main function

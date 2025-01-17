@@ -1,6 +1,7 @@
 import json
 import os
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from sactor import utils
 from sactor.c_parser import CParser, FunctionInfo, StructInfo
@@ -30,7 +31,7 @@ class Translator(ABC):
     def _translate_struct_impl(
         self,
         struct_union: StructInfo,
-        verify_result: tuple[VerifyResult, str | None] = (
+        verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
@@ -44,7 +45,7 @@ class Translator(ABC):
     def _translate_function_impl(
         self,
         function: FunctionInfo,
-        verify_result: tuple[VerifyResult, str | None] = (
+        verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
