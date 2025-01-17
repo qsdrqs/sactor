@@ -21,11 +21,13 @@ class OpenAILLM(LLM):
         # Optional
         organization = config['OpenAI'].get('organization')
         project_id = config['OpenAI'].get('project_id')
+        base_url = config['OpenAI'].get('base_url')
 
         self.client = OpenAI(
             api_key=api_key,
             organization=organization,
             project=project_id,
+            base_url=base_url
         )
 
     @override
