@@ -1,0 +1,10 @@
+{
+    "printGrades": {
+        "type": "function",
+        "errors": []
+    },
+    "main": {
+        "type": "function",
+        "errors": []
+    }
+}

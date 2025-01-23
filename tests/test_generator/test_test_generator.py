@@ -1,3 +1,4 @@
+import json
 import tempfile
 
 import pytest
@@ -40,6 +41,26 @@ def c_file_executable_scanf():
     yield from c_file_executable(file_path)
 
 
+def check_test_samples_output(expected_output, actual_output):
+    expected = json.loads(expected_output)
+    actual = json.loads(actual_output)
+    if len(expected) != len(actual):
+        return False
+    input_output = {}
+    for i in range(len(expected)):
+        input_ = expected[i]['input']
+        output = expected[i]['output']
+        input_output[input_] = output
+    for i in range(len(actual)):
+        input_ = actual[i]['input']
+        output = actual[i]['output']
+        if input_ not in input_output:
+            return False
+        if input_output[input_] != output:
+            return False
+
+    return True
+
 def test_generate_tests(llm, test_samples, c_file_executable_arguments):
     executable, file_path = c_file_executable_arguments
 
@@ -49,7 +70,7 @@ def test_generate_tests(llm, test_samples, c_file_executable_arguments):
         executable=executable,
         feed_as_arguments=True
     )
-    generator.llm = llm # mock llm
+    generator.llm = llm  # mock llm
     generator.generate_tests(10)
     assert len(generator.test_samples) == 12
     assert len(generator.test_samples_output) == 12
@@ -65,7 +86,7 @@ def test_generate_tests(llm, test_samples, c_file_executable_arguments):
     with open('tests/c_examples/add/test_task/test_task.json', 'r') as f:
         assert test_task == f.read().replace('${PLACE_HOLDER}', tmpdirname)
     with open('tests/c_examples/add/test_task/test_samples.json', 'r') as f:
-        assert test_samples == f.read()
+        assert check_test_samples_output(f.read(), test_samples)
 
 
 def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
@@ -77,7 +98,7 @@ def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
         executable=executable,
         feed_as_arguments=False
     )
-    generator.llm = llm # mock llm
+    generator.llm = llm  # mock llm
     generator.generate_tests(10)
     assert len(generator.test_samples) == 12
     assert len(generator.test_samples_output) == 12
@@ -93,4 +114,4 @@ def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
     with open('tests/c_examples/add_scanf/test_task/test_task.json', 'r') as f:
         assert test_task == f.read().replace('${PLACE_HOLDER}', tmpdirname)
     with open('tests/c_examples/add_scanf/test_task/test_samples.json', 'r') as f:
-        assert test_samples == f.read()
+        assert check_test_samples_output(f.read(), test_samples)

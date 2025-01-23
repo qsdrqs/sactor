@@ -61,7 +61,7 @@ def test_embed_test(c_parser, rust_code, config):
     assert result[0] == VerifyResult.SUCCESS
 
 
-def test_embed_test_wrong(c_parser, rust_code):
+def test_embed_test_wrong(c_parser, rust_code, config):
     verifier = UnidiomaticVerifier(
         'tests/c_examples/course_manage/course_manage_test_wrong.json', config)
     result = verifier._embed_test_rust(

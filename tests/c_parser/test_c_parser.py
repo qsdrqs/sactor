@@ -105,9 +105,24 @@ def test_global_var():
     assert len(c_parser.get_structs()) == 0
 
     main_function_deps = c_parser.get_function_info('main').global_vars_dependencies
-    assert set([var.displayname for var in main_function_deps]) == {
+    assert set([var.name for var in main_function_deps]) == {
         'global_var',
     }
+
+def test_const_global_var():
+    file_path = 'tests/c_examples/const_global/const_global.c'
+    c_parser = CParser(file_path)
+
+    assert len(c_parser.get_functions()) == 2
+    assert len(c_parser.get_structs()) == 0
+
+    g_var = c_parser.get_function_info('printGrades').global_vars_dependencies
+    assert len(g_var) == 1
+    assert g_var[0].is_const
+
+    g_var = c_parser.get_function_info('main').global_vars_dependencies
+    assert len(g_var) == 1
+    assert g_var[0].is_const
 
 def test_typedef():
     file_path = 'tests/c_examples/typedef/typedef_sample.c'

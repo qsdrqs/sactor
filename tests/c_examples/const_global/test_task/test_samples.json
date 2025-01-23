@@ -1,0 +1,22 @@
+[
+    {
+        "input": "1",
+        "output": "Student grades:\nStudent 1: 85"
+    },
+    {
+        "input": "2",
+        "output": "Student grades:\nStudent 2: 90"
+    },
+    {
+        "input": "4",
+        "output": "Student grades:\nStudent 4: 95"
+    },
+    {
+        "input": "3",
+        "output": "Student grades:\nStudent 3: 75"
+    },
+    {
+        "input": "5",
+        "output": "Student grades:\nStudent 5: 88"
+    }
+]
