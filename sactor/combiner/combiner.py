@@ -25,14 +25,14 @@ class Combiner(ABC):
             for use in all_uses
         ]
 
-    def _combine_code(self, function_code: dict[str, RustCode], struct_code: dict[str, RustCode]) -> str:
+    def _combine_code(self, function_code: dict[str, RustCode], data_type_code: dict[str, RustCode]) -> str:
         # collect all uses in the functions and structs
         all_uses: list[list[str]] = []
         for function in function_code.keys():
             all_uses += function_code[function].used_code_list
 
-        for struct in struct_code.keys():
-            all_uses += struct_code[struct].used_code_list
+        for struct in data_type_code.keys():
+            all_uses += data_type_code[struct].used_code_list
 
         # deduplicate
         all_uses_tuples = set(tuple(x) for x in all_uses)
@@ -43,8 +43,8 @@ class Combiner(ABC):
         uses_code = self._merge_uses(all_uses)
         output_code += uses_code
 
-        for struct in struct_code.keys():
-            output_code.append(struct_code[struct].remained_code)
+        for struct in data_type_code.keys():
+            output_code.append(data_type_code[struct].remained_code)
 
         for function in function_code.keys():
             output_code.append(function_code[function].remained_code)

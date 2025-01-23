@@ -2,7 +2,7 @@ import os
 from sys import executable
 
 from sactor import thirdparty, utils
-from sactor.c_parser import CParser
+from sactor.c_parser import CParser, global_var_info
 from sactor.combiner import CombineResult, ProgramCombiner
 from sactor.divider import Divider
 from sactor.llm import llm_factory
@@ -80,10 +80,11 @@ class Sactor:
         self.c2rust = C2Rust(self.input_file)
         self.combiner = ProgramCombiner(
             self.config,
-            self.c_parser.get_functions(),
-            self.c_parser.get_structs(),
-            self.test_cmd_path,
-            self.build_dir,
+            functions=self.c_parser.get_functions(),
+            structs=self.c_parser.get_structs(),
+            global_vars=self.c_parser.get_global_vars(),
+            test_cmd_path=self.test_cmd_path,
+            build_path=self.build_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             is_executable=self.is_executable,

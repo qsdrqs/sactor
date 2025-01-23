@@ -3,6 +3,7 @@ from clang.cindex import Cursor
 
 from .enum_info import EnumInfo
 from .struct_info import StructInfo
+from .global_var_info import GlobalVarInfo
 
 
 class FunctionInfo:
@@ -26,7 +27,7 @@ class FunctionInfo:
         self.location = location
         self.function_dependencies: list[FunctionInfo] = called_functions if called_functions is not None else []
         self.struct_dependencies: list[StructInfo] = used_structs if used_structs is not None else []
-        self.global_vars_dependencies: list[Cursor] = used_global_vars if used_global_vars is not None else []
+        self.global_vars_dependencies: list[GlobalVarInfo] = used_global_vars if used_global_vars is not None else []
         self.enum_dependencies: list[EnumInfo] = used_enums if used_enums is not None else []
         self.type_alias_dependencies: dict[str, str] = used_type_aliases if used_type_aliases is not None else {}
 
@@ -103,7 +104,7 @@ class FunctionInfo:
         return hash(self.name) + hash(self.location)
 
     def __eq__(self, other):
-        return self.name == other.name
+        return self.name == other.name and self.location == other.location
 
     def __repr__(self):
         return f"FunctionInfo({self.get_signature()})"

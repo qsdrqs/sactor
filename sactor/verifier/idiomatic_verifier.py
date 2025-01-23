@@ -473,7 +473,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         self,
         function: FunctionInfo,
         function_code: str,
-        struct_code: dict[str, str],
+        data_type_code: dict[str, str],
         function_dependencies_code: dict[str, str],
         unidiomatic_signature,
         prefix=False,
@@ -481,15 +481,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         functions = function_dependencies_code.copy()
         functions[function.name] = function_code
 
-        combiner = PartialCombiner(functions, struct_code)
+        combiner = PartialCombiner(functions, data_type_code)
         result, combined_code = combiner.combine()
         if result != CombineResult.SUCCESS or combined_code is None:
             raise ValueError(f"Failed to combine the function {function.name}")
 
         total, unsafe = rust_ast_parser.count_unsafe_tokens(combined_code)
-        # if unsafe > 0:
-        #     # TODO: may allow unsafe blocks in the future
-        #     return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
+        if unsafe > 0:
+            # TODO: may allow unsafe blocks in the future
+            return (VerifyResult.COMPILE_ERROR, "Unsafe blocks are not allowed in the idiomatic code")
 
         # Try to compile the Rust code
         function_name = function.name
@@ -511,7 +511,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 # generate struct test harness first
                 for struct in struct_signature_dependencies:
                     struct_name = struct.name
-                    if struct_name not in struct_code:
+                    if struct_name not in data_type_code:
                         print(
                             f"Error: Struct {struct_name} is not provided in the struct code")
                         return (VerifyResult.COMPILE_ERROR, None)
@@ -531,7 +531,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     result = self._struct_generate_test_harness(
                         struct_name,
                         unidiomatic_struct_code,
-                        struct_code[struct_name],
+                        data_type_code[struct_name],
                         struct.dependencies
                     )
                     # TODO: harness feedback may not be useful
@@ -547,11 +547,11 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
             # remove duplicate structs in the dependencies
             combiner_struct_pop_list = []
-            for struct_name in combiner.structs.keys():
+            for struct_name in combiner.data_types.keys():
                 if struct_name in struct_signature_dependency_names:
                     combiner_struct_pop_list.append(struct_name)
             for struct_name in combiner_struct_pop_list:
-                combiner.structs.pop(struct_name)
+                combiner.data_types.pop(struct_name)
 
             # regenerate the combined code
             result, combined_code_harness = combiner.combine()

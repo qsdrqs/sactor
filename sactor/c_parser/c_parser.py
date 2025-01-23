@@ -3,6 +3,7 @@ from clang import cindex
 from sactor import utils
 
 from .enum_info import EnumInfo
+from .global_var_info import GlobalVarInfo
 from .function_info import FunctionInfo
 from .struct_info import StructInfo
 
@@ -25,6 +26,8 @@ class CParser:
         self._structs_unions = dict((struct_union.name, struct_union)
                                     for struct_union in structs_unions_list)
         self._update_structs_unions()
+
+        self._global_vars: dict[str, GlobalVarInfo] = {}
 
         functions_list = self._extract_functions()
         self._functions = dict((func.name, func) for func in functions_list)
@@ -55,6 +58,17 @@ class CParser:
 
     def get_functions(self) -> list[FunctionInfo]:
         return list(self._functions.values())
+
+    def get_global_var_info(self, global_var_name):
+        """
+        Raises ValueError if the global variable is not found.
+        """
+        if global_var_name in self._global_vars:
+            return self._global_vars[global_var_name]
+        raise ValueError(f"Global variable {global_var_name} not found")
+
+    def get_global_vars(self) -> list[GlobalVarInfo]:
+        return list(self._global_vars.values())
 
     def _extract_type_alias(self):
         """
@@ -218,9 +232,9 @@ class CParser:
                         arguments,
                         location,
                         called_functions,
-                        used_structs,
-                        used_global_vars,
-                        used_enums,
+                        list(used_structs),
+                        list(used_global_vars),
+                        list(used_enums),
                         used_type_aliases
                     ))
         for child in node.get_children():
@@ -279,7 +293,9 @@ class CParser:
                 referenced_cursor = child.referenced
                 if referenced_cursor.kind == cindex.CursorKind.VAR_DECL:
                     if referenced_cursor.storage_class == cindex.StorageClass.STATIC or referenced_cursor.linkage == cindex.LinkageKind.EXTERNAL:
-                        used_global_vars.add(referenced_cursor)
+                        global_var = GlobalVarInfo(referenced_cursor)
+                        used_global_vars.add(global_var)
+                        self._global_vars[global_var.name] = global_var
             used_global_vars.update(
                 self._collect_global_variable_dependencies(child))
         return used_global_vars
@@ -407,7 +423,7 @@ class CParser:
                     result += f"        {dependency}\n"
             result += "Global Var Dependencies:\n"
             for used_global_var in func.global_vars_dependencies:
-                result += f"  {used_global_var.spelling}\n"
+                result += f"  {used_global_var.name}\n"
             result += "Enum Dependencies:\n"
             for used_enum in func.enum_dependencies:
                 result += f"  {used_enum.name} = {used_enum.value}\n"
@@ -438,6 +454,13 @@ class CParser:
             if code:
                 result += f"Struct/Union Name: {struct_union.name}\n"
                 result += code + "\n"
+            result += "-" * 40 + "\n"
+
+        result += "Global Variables:\n"
+        for global_var in self._global_vars.values():
+            result += f"Global Var Name: {global_var.name}\n"
+            result += f"Type: {global_var.type}\n"
+            result += f"Location: {global_var.location}\n"
             result += "-" * 40 + "\n"
 
         return result

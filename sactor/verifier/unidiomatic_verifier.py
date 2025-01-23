@@ -34,12 +34,12 @@ class UnidiomaticVerifier(Verifier):
         self,
         function: FunctionInfo,
         function_code: str,
-        struct_code: dict[str, str],
+        data_type_code: dict[str, str],
         function_dependency_signatures,
         has_prefix,
     ) -> tuple[VerifyResult, Optional[str]]:
         functions = {function.name: function_code}
-        combiner = PartialCombiner(functions, struct_code)
+        combiner = PartialCombiner(functions, data_type_code)
         result, combined_code = combiner.combine()
         if result != CombineResult.SUCCESS or combined_code is None:
             raise ValueError(f"Failed to combine the function {function.name}")

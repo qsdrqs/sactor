@@ -63,7 +63,7 @@ class ExecutableTestGenerator(TestGenerator):
                 )
             if result.returncode != 0:
                 raise ValueError(
-                    f"Failed to run the executable with the input: {result.stderr.decode()}"
+                    f"Failed to run the executable with the input: {result.stdout.decode() + result.stderr.decode()}"
                 )
         except subprocess.TimeoutExpired as e:
             print(f"Timeout: {e}")
@@ -89,7 +89,13 @@ class ExecutableTestGenerator(TestGenerator):
         assert result.returncode == 0 # should not fail
         return utils.normalize_string(result.stdout.decode() + result.stderr.decode())
 
-    def _generate_test_impl(self, count, counter_examples=None, attempt=0) -> TestGeneratorResult:
+    def _generate_test_impl(
+        self,
+        count,
+        counter_examples=None,
+        feedback=None,
+        attempt=0,
+    ) -> TestGeneratorResult:
         if count < 0:
             raise ValueError(f"Invalid count: {count}")
 
@@ -137,6 +143,15 @@ The C program has the following test cases already written:
 ----END INPUT {i}----
 '''
 
+        if feedback:
+            prompt += f'''
+Lastly, some test cases are invalid:
+```
+{feedback}
+```
+Check the error message and provide valid test cases.
+'''
+
         if counter_examples:
             prompt += f'''
 The following test cases are generated before but invalid:
@@ -180,15 +195,33 @@ You should only provide **VALID** inputs for the target C program. You can provi
         for i in range(1, count + 1):
             try:
                 test_case = utils.parse_llm_result(result, f"input {i}")
-                self.test_samples.append(test_case[f"input {i}"].strip())
-                success_count += 1
+                init_count = len(self.test_samples)
+                self.test_samples.add(test_case[f"input {i}"].strip())
+                if len(self.test_samples) == init_count + 1:
+                    success_count += 1 # add distinct test case
             except ValueError as _:
-                print(f"Failed to parse the input {i}")
-                return self._generate_test_impl(count - success_count, attempt=attempt+1)  # Retry
+                error_message = f'''Failed to parse the input {i}. Please provide input in the correct format.
+----INPUT i----
+```
+Your input i here
+```
+----END INPUT i----
+REMEMBER: i should start from 1.
+'''
+                print(error_message)
+                return self._generate_test_impl(
+                    count - success_count,
+                    feedback=error_message,
+                    attempt=attempt+1
+                )  # Retry
+
+        if success_count < count:
+            print(f"Generated {success_count} test cases, required {count}")
+            return self._generate_test_impl(count - success_count, attempt=attempt+1)
 
         # collect test cases
         counter_examples = []
-        remaining_test_samples = []
+        remaining_test_samples = set()
         for i, sample in enumerate(self.test_samples):
             try:
                 output = self._execute_test_sample(sample)
@@ -202,9 +235,9 @@ You should only provide **VALID** inputs for the target C program. You can provi
                     "output": output,
                 }
             )
-            remaining_test_samples.append(sample)
+            remaining_test_samples.add(sample.strip())
 
-        self.test_samples = remaining_test_samples
+        self.test_samples = set(remaining_test_samples)
         if len(counter_examples) > 0:
             # remove invalid test cases
             print(f"Counter examples: {len(counter_examples)}")

@@ -70,7 +70,14 @@ class Verifier(ABC):
             return False
 
     @abstractmethod
-    def verify_function(self, function: FunctionInfo, function_code: str, struct_code: dict[str, str], *args, **kwargs) -> tuple[VerifyResult, Optional[str]]:
+    def verify_function(
+        self,
+        function: FunctionInfo,
+        function_code: str,
+        data_type_code: dict[str, str],
+        *args,
+        **kwargs,
+    ) -> tuple[VerifyResult, Optional[str]]:
         pass
 
     def _try_compile_rust_code_impl(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
@@ -221,7 +228,10 @@ class Verifier(ABC):
         # TODO: move this to c_parser.utils
         used_global_token_spellings = []
         used_global_vars = c_function.global_vars_dependencies
-        for var_node in used_global_vars:
+        for var in used_global_vars:
+            if var.is_const:
+                continue # skip const global variables as it will be included
+            var_node = var.node
             start_line = var_node.extent.start.line - 1
             end_line = var_node.extent.end.line
             tokens = var_node.get_tokens()

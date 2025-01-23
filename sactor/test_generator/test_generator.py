@@ -19,7 +19,7 @@ class TestGenerator(ABC):
         input_document=None,
     ):
         self.init_test_samples = test_samples
-        self.test_samples = test_samples
+        self.test_samples = set(test_samples)
         self.file_path = file_path
         if input_document:
             with open(input_document, 'r') as f:
@@ -52,7 +52,7 @@ class TestGenerator(ABC):
             with open(test_samples_path, 'r') as f:
                 test_samples = json.load(f)
             for sample in test_samples:
-                self.test_samples.append(sample['input']) # only append the input, ignore the output
+                self.test_samples.add(sample['input']) # only append the input, ignore the output
 
     @abstractmethod
     def generate_tests(self, count) -> TestGeneratorResult:

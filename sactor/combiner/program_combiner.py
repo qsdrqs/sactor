@@ -5,7 +5,7 @@ import subprocess
 from typing import override, Optional
 
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import FunctionInfo, StructInfo
+from sactor.c_parser import FunctionInfo, StructInfo, GlobalVarInfo
 from sactor.thirdparty.rustfmt import RustFmt
 from sactor.verifier import E2EVerifier, VerifyResult
 
@@ -20,6 +20,7 @@ class ProgramCombiner(Combiner):
         config: dict,
         functions: list[FunctionInfo],
         structs: list[StructInfo],
+        global_vars: list[GlobalVarInfo],
         test_cmd_path,
         build_path,
         is_executable: bool,
@@ -29,6 +30,7 @@ class ProgramCombiner(Combiner):
         self.config = config
         self.functions = functions
         self.structs = structs
+        self.global_vars = global_vars
 
         self.verifier = E2EVerifier(
             test_cmd_path,
@@ -54,7 +56,7 @@ class ProgramCombiner(Combiner):
             return CombineResult.SUCCESS, None
 
         function_code: dict[str, RustCode] = {}
-        struct_code: dict[str, RustCode] = {}
+        data_type_code: dict[str, RustCode] = {}
         for function in self.functions:
             function_name = function.name
             with open(os.path.join(result_dir_with_type, 'functions', f'{function_name}.rs'), "r") as f:
@@ -65,9 +67,15 @@ class ProgramCombiner(Combiner):
             struct_name = struct.name
             with open(os.path.join(result_dir_with_type, 'structs', f'{struct_name}.rs'), "r") as f:
                 s_code = f.read()
-                struct_code[struct_name] = RustCode(s_code)
+                data_type_code[struct_name] = RustCode(s_code)
 
-        output_code = self._combine_code(function_code, struct_code)
+        for global_var in self.global_vars:
+            global_var_name = global_var.name
+            with open(os.path.join(result_dir_with_type, 'global_vars', f'{global_var_name}.rs'), "r") as f:
+                g_code = f.read()
+                data_type_code[global_var_name] = RustCode(g_code)
+
+        output_code = self._combine_code(function_code, data_type_code)
 
         # verify the combined code
         skip_test = False

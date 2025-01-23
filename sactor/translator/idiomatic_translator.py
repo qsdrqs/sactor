@@ -4,7 +4,7 @@ from typing import override, Optional
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import CParser, FunctionInfo, StructInfo
+from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo
 from sactor.llm import LLM
 from sactor.thirdparty import Crown, CrownType
 from sactor.verifier import VerifyResult
@@ -35,11 +35,15 @@ class IdiomaticTranslator(Translator):
             result_path=result_path,
         )
         self.c2rust_translation = c2rust_translation
+        base_name = "translated_code_idiomatic"
+        self.base_name = base_name
 
         self.translated_struct_path = os.path.join(
-            self.result_path, "translated_code_idiomatic/structs")
+            self.result_path, base_name, "structs")
         self.translated_function_path = os.path.join(
-            self.result_path, "translated_code_idiomatic/functions")
+            self.result_path, base_name, "functions")
+        self.translated_global_var_path = os.path.join(
+            self.result_path, base_name, "global_vars")
         if unidiomatic_result_path:
             self.unidiomatic_result_path = unidiomatic_result_path
         else:
@@ -56,6 +60,134 @@ class IdiomaticTranslator(Translator):
             executable_object=executable_object,
         )
         self.crown_result = crown_result
+
+    def _translate_global_vars_impl(
+        self,
+        global_var: GlobalVarInfo,
+        verify_result: tuple[VerifyResult, Optional[str]] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
+        self.init_failure_info("global_var", global_var.name)
+
+        global_var_save_path = os.path.join(
+            self.translated_global_var_path, global_var.name + ".rs")
+        if os.path.exists(global_var_save_path):
+            print(f"Global variable {global_var.name} already translated")
+            return TranslateResult.SUCCESS
+
+        if attempts > self.max_attempts - 1:
+            print(
+                f"Error: Failed to translate global variable {global_var.name} after {self.max_attempts} attempts")
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+        print(
+            f"Translating global variable: {global_var.name} (attempts: {attempts})")
+
+        if global_var.is_const:
+            global_var_name = global_var.name
+            if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
+                raise RuntimeError(
+                    f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet")
+            with open(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs", "r") as file:
+                code_of_global_var = file.read()
+            prompt = f'''
+Translate the following C global variable to Rust. The global variable is a constant
+The global variable is:
+```rust
+{code_of_global_var}
+```
+'''
+        else:
+            raise NotImplementedError(
+                "Error: Only support translating const global variables for idiomatic Rust")
+
+        prompt += f'''
+Output the translated global variable into this format (wrap with the following tags):
+----GLOBAL VAR----
+```rust
+// Your translated global variable here
+```
+----END GLOBAL VAR----
+'''
+        if verify_result[0] == VerifyResult.COMPILE_ERROR:
+            prompt += f'''
+Lastly, the global variable is translated as:
+```rust
+{error_translation}
+```
+It failed to compile with the following error message:
+```
+{verify_result[1]}
+```
+Analyzing the error messages, think about the possible reasons, and try to avoid this error.
+'''
+
+        elif verify_result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
+
+        result = self.llm.query(prompt)
+        try:
+            llm_result = utils.parse_llm_result(result, "global var")
+        except:
+            error_message = f'''
+Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
+----GLOBAL VAR----
+```rust
+// Your translated global variable here
+```
+----END GLOBAL VAR----
+'''
+            print(error_message)
+            self.append_failure_info(
+                global_var.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_global_vars_impl(
+                global_var,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
+        global_var_result = llm_result["global var"]
+
+        if len(global_var_result.strip()) == 0:
+            error_message = "Translated code doesn't wrap by the tags as instructed"
+            self.append_failure_info(
+                global_var.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_global_vars_impl(
+                global_var,
+                verify_result=(
+                    VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=global_var_result,
+                attempts=attempts+1
+            )
+
+        # check the global variable name, allow const global variable to have different name
+        if global_var.name not in global_var_result and not global_var.is_const:
+            if global_var_result.lower().find(global_var.name.lower()) != -1:
+                error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
+            else:
+                error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
+                print(error_message)
+                self.append_failure_info(
+                    global_var.name, "COMPILE_ERROR", error_message
+                )
+                return self._translate_global_vars_impl(
+                    global_var,
+                    verify_result=(
+                        VerifyResult.COMPILE_ERROR, error_message),
+                    error_translation=global_var_result,
+                    attempts=attempts+1
+                )
+
+        print("Translated global variable:")
+        print(global_var_result)
+
+        # TODO: may add verification here
+        utils.save_code(global_var_save_path, global_var_result)
+        return TranslateResult.SUCCESS
 
     @override
     def _translate_struct_impl(
@@ -294,7 +426,17 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     visited_structs.add(struct_name)
 
         # Get used global variables
-        # TODO: add this
+        used_global_var_nodes = function.global_vars_dependencies
+        used_global_vars = {}
+        for global_var in used_global_var_nodes:
+            if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
+                continue
+            global_var_res = self._translate_global_vars_impl(global_var)
+            if global_var_res != TranslateResult.SUCCESS:
+                return global_var_res
+            with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
+                code_of_global_var = file.read()
+                used_global_vars[global_var.name] = code_of_global_var
 
         # Get used functions
         function_dependencies = function.function_dependencies
@@ -365,6 +507,15 @@ The following is the output of Crown for this function:
 ```
 Analyze the Crown output firstly, then translate the pointers in function arguments and return values with the help of the Crown output.
 Try to avoid using pointers in the function arguments and return values if possible.
+'''
+
+        if len(used_global_vars) > 0:
+            joint_used_global_vars = '\n'.join(used_global_vars.values())
+            prompt += f'''
+The function uses the following const global variables, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+```rust
+{joint_used_global_vars}
+```
 '''
 
         if len(code_of_structs) > 0:
@@ -527,12 +678,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     attempts=attempts+1
                 )
 
+
+        # fetch all struct dependencies
         all_structs = set()
+        all_global_vars = set()
         all_dependency_functions = set()
 
         def get_all_dependencies(function: FunctionInfo):
             for struct in function.struct_dependencies:
                 all_structs.add(struct.name)
+            for g_var in function.global_vars_dependencies:
+                all_global_vars.add(g_var.name)
+
             for f in function.function_dependencies:
                 all_dependency_functions.add(f.name)
                 get_all_dependencies(f)
@@ -547,21 +704,27 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         for struct in structs_in_function:
             get_all_struct_dependencies(struct)
 
-        all_structs_code = {}
+        all_dt_code = {}
         for struct in all_structs:
             with open(f"{self.translated_struct_path}/{struct}.rs", "r") as file:
-                all_structs_code[struct] = file.read()
+                all_dt_code[struct] = file.read()
+
+        for g_var in all_global_vars:
+            with open(f"{self.translated_global_var_path}/{g_var}.rs", "r") as file:
+                all_dt_code[g_var] = file.read()
 
         all_dependency_functions_code = {}
         for f in all_dependency_functions:
             with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
                 all_dependency_functions_code[f] = file.read()
 
+        data_type_code = all_dt_code | used_global_vars
+
         # Verify the translation
         result = self.verifier.verify_function(
             function,
             function_code=function_result,
-            struct_code=all_structs_code,
+            data_type_code=data_type_code,
             function_dependencies_code=all_dependency_functions_code,
             unidiomatic_signature=undiomantic_function_signature,
             prefix=False,  # TODO: check here
