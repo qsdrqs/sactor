@@ -2,7 +2,7 @@ from clang import cindex
 
 from sactor import utils
 
-from .enum_info import EnumInfo
+from .enum_info import EnumValueInfo, EnumInfo
 from .global_var_info import GlobalVarInfo
 from .function_info import FunctionInfo
 from .struct_info import StructInfo
@@ -28,6 +28,7 @@ class CParser:
         self._update_structs_unions()
 
         self._global_vars: dict[str, GlobalVarInfo] = {}
+        self._enums: dict[str, EnumInfo] = {}
 
         functions_list = self._extract_functions()
         self._functions = dict((func.name, func) for func in functions_list)
@@ -69,6 +70,17 @@ class CParser:
 
     def get_global_vars(self) -> list[GlobalVarInfo]:
         return list(self._global_vars.values())
+
+    def get_enum_info(self, enum_name):
+        """
+        Raises ValueError if the enum is not found.
+        """
+        if enum_name in self._enums:
+            return self._enums[enum_name]
+        raise ValueError(f"Enum {enum_name} not found")
+
+    def get_enums(self) -> list[EnumInfo]:
+        return list(self._enums.values())
 
     def _extract_type_alias(self):
         """
@@ -178,10 +190,12 @@ class CParser:
                 name = node.spelling
                 # ignore unnamed structs TODO: is this good?
                 if name.find("unnamed at") == -1:
-                    location = f"{node.location.file}:{node.location.line}"
                     dependencies = []
                     structs.append(StructInfo(
-                        node, name, location, dependencies))
+                        node,
+                        name,
+                        dependencies
+                    ))
         for child in node.get_children():
             structs.extend(self._collect_structs_and_unions(child))
         return structs
@@ -230,7 +244,6 @@ class CParser:
                         name,
                         return_type,
                         arguments,
-                        location,
                         called_functions,
                         list(used_structs),
                         list(used_global_vars),
@@ -309,9 +322,9 @@ class CParser:
             if child.kind == cindex.CursorKind.DECL_REF_EXPR and not self._is_in_system_header(child):
                 referenced_cursor = child.referenced
                 if referenced_cursor.kind == cindex.CursorKind.ENUM_CONSTANT_DECL:
-                    enum_info = EnumInfo(referenced_cursor, referenced_cursor.spelling,
-                                         referenced_cursor.enum_value, referenced_cursor.get_definition())
-                    used_enums.add(enum_info)
+                    enum_value_info = EnumValueInfo(referenced_cursor)
+                    self._enums[enum_value_info.definition.name] = enum_value_info.definition
+                    used_enums.add(enum_value_info)
             used_enums.update(self._collect_enum_dependencies(child))
         return used_enums
 
@@ -361,6 +374,23 @@ class CParser:
             lines = file.readlines()
             start_line = struct_union_node.extent.start.line - 1
             end_line = struct_union_node.extent.end.line
+            return "".join(lines[start_line:end_line])
+
+    def extract_enum_definition_code(self, enum_name):
+        """
+        Extracts the code of the enum definition with the given name from the file.
+
+        Raises ValueError if the function is not found
+        """
+        enum = self._enums[enum_name]
+        enum_node = enum.node
+        if not enum_node.is_definition():
+            enum_node = enum_node.get_definition()
+
+        with open(self.filename, "r") as file:
+            lines = file.readlines()
+            start_line = enum_node.extent.start.line - 1
+            end_line = enum_node.extent.end.line
             return "".join(lines[start_line:end_line])
 
     def _is_in_system_header(self, node):

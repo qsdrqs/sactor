@@ -5,7 +5,7 @@ import subprocess
 from typing import override, Optional
 
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import FunctionInfo, StructInfo, GlobalVarInfo
+from sactor.c_parser import FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
 from sactor.thirdparty.rustfmt import RustFmt
 from sactor.verifier import E2EVerifier, VerifyResult
 
@@ -21,6 +21,7 @@ class ProgramCombiner(Combiner):
         functions: list[FunctionInfo],
         structs: list[StructInfo],
         global_vars: list[GlobalVarInfo],
+        enums: list[EnumInfo],
         test_cmd_path,
         build_path,
         is_executable: bool,
@@ -31,6 +32,7 @@ class ProgramCombiner(Combiner):
         self.functions = functions
         self.structs = structs
         self.global_vars = global_vars
+        self.enums = enums
 
         self.verifier = E2EVerifier(
             test_cmd_path,
@@ -74,6 +76,12 @@ class ProgramCombiner(Combiner):
             with open(os.path.join(result_dir_with_type, 'global_vars', f'{global_var_name}.rs'), "r") as f:
                 g_code = f.read()
                 data_type_code[global_var_name] = RustCode(g_code)
+
+        for enum in self.enums:
+            enum_name = enum.name
+            with open(os.path.join(result_dir_with_type, 'enums', f'{enum_name}.rs'), "r") as f:
+                e_code = f.read()
+                data_type_code[enum_name] = RustCode(e_code)
 
         output_code = self._combine_code(function_code, data_type_code)
 

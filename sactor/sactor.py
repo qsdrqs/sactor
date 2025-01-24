@@ -83,6 +83,7 @@ class Sactor:
             functions=self.c_parser.get_functions(),
             structs=self.c_parser.get_structs(),
             global_vars=self.c_parser.get_global_vars(),
+            enums=self.c_parser.get_enums(),
             test_cmd_path=self.test_cmd_path,
             build_path=self.build_dir,
             extra_compile_command=self.extra_compile_command,

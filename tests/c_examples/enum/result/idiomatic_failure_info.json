@@ -1,0 +1,10 @@
+{
+    "main": {
+        "type": "function",
+        "errors": []
+    },
+    "Days": {
+        "type": "enum",
+        "errors": []
+    }
+}

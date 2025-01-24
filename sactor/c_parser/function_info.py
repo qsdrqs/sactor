@@ -1,7 +1,7 @@
 from clang import cindex
 from clang.cindex import Cursor
 
-from .enum_info import EnumInfo
+from .enum_info import EnumValueInfo
 from .struct_info import StructInfo
 from .global_var_info import GlobalVarInfo
 
@@ -13,7 +13,6 @@ class FunctionInfo:
         name,
         return_type,
         arguments,
-        location,
         called_functions=None,
         used_structs=None,
         used_global_vars=None,
@@ -24,11 +23,11 @@ class FunctionInfo:
         self.name: str = name
         self.return_type = return_type
         self.arguments = arguments
-        self.location = location
+        self.location = f"{node.location.file}:{node.location.line}"
         self.function_dependencies: list[FunctionInfo] = called_functions if called_functions is not None else []
         self.struct_dependencies: list[StructInfo] = used_structs if used_structs is not None else []
         self.global_vars_dependencies: list[GlobalVarInfo] = used_global_vars if used_global_vars is not None else []
-        self.enum_dependencies: list[EnumInfo] = used_enums if used_enums is not None else []
+        self.enum_dependencies: list[EnumValueInfo] = used_enums if used_enums is not None else []
         self.type_alias_dependencies: dict[str, str] = used_type_aliases if used_type_aliases is not None else {}
 
     def get_signature(self, function_name_sub=None):

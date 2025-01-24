@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import utils
-from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo
+from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
@@ -26,6 +26,17 @@ class Translator(ABC):
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         return self._translate_struct_impl(struct_union)
+
+    @abstractmethod
+    def _translate_enum_impl(
+        self,
+        enum: EnumInfo,
+        verify_result: tuple[VerifyResult, Optional[str]] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
+        pass
 
     @abstractmethod
     def _translate_global_vars_impl(

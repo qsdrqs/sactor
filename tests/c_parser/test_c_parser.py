@@ -133,3 +133,23 @@ def test_typedef():
     calculate_distance = c_parser.get_function_info('calculate_distance')
     assert len(calculate_distance.get_structs_in_signature()) == 1
     assert len(calculate_distance.struct_dependencies) == 1
+
+def test_extract_enum_def():
+    file_path = 'tests/c_examples/enum/enum.c'
+    c_parser = CParser(file_path)
+    print(c_parser._enums)
+
+    days = c_parser.get_enum_info('Days')
+    code = c_parser.extract_enum_definition_code(days.name)
+    expected_code = '''
+enum Days {
+    MON = 1,
+    TUE = 2,
+    WED = 3,
+    THU = 4,
+    FRI = 5,
+    SAT = 6,
+    SUN = 7
+};'''
+    assert code.strip() == expected_code.strip()
+

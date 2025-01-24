@@ -4,7 +4,7 @@ from typing import override, Optional
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo
+from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo, EnumValueInfo
 from sactor.llm import LLM
 from sactor.thirdparty import Crown, CrownType
 from sactor.verifier import VerifyResult
@@ -44,6 +44,8 @@ class IdiomaticTranslator(Translator):
             self.result_path, base_name, "functions")
         self.translated_global_var_path = os.path.join(
             self.result_path, base_name, "global_vars")
+        self.translated_enum_path = os.path.join(
+            self.result_path, base_name, "enums")
         if unidiomatic_result_path:
             self.unidiomatic_result_path = unidiomatic_result_path
         else:
@@ -60,7 +62,112 @@ class IdiomaticTranslator(Translator):
             executable_object=executable_object,
         )
         self.crown_result = crown_result
+    @override
+    def _translate_enum_impl(
+        self,
+        enum: EnumInfo,
+        verify_result: tuple[VerifyResult, Optional[str]] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
+        self.init_failure_info("enum", enum.name)
 
+        enum_save_path = os.path.join(
+            self.translated_enum_path, enum.name + ".rs")
+        if os.path.exists(enum_save_path):
+            print(f"Enum {enum.name} already translated")
+            return TranslateResult.SUCCESS
+        if attempts > self.max_attempts - 1:
+            print(
+                f"Error: Failed to translate enum {enum.name} after {self.max_attempts} attempts")
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+        print(f"Translating enum: {enum.name} (attempts: {attempts})")
+
+        if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
+            raise RuntimeError(
+                f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet")
+        with open(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs", "r") as file:
+            code_of_enum = file.read()
+        prompt = f'''
+Translate the following unidiomatic Rust enum to idiomatic Rust. Try to avoid using raw pointers in the translation of the enum.
+The enum is:
+```rust
+{code_of_enum}
+```
+If you think the enum is already idiomatic, you can directly copy the code to the output format.
+'''
+        prompt += f'''
+Output the translated enum into this format (wrap with the following tags):
+----ENUM----
+```rust
+// Your translated enum here
+```
+----END ENUM----
+'''
+
+        if verify_result[0] == VerifyResult.COMPILE_ERROR:
+            prompt += f'''
+Lastly, the enum is translated as:
+```rust
+{error_translation}
+```
+It failed to compile with the following error message:
+```
+{verify_result[1]}
+```
+Analyzing the error messages, think about the possible reasons, and try to avoid this error.
+'''
+        elif verify_result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
+
+        result = self.llm.query(prompt)
+        try:
+            llm_result = utils.parse_llm_result(result, "enum")
+        except:
+            error_message = f'''
+Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
+----ENUM----
+```rust
+// Your translated enum here
+```
+----END ENUM----
+'''
+            print(error_message)
+            self.append_failure_info(
+                enum.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_enum_impl(
+                enum,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
+        enum_result = llm_result["enum"]
+
+        if len(enum_result.strip()) == 0:
+            error_message = "Translated code doesn't wrap by the tags as instructed"
+            self.append_failure_info(
+                enum.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_enum_impl(
+                enum,
+                verify_result=(
+                    VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=enum_result,
+                attempts=attempts+1
+            )
+
+        print("Translated enum:")
+        print(enum_result)
+
+        # TODO: may add verification here
+        utils.save_code(enum_save_path, enum_result)
+        return TranslateResult.SUCCESS
+
+
+    @override
     def _translate_global_vars_impl(
         self,
         global_var: GlobalVarInfo,
@@ -69,8 +176,6 @@ class IdiomaticTranslator(Translator):
         error_translation=None,
         attempts=0,
     ) -> TranslateResult:
-        self.init_failure_info("global_var", global_var.name)
-
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
         if os.path.exists(global_var_save_path):
@@ -84,6 +189,7 @@ class IdiomaticTranslator(Translator):
         print(
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
 
+        self.init_failure_info("global_var", global_var.name)
         if global_var.is_const:
             global_var_name = global_var.name
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
@@ -92,11 +198,12 @@ class IdiomaticTranslator(Translator):
             with open(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs", "r") as file:
                 code_of_global_var = file.read()
             prompt = f'''
-Translate the following C global variable to Rust. The global variable is a constant
+Translate the following unidiomatic Rust const global variable to idiomatic Rust. Try to avoid using raw pointers in the translation of the global variable.
 The global variable is:
 ```rust
 {code_of_global_var}
 ```
+If you think the global variable is already idiomatic, you can directly copy the code to the output format.
 '''
         else:
             raise NotImplementedError(
@@ -199,7 +306,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         attempts=0,
     ) -> TranslateResult:
         # Translate the struct/union
-        self.init_failure_info("struct", struct_union.name)
         struct_save_path = os.path.join(
             self.translated_struct_path, struct_union.name + ".rs")
         if os.path.exists(struct_save_path):
@@ -213,6 +319,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         print(
             f"Translating struct: {struct_union.name} (attempts: {attempts})")
+
+        self.init_failure_info("struct", struct_union.name)
 
         # Get unidiomatic translation code
         struct_path = os.path.join(
@@ -392,7 +500,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         error_translation=None,
         attempts=0,
     ) -> TranslateResult:
-        self.init_failure_info("function", function.name)
 
         function_save_path = os.path.join(
             self.translated_function_path, function.name + ".rs")
@@ -405,6 +512,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating function: {function.name} (attempts: {attempts})")
+
+        self.init_failure_info("function", function.name)
 
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
@@ -437,6 +546,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
                 code_of_global_var = file.read()
                 used_global_vars[global_var.name] = code_of_global_var
+
+        used_enums: list[EnumValueInfo] = function.enum_dependencies
+        code_of_enum = {}
 
         # Get used functions
         function_dependencies = function.function_dependencies
@@ -517,6 +629,33 @@ The function uses the following const global variables, which are already transl
 {joint_used_global_vars}
 ```
 '''
+        if len(used_enums) > 0:
+            enum_definitions = set()
+            used_enum_names = []
+            for enum in used_enums:
+                used_enum_names.append(enum.name)
+                enum_definitions.add(enum.definition)
+
+            for enum_def in enum_definitions:
+                self._translate_enum_impl(enum_def)
+                with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
+                    code_of_enum[enum_def] = file.read()
+
+            joint_used_enums = '\n'.join(used_enum_names)
+            joint_code_of_enum = '\n'.join(code_of_enum.values())
+
+            prompt += f'''
+The function uses the following enums:
+```c
+{joint_used_enums}
+```
+Which are already translated as:
+```rust
+{joint_code_of_enum}
+```
+Directly use the translated enums in your translation. You should **NOT** include them in your translation, as the system will automatically include them.
+'''
+
 
         if len(code_of_structs) > 0:
             joint_struct_code = '\n'.join(code_of_structs.values())
@@ -718,7 +857,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
                 all_dependency_functions_code[f] = file.read()
 
-        data_type_code = all_dt_code | used_global_vars
+        data_type_code = all_dt_code | used_global_vars | code_of_enum
 
         # Verify the translation
         result = self.verifier.verify_function(

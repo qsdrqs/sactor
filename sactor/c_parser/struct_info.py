@@ -5,10 +5,10 @@ from sactor.data_types import DataType
 
 
 class StructInfo:
-    def __init__(self, node, name, location, dependencies=None, type_aliases=None):
+    def __init__(self, node, name, dependencies=None, type_aliases=None):
         self.node: Cursor = node
         self.name: str = name
-        self.location = location
+        self.location = f"{node.location.file}:{node.location.line}"
         self.dependencies: list[StructInfo] = dependencies if dependencies is not None else []
         self.type_aliases: dict[str, str] = type_aliases if type_aliases is not None else {}
         # determine datatype of struct

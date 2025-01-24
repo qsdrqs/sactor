@@ -1,10 +1,13 @@
+from ctypes import c_buffer
 import os
+from re import S
 from typing import Optional, override
 
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import CParser, FunctionInfo, GlobalVarInfo, StructInfo
+from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
+                             GlobalVarInfo, StructInfo)
 from sactor.data_types import DataType
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
@@ -39,6 +42,8 @@ class UnidiomaticTranslator(Translator):
             self.result_path, base_name, "structs")
         self.translated_global_var_path = os.path.join(
             self.result_path, base_name, "global_vars")
+        self.translated_enum_path = os.path.join(
+            self.result_path, base_name, "enums")
         self.translated_function_path = os.path.join(
             self.result_path, base_name, "functions")
         self.verifier = verifier.UnidiomaticVerifier(
@@ -49,6 +54,106 @@ class UnidiomaticTranslator(Translator):
             executable_object=executable_object,
         )
 
+    @override
+    def _translate_enum_impl(
+        self,
+        enum: EnumInfo,
+        verify_result: tuple[VerifyResult, Optional[str]] = (
+            VerifyResult.SUCCESS, None),
+        error_translation=None,
+        attempts=0,
+    ) -> TranslateResult:
+        enum_save_path = os.path.join(
+            self.translated_enum_path, enum.name + ".rs")
+        if os.path.exists(enum_save_path):
+            print(f"Enum {enum.name} already translated")
+            return TranslateResult.SUCCESS
+        if attempts > self.max_attempts - 1:
+            print(
+                f"Error: Failed to translate enum {enum.name} after {self.max_attempts} attempts")
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+        print(f"Translating enum: {enum.name} (attempts: {attempts})")
+        self.init_failure_info("enum", enum.name)
+
+        code_of_enum = self.c_parser.extract_enum_definition_code(enum.name)
+        prompt = f'''
+Translate the following C enum to Rust. Try to keep the **equivalence** as much as possible.
+`libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
+The enum is:
+```c
+{code_of_enum}
+```
+'''
+        prompt += f'''
+Output the translated enum into this format (wrap with the following tags):
+----ENUM----
+```rust
+// Your translated enum here
+```
+----END ENUM----
+'''
+
+        if verify_result[0] == VerifyResult.COMPILE_ERROR:
+            prompt += f'''
+Lastly, the enum is translated as:
+```rust
+{error_translation}
+```
+It failed to compile with the following error message:
+```
+{verify_result[1]}
+```
+Analyzing the error messages, think about the possible reasons, and try to avoid this error.
+'''
+        elif verify_result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {verify_result[0]} not implemented')
+
+        result = self.llm.query(prompt)
+        try:
+            llm_result = utils.parse_llm_result(result, "enum")
+        except:
+            error_message = f'''
+Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
+----ENUM----
+```rust
+// Your translated enum here
+```
+----END ENUM----
+'''
+            print(error_message)
+            self.append_failure_info(
+                enum.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_enum_impl(
+                enum,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=result,
+                attempts=attempts+1
+            )
+        enum_result = llm_result["enum"]
+
+        if len(enum_result.strip()) == 0:
+            error_message = "Translated code doesn't wrap by the tags as instructed"
+            self.append_failure_info(
+                enum.name, "COMPILE_ERROR", error_message
+            )
+            return self._translate_enum_impl(
+                enum,
+                verify_result=(
+                    VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=enum_result,
+                attempts=attempts+1
+            )
+
+        print("Translated enum:")
+        print(enum_result)
+
+        # TODO: may add verification here
+        utils.save_code(enum_save_path, enum_result)
+        return TranslateResult.SUCCESS
+
+    @override
     def _translate_global_vars_impl(
         self,
         global_var: GlobalVarInfo,
@@ -57,7 +162,6 @@ class UnidiomaticTranslator(Translator):
         error_translation=None,
         attempts=0,
     ) -> TranslateResult:
-        self.init_failure_info("global_var", global_var.name)
 
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
@@ -72,6 +176,7 @@ class UnidiomaticTranslator(Translator):
         print(
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
 
+        self.init_failure_info("global_var", global_var.name)
         if global_var.is_const:
             code_of_global_var = global_var.get_code()
             prompt = f'''
@@ -221,8 +326,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         error_translation=None,
         attempts=0,
     ) -> TranslateResult:
-        self.init_failure_info("function", function.name)
-
         function_save_path = os.path.join(
             self.translated_function_path, function.name + ".rs")
         if os.path.exists(function_save_path):
@@ -234,6 +337,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating function: {function.name} (attempts: {attempts})")
+
+        self.init_failure_info("function", function.name)
 
         function_dependencies = function.function_dependencies
         function_name_dependencies = [f.name for f in function_dependencies]
@@ -335,16 +440,33 @@ The function uses the following const global variables, which are already transl
 '''
         # TODO: check upper/lower case of the global variables
         # TODO: check extern "C" for global variables
-        used_enums = function.enum_dependencies
+        used_enums: list[EnumValueInfo] = function.enum_dependencies
+        code_of_enum = {}
         if len(used_enums) > 0:
-            used_enums_kv_pairs = [
-                f'{enum.name} = {enum.value}' for enum in used_enums]
-            joint_used_enums = '\n'.join(used_enums_kv_pairs)
+            enum_definitions = set()
+            used_enum_names = []
+            for enum in used_enums:
+                used_enum_names.append(enum.name)
+                enum_definitions.add(enum.definition)
+
+            for enum_def in enum_definitions:
+                self._translate_enum_impl(enum_def)
+                with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
+                    code_of_enum[enum_def] = file.read()
+
+            joint_used_enums = '\n'.join(used_enum_names)
+            joint_code_of_enum = '\n'.join(code_of_enum.values())
+
             prompt += f'''
-The function uses the following enums, which defined as:
+The function uses the following enums:
 ```c
 {joint_used_enums}
 ```
+Which are already translated as:
+```rust
+{joint_code_of_enum}
+```
+Directly use the translated enums in your translation. You should **NOT** include them in your translation, as the system will automatically include them.
 '''
 
         if len(function_depedency_signatures) > 0:
@@ -522,7 +644,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print("Translated function:")
         print(function_result)
 
-        data_type_code = code_of_structs | used_global_vars
+        data_type_code = code_of_structs | used_global_vars | code_of_enum
 
         result = self.verifier.verify_function(
             function,
