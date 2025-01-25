@@ -1,7 +1,9 @@
-from sactor.c_parser import CParser
 import os
-import tempfile
 import subprocess
+import tempfile
+
+from sactor import utils
+from sactor.c_parser import CParser
 
 
 def test_c_parser():
@@ -11,25 +13,30 @@ def test_c_parser():
 
     assert len(c_parser.get_functions()) == 3
     assert len(c_parser.get_structs()) == 2
-    update_student_info_deps = c_parser.get_function_info('updateStudentInfo').struct_dependencies
+    update_student_info_deps = c_parser.get_function_info(
+        'updateStudentInfo').struct_dependencies
     assert set([struct.name for struct in update_student_info_deps]) == {
         'Student',
     }
-    main_function_deps = c_parser.get_function_info('main').function_dependencies
+    main_function_deps = c_parser.get_function_info(
+        'main').function_dependencies
     assert set([function.name for function in main_function_deps]) == {
         'updateStudentInfo',
         'printUsage',
     }
+
 
 def test_c_parser_get_signature():
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
     update_student_info = c_parser.get_function_info('updateStudentInfo')
-    assert update_student_info.get_signature() == 'void updateStudentInfo ( struct Student * student , const char * newName , int newAge )'
+    assert update_student_info.get_signature(
+    ) == 'void updateStudentInfo ( struct Student * student , const char * newName , int newAge )'
 
     print_usage = c_parser.get_function_info('printUsage')
     assert print_usage.get_signature() == 'void printUsage ( )'
+
 
 def test_c_parser_struct_dependency():
     file_path = 'tests/c_examples/course_manage/course_manage.c'
@@ -39,13 +46,15 @@ def test_c_parser_struct_dependency():
     assert len(student_struct.dependencies) == 1
     assert student_struct.dependencies[0].name == 'Course'
 
+
 def test_structs_in_signature():
     file_path = 'tests/c_parser/c_example.c'
     c_parser = CParser(file_path)
 
     printpoint = c_parser.get_function_info('printPoint')
     structs_in_signature = printpoint.get_structs_in_signature()
-    structs_in_signature_names = [struct.name for struct in structs_in_signature]
+    structs_in_signature_names = [
+        struct.name for struct in structs_in_signature]
     assert set(structs_in_signature_names) == {'Point'}
     structs_in_function = printpoint.struct_dependencies
     structs_in_function_names = [struct.name for struct in structs_in_function]
@@ -53,11 +62,13 @@ def test_structs_in_signature():
 
     foo = c_parser.get_function_info('foo')
     structs_in_signature = foo.get_structs_in_signature()
-    structs_in_signature_names = [struct.name for struct in structs_in_signature]
+    structs_in_signature_names = [
+        struct.name for struct in structs_in_signature]
     assert set(structs_in_signature_names) == set()
     structs_in_function = foo.struct_dependencies
     structs_in_function_names = [struct.name for struct in structs_in_function]
     assert set(structs_in_function_names) == {'Point'}
+
 
 def test_clang_compile():
     file_path = 'tests/c_parser/c_example.c'
@@ -65,6 +76,7 @@ def test_clang_compile():
         cmd = ['clang', file_path, '-o', f'{tmpdir}/c_example']
         subprocess.run(cmd, check=True)
         assert os.path.exists(f'{tmpdir}/c_example')
+
 
 def test_c_parser2():
     file_path = 'tests/c_parser/c_example_size_t.c'
@@ -74,10 +86,12 @@ def test_c_parser2():
     assert len(c_parser.get_functions()) == 2
     assert len(c_parser.get_structs()) == 0
 
-    main_function_deps = c_parser.get_function_info('main').function_dependencies
+    main_function_deps = c_parser.get_function_info(
+        'main').function_dependencies
     assert set([function.name for function in main_function_deps]) == {
         'foo',
     }
+
 
 def test_function_get_declaration():
     file_path = 'tests/c_parser/c_example_size_t.c'
@@ -89,7 +103,8 @@ def test_function_get_declaration():
 
     foo_start_line = foo.node.extent.start.line
     foo_declaration_start_line = foo_declaration_node.extent.start.line
-    print(f'foo_start_line: {foo_start_line}, foo_declaration_start_line: {foo_declaration_start_line}')
+    print(
+        f'foo_start_line: {foo_start_line}, foo_declaration_start_line: {foo_declaration_start_line}')
     assert foo_declaration_start_line < foo_start_line
 
     main = c_parser.get_function_info('main')
@@ -104,10 +119,12 @@ def test_global_var():
     assert len(c_parser.get_functions()) == 1
     assert len(c_parser.get_structs()) == 0
 
-    main_function_deps = c_parser.get_function_info('main').global_vars_dependencies
+    main_function_deps = c_parser.get_function_info(
+        'main').global_vars_dependencies
     assert set([var.name for var in main_function_deps]) == {
         'global_var',
     }
+
 
 def test_const_global_var():
     file_path = 'tests/c_examples/const_global/const_global.c'
@@ -119,10 +136,40 @@ def test_const_global_var():
     g_var = c_parser.get_function_info('printGrades').global_vars_dependencies
     assert len(g_var) == 1
     assert g_var[0].is_const
+    assert g_var[0].is_array
+    assert g_var[0].array_size == 5
 
     g_var = c_parser.get_function_info('main').global_vars_dependencies
     assert len(g_var) == 1
     assert g_var[0].is_const
+
+
+def test_const_global_var2():
+    c_code = '''
+static const unsigned short arr[4] = {
+// comment here
+1, 2, // comment here
+3, 4
+};
+int main() { arr; }
+'''
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = f'{tmpdir}/const_global_var2.c'
+        with open(file_path, 'w') as f:
+            f.write(c_code)
+        c_parser = CParser(file_path)
+
+        g_var = c_parser._global_vars
+        assert 'arr' in g_var
+        g_var_code = c_parser.extract_global_var_definition_code('arr')
+        expected_code = '''
+static const unsigned short arr[4] = {
+// comment here
+1, 2, // comment here
+3, 4
+};'''
+        assert g_var_code.strip() == expected_code.strip()
+
 
 def test_typedef():
     file_path = 'tests/c_examples/typedef/typedef_sample.c'
@@ -133,6 +180,7 @@ def test_typedef():
     calculate_distance = c_parser.get_function_info('calculate_distance')
     assert len(calculate_distance.get_structs_in_signature()) == 1
     assert len(calculate_distance.struct_dependencies) == 1
+
 
 def test_extract_enum_def():
     file_path = 'tests/c_examples/enum/enum.c'
@@ -153,3 +201,38 @@ enum Days {
 };'''
     assert code.strip() == expected_code.strip()
 
+def test_include():
+    code = '''
+#include <stdbool.h>
+bool foo() { return true; }'''
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = f'{tmpdir}/tmp.c'
+        with open(file_path, 'w') as f:
+            f.write(code)
+        print(f'-I{utils.find_project_root()}/include')
+        c_parser = CParser(file_path)
+        foo = c_parser.get_function_info('foo')
+        tokens = utils.cursor_get_tokens(foo.node)
+        token_spellings = [token.spelling for token in tokens]
+        print(token_spellings)
+        assert token_spellings == ['bool', 'foo',
+                                   '(', ')', '{', 'return', 'true', ';', '}']
+
+
+def test_stdio():
+    code = '''
+#include <stdio.h>
+int main() {
+    char str[100];
+    fgets(str, 100, stdin);
+    str[99] = '\\0';
+    fprintf(stderr, "%s", str);
+    return 0;
+}'''
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = f'{tmpdir}/tmp.c'
+        with open(file_path, 'w') as f:
+            f.write(code)
+        c_parser = CParser(file_path)
+        main = c_parser.get_function_info('main')
+        assert set(main.stdio_list) == {'stdin', 'stderr'}

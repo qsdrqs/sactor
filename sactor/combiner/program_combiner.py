@@ -5,7 +5,7 @@ import subprocess
 from typing import override, Optional
 
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
+from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
 from sactor.thirdparty.rustfmt import RustFmt
 from sactor.verifier import E2EVerifier, VerifyResult
 
@@ -18,10 +18,7 @@ class ProgramCombiner(Combiner):
     def __init__(
         self,
         config: dict,
-        functions: list[FunctionInfo],
-        structs: list[StructInfo],
-        global_vars: list[GlobalVarInfo],
-        enums: list[EnumInfo],
+        c_parser: CParser,
         test_cmd_path,
         build_path,
         is_executable: bool,
@@ -29,10 +26,11 @@ class ProgramCombiner(Combiner):
         executable_object=None,
     ):
         self.config = config
-        self.functions = functions
-        self.structs = structs
-        self.global_vars = global_vars
-        self.enums = enums
+        self.c_parser = c_parser
+        self.functions = c_parser.get_functions()
+        self.structs = c_parser.get_structs()
+        self.global_vars = c_parser.get_global_vars()
+        self.enums = c_parser.get_enums()
 
         self.verifier = E2EVerifier(
             test_cmd_path,
@@ -82,6 +80,19 @@ class ProgramCombiner(Combiner):
             with open(os.path.join(result_dir_with_type, 'enums', f'{enum_name}.rs'), "r") as f:
                 e_code = f.read()
                 data_type_code[enum_name] = RustCode(e_code)
+
+        if not is_idiomatic:
+            # add stdio uses to data type code
+            stdio_uses = set()
+            for f in self.functions:
+                stdio_uses.update(f.stdio_list)
+            if len(stdio_uses) > 0:
+                stdio_uses_code = 'extern "C" {\n'
+                for stdio in stdio_uses:
+                    stdio_uses_code += f"    static mut {stdio}: *mut libc::FILE;\n"
+                stdio_uses_code += '}\n'
+                data_type_code["stdio"] = RustCode(stdio_uses_code)
+
 
         output_code = self._combine_code(function_code, data_type_code)
 
@@ -242,7 +253,7 @@ class ProgramCombiner(Combiner):
             cmd = ["cargo", "clippy", "--manifest-path",
                    os.path.join(build_dir, "Cargo.toml")]
             result = subprocess.run(
-                cmd, capture_output=True, check=True)
+                cmd, capture_output=True)
 
             _, new_error_count = self._get_warning_error_count(
                 result.stderr.decode("utf-8"), has_errror)
@@ -268,7 +279,7 @@ class ProgramCombiner(Combiner):
             cmd = ["cargo", "clippy", "--manifest-path",
                    os.path.join(build_dir, "Cargo.toml")]
             result = subprocess.run(
-                cmd, capture_output=True, check=True)
+                cmd, capture_output=True, check=True) # this should not fail
 
             new_warning_cout, _ = self._get_warning_error_count(
                 result.stderr.decode("utf-8"), has_errror)

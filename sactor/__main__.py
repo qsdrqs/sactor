@@ -276,6 +276,7 @@ def run_tests(parser, args):
             sys.exit(0)
         else:
             print(f'❌ Test {args.test_sample_number} failed!')
+            print('Diff (-actual +expected):')
             print(result[1])
             sys.exit(1)
 

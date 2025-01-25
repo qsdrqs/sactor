@@ -14,6 +14,11 @@ class GlobalVarInfo():
         if self.node.type.is_const_qualified() or self.node.type.get_canonical().kind == cindex.TypeKind.CONSTANTARRAY:
             self.is_const = True
 
+        self.is_array = False
+        if self.node.type.get_canonical().kind == cindex.TypeKind.CONSTANTARRAY:
+            self.is_array = True
+            self.array_size = self.node.type.get_array_size()
+
     def __hash__(self) -> int:
         return hash(self.name) + hash(self.location)
 
@@ -22,10 +27,6 @@ class GlobalVarInfo():
 
     def __repr__(self) -> str:
         return f"{self.name} ({self.type})"
-
-    def get_code(self) -> str:
-        tokens = self.node.get_tokens()
-        return " ".join([token.spelling for token in tokens])
 
     def get_decl(self) -> str:
         return f"{self.type} {self.name};"

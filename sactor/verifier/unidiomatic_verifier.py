@@ -45,7 +45,7 @@ class UnidiomaticVerifier(Verifier):
             raise ValueError(f"Failed to combine the function {function.name}")
 
         # Try to compile the Rust code
-        compile_result = self._try_compile_rust_code(
+        compile_result = self.try_compile_rust_code(
             combined_code,
             function_dependency_signatures=function_dependency_signatures
         )
@@ -63,7 +63,7 @@ class UnidiomaticVerifier(Verifier):
         return (VerifyResult.SUCCESS, None)
 
     @override
-    def _try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None) -> tuple[VerifyResult, Optional[str]]:
+    def try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None) -> tuple[VerifyResult, Optional[str]]:
         if function_dependency_signatures:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)

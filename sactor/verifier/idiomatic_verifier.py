@@ -224,7 +224,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             raise ValueError(
                 f"Failed to combine the function {function_name}")
 
-        result = self._try_compile_rust_code(
+        result = self.try_compile_rust_code(
             compile_code)
 
         if result[0] != VerifyResult.SUCCESS:
@@ -448,7 +448,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             raise ValueError(
                 f"Failed to combine the struct {struct_name}")
 
-        result = self._try_compile_rust_code(combined_code)
+        result = self.try_compile_rust_code(combined_code)
 
         if result[0] != VerifyResult.SUCCESS:
             return self._struct_generate_test_harness(
@@ -493,7 +493,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         # Try to compile the Rust code
         function_name = function.name
-        compile_result = self._try_compile_rust_code(
+        compile_result = self.try_compile_rust_code(
             combined_code)
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result

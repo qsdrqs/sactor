@@ -2,29 +2,29 @@ import os
 
 from clang.cindex import Cursor
 
+from sactor import utils
 from sactor.utils import get_temp_dir
 
 from .c_parser import CParser
 
 
 def _remove_static_decorator_impl(node: Cursor, source_code: str) -> str:
-    start_line = node.extent.start.line - 1
-    end_line = node.extent.end.line
-    tokens = node.get_tokens()
-    token_spellings = [token.spelling for token in tokens]
-    if token_spellings[0] == "static":
-        token_spellings = token_spellings[1:]
-
     code_lines = source_code.split("\n")
-
-    # Remove the static keyword from the source code
-    for i in range(start_line, end_line):
-        code_lines[i] = ""
-
-    code_lines[start_line] = " ".join(token_spellings) + ';'
+    tokens = utils.cursor_get_tokens(node)
+    first_token = next(tokens)
+    if first_token.spelling == "static":
+        # delete the static keyword
+        start_line = first_token.extent.start.line - 1
+        start_column = first_token.extent.start.column
+        end_column = first_token.extent.end.column
+        code_lines[start_line] = code_lines[start_line][:start_column-1] + code_lines[start_line][end_column:]
 
     return "\n".join(code_lines)
 
+def _is_empty(node: Cursor) -> bool:
+    tokens = utils.cursor_get_tokens(node)
+    token_spellings = [token.spelling for token in tokens]
+    return len(token_spellings) == 0
 
 def remove_function_static_decorator(function_name: str, source_code: str) -> str:
     """
@@ -41,13 +41,13 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
 
     # handle declaration node
     decl_node = function.get_declaration_node()
-    if decl_node is not None:
+    if decl_node is not None and not _is_empty(decl_node):
         source_code = _remove_static_decorator_impl(decl_node, source_code)
         # Need to parse the source code again to get the updated node
         with open(os.path.join(tmpdir, "tmp.c"), "w") as f:
             f.write(source_code)
 
-        c_parser = CParser(os.path.join(tmpdir, "tmp.c"))
+        c_parser = CParser(os.path.join(tmpdir, "tmp.c"), omit_error=True)
         node = c_parser.get_function_info(function_name).node
 
     if node is None:

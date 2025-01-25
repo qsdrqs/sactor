@@ -12,7 +12,7 @@ int main()
     return 0;
 }
 
-static 
+static
 int add(int a, int b)
 {
     return a + b;

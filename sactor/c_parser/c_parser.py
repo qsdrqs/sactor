@@ -2,36 +2,48 @@ from clang import cindex
 
 from sactor import utils
 
-from .enum_info import EnumValueInfo, EnumInfo
-from .global_var_info import GlobalVarInfo
+from .enum_info import EnumInfo, EnumValueInfo
 from .function_info import FunctionInfo
+from .global_var_info import GlobalVarInfo
 from .struct_info import StructInfo
+
+standard_io = [
+    "stdin",
+    "stdout",
+    "stderr",
+]
 
 
 class CParser:
-    def __init__(self, filename):
+    def __init__(self, filename, extra_args=None, omit_error=False):
         self.filename = filename
 
         # Parse the C file
         index = cindex.Index.create()
         self.compiler_include_paths = utils.get_compiler_include_paths()
-        args = ['-x', 'c', '-std=c99']
+        args = ['-x', 'c', '-std=c99'] + (extra_args or [])
         args.extend([f"-I{path}" for path in self.compiler_include_paths])
         self.translation_unit = index.parse(
             self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
 
-        self._type_alias: dict[str, str] = self._extract_type_alias()
+        # check diagnostics
+        if not omit_error and len(self.translation_unit.diagnostics) > 0:
+            for diag in self.translation_unit.diagnostics:
+                if diag.severity >= cindex.Diagnostic.Error:
+                    print(f"Warning: Parsing error in {filename}: {diag.spelling}")
 
-        structs_unions_list = self._extract_structs_unions()
-        self._structs_unions = dict((struct_union.name, struct_union)
-                                    for struct_union in structs_unions_list)
-        self._update_structs_unions()
-
+        # Initialize data structures
         self._global_vars: dict[str, GlobalVarInfo] = {}
         self._enums: dict[str, EnumInfo] = {}
+        self._structs_unions: dict[str, StructInfo] = {}
+        self._functions: dict[str, FunctionInfo] = {}
 
-        functions_list = self._extract_functions()
-        self._functions = dict((func.name, func) for func in functions_list)
+        self._type_alias: dict[str, str] = self._extract_type_alias()
+
+        self._extract_structs_unions()
+        self._update_structs_unions()
+
+        self._extract_functions()
         self._update_functions()
 
     def get_code(self):
@@ -49,7 +61,7 @@ class CParser:
     def get_structs(self) -> list[StructInfo]:
         return list(self._structs_unions.values())
 
-    def get_function_info(self, function_name):
+    def get_function_info(self, function_name) -> FunctionInfo:
         """
         Raises ValueError if the function is not found.
         """
@@ -94,13 +106,11 @@ class CParser:
 
         return type_alias
 
-    def _extract_structs_unions(self) -> list[StructInfo]:
+    def _extract_structs_unions(self):
         """
         Parses the C file and extracts struct and union information, including dependencies.
         """
-        structs_unions = self._collect_structs_and_unions(
-            self.translation_unit.cursor)
-        return structs_unions
+        self._collect_structs_and_unions(self.translation_unit.cursor)
 
     def _process_typedef(self, node, type_alias: dict[str, str]):
         if node.kind == cindex.CursorKind.TYPEDEF_DECL:
@@ -155,7 +165,8 @@ class CParser:
             elif used_struct_name in self._type_alias:
                 original_struct_name = self._type_alias[used_struct_name]
                 if original_struct_name in self._structs_unions and original_struct_name != struct_union.name:
-                    used_structs.add(self._structs_unions[self._type_alias[used_struct_name]])
+                    used_structs.add(
+                        self._structs_unions[self._type_alias[used_struct_name]])
                 type_aliases[used_struct_name] = original_struct_name
 
         struct_union.dependencies = list(used_structs)
@@ -174,16 +185,13 @@ class CParser:
         for function in self._functions.values():
             self._update_function_dependencies(function)
 
-    def _extract_functions(self) -> list[FunctionInfo]:
+    def _extract_functions(self):
         """
         Parses the C file and extracts function information.
         """
-        functions = self._extract_function_info(
-            self.translation_unit.cursor)
-        return functions
+        self._extract_function_info(self.translation_unit.cursor)
 
     def _collect_structs_and_unions(self, node):
-        structs = []
         if (node.kind == cindex.CursorKind.STRUCT_DECL or node.kind == cindex.CursorKind.UNION_DECL) and node.is_definition():
             # Exclude structs declared in system headers
             if node.location and not self._is_in_system_header(node):
@@ -191,20 +199,15 @@ class CParser:
                 # ignore unnamed structs TODO: is this good?
                 if name.find("unnamed at") == -1:
                     dependencies = []
-                    structs.append(StructInfo(
-                        node,
-                        name,
-                        dependencies
-                    ))
+                    struct_info = StructInfo(node, name, dependencies)
+                    self._structs_unions[name] = struct_info
         for child in node.get_children():
-            structs.extend(self._collect_structs_and_unions(child))
-        return structs
+            self._collect_structs_and_unions(child)
 
     def _extract_function_info(self, node):
         """
         Recursively extracts function information from the AST.
         """
-        functions = []
         if node.kind == cindex.CursorKind.FUNCTION_DECL:
             if node.is_definition():
                 if not self._is_in_system_header(node):
@@ -238,8 +241,7 @@ class CParser:
                         node)
                     # Collect enums
                     used_enums = self._collect_enum_dependencies(node)
-
-                    functions.append(FunctionInfo(
+                    function_info = FunctionInfo(
                         node,
                         name,
                         return_type,
@@ -249,11 +251,12 @@ class CParser:
                         list(used_global_vars),
                         list(used_enums),
                         used_type_aliases
-                    ))
+                    )
+                    self._functions[name] = function_info
+                    self._collect_global_variable_dependencies(
+                        node, True, name)
         for child in node.get_children():
-            functions.extend(
-                self._extract_function_info(child))
-        return functions
+            self._extract_function_info(child)
 
     def _collect_function_dependencies(self, node, function_names):
         """
@@ -296,7 +299,7 @@ class CParser:
                 self._collect_structs_unions_dependencies(child))
         return used_structs
 
-    def _collect_global_variable_dependencies(self, node):
+    def _collect_global_variable_dependencies(self, node, stdio=False, function_name=None):
         """
         Recursively collects the names of global variables used within the given node.
         """
@@ -309,8 +312,15 @@ class CParser:
                         global_var = GlobalVarInfo(referenced_cursor)
                         used_global_vars.add(global_var)
                         self._global_vars[global_var.name] = global_var
-            used_global_vars.update(
-                self._collect_global_variable_dependencies(child))
+            elif child.kind == cindex.CursorKind.DECL_REF_EXPR and child.spelling in standard_io and stdio:
+                # for standard I/O
+                assert function_name is not None
+                self._functions[function_name].add_stdio(child.spelling)
+            used_global_vars.update(self._collect_global_variable_dependencies(
+                child,
+                stdio,
+                function_name
+            ))
         return used_global_vars
 
     def _collect_enum_dependencies(self, node):
@@ -391,6 +401,21 @@ class CParser:
             lines = file.readlines()
             start_line = enum_node.extent.start.line - 1
             end_line = enum_node.extent.end.line
+            return "".join(lines[start_line:end_line])
+
+    def extract_global_var_definition_code(self, global_var_name):
+        """
+        Extracts the code of the global variable definition with the given name from the file.
+
+        Raises ValueError if the function is not found
+        """
+        global_var = self.get_global_var_info(global_var_name)
+        global_var_node = global_var.node
+
+        with open(self.filename, "r") as file:
+            lines = file.readlines()
+            start_line = global_var_node.extent.start.line - 1
+            end_line = global_var_node.extent.end.line
             return "".join(lines[start_line:end_line])
 
     def _is_in_system_header(self, node):

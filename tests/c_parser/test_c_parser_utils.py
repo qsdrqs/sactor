@@ -10,3 +10,15 @@ def test_function_get_declaration():
     output = c_parser_utils.remove_function_static_decorator('add', source_code)
     print(output)
     assert test_utils.can_compile(output)
+
+def test_function_get_declaration_with_comment():
+    source_code = '''
+/*comment here*/static int add(int a, int b) { // comment here
+// comment here
+/* comment here */    return a + b;
+}
+int main() {}'''
+
+    output = c_parser_utils.remove_function_static_decorator('add', source_code)
+    print(output)
+    assert test_utils.can_compile(output)

@@ -50,10 +50,6 @@ def test_combine(config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
-    functions = c_parser.get_functions()
-    structs = c_parser.get_structs()
-    global_vars = c_parser.get_global_vars()
-
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_unidiomatic'
     with tempfile.TemporaryDirectory() as tempdir:
         build_path = os.path.join(tempdir, 'build')
@@ -64,9 +60,7 @@ def test_combine(config):
 
         combiner = ProgramCombiner(
             config,
-            functions,
-            structs,
-            global_vars,
+            c_parser,
             'tests/c_examples/course_manage/course_manage_test.json',
             build_path,
             is_executable=True
@@ -95,10 +89,6 @@ def test_combine_idiomatic(config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'
     c_parser = CParser(file_path)
 
-    functions = c_parser.get_functions()
-    structs = c_parser.get_structs()
-    global_vars = c_parser.get_global_vars()
-
     result_dir_with_type = 'tests/c_examples/course_manage/result/translated_code_idiomatic'
     with tempfile.TemporaryDirectory() as tempdir:
         build_path = os.path.join(tempdir, 'build')
@@ -110,9 +100,7 @@ def test_combine_idiomatic(config):
 
         combiner = ProgramCombiner(
             config,
-            functions,
-            structs,
-            global_vars,
+            c_parser,
             'tests/c_examples/course_manage/course_manage_test.json',
             build_path,
             is_executable=True

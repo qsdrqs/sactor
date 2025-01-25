@@ -1,9 +1,9 @@
 import os
-import subprocess
-import tempfile
 import shutil
+import subprocess
 
 import tomli as toml
+from clang.cindex import Cursor, SourceLocation, SourceRange
 
 from sactor import rust_ast_parser
 from sactor.data_types import DataType
@@ -32,7 +32,6 @@ sactor_proc_macros = { path = "./sactor_proc_macros" }'''
 [lib]
 name = "{proj_name}"
 crate-type = ["cdylib"]'''
-
 
     with open(f"{path}/Cargo.toml", "w") as f:
         f.write(manifest)
@@ -110,7 +109,7 @@ def save_code(path, code):
     try:
         rustfmt.format()
     except Exception:
-        print("Cannot format the code") # allow to continue
+        print("Cannot format the code")  # allow to continue
 
 
 def print_red(s):
@@ -144,6 +143,7 @@ def _merge_configs(config, default_config):
 
     return config_out
 
+
 def load_default_config():
     proj_root = find_project_root()
     # load default config
@@ -153,6 +153,7 @@ def load_default_config():
         default_config = toml.load(f)
 
     return default_config
+
 
 def try_load_config(config_file=None):
     proj_root = find_project_root()
@@ -190,11 +191,14 @@ def rename_rust_function_signature(signature: str, old_name: str, new_name: str,
     signature = signature + "{}"
     match data_type:
         case DataType.FUNCTION:
-            signature = rust_ast_parser.rename_function(signature, old_name, new_name)
+            signature = rust_ast_parser.rename_function(
+                signature, old_name, new_name)
         case DataType.UNION:
-            signature = rust_ast_parser.rename_struct_union(signature, old_name, new_name)
+            signature = rust_ast_parser.rename_struct_union(
+                signature, old_name, new_name)
         case DataType.STRUCT:
-            signature = rust_ast_parser.rename_struct_union(signature, old_name, new_name)
+            signature = rust_ast_parser.rename_struct_union(
+                signature, old_name, new_name)
         case _:
             raise ValueError(f"Unknown data type {data_type}")
 
@@ -206,6 +210,7 @@ def rename_rust_function_signature(signature: str, old_name: str, new_name: str,
 
     return signature
 
+
 def get_compiler() -> str:
     if shutil.which("clang"):
         compiler = "clang"
@@ -215,6 +220,7 @@ def get_compiler() -> str:
         raise OSError("No C compiler found")
 
     return compiler
+
 
 def get_compiler_include_paths() -> list[str]:
     compiler = get_compiler()
@@ -237,6 +243,7 @@ def get_compiler_include_paths() -> list[str]:
 
     return search_include_paths
 
+
 def compile_c_executable(file_path) -> str:
     '''
     Compile a C file to a executable file, return the path to the executable
@@ -245,16 +252,34 @@ def compile_c_executable(file_path) -> str:
     compiler = get_compiler()
     tmpdir = os.path.join(get_temp_dir(), "c_compile")
     os.makedirs(tmpdir, exist_ok=True)
-    executable_path = os.path.join(tmpdir, os.path.basename(file_path) + ".out")
+    executable_path = os.path.join(
+        tmpdir, os.path.basename(file_path) + ".out")
 
     cmd = [
         compiler,
         file_path,
         '-o',
         executable_path,
-        '-ftrapv', # enable overflow checking
+        '-ftrapv',  # enable overflow checking
     ]
-    subprocess.run(cmd, check=True) # raise exception if failed
+    subprocess.run(cmd, check=True)  # raise exception if failed
 
     return executable_path
 
+
+# Workaround for bug in clang.cindex: cursor.get_tokens() return empty list if macro is used
+# https://github.com/llvm/llvm-project/issues/43451
+# https://github.com/llvm/llvm-project/issues/68340
+def cursor_get_tokens(cursor: Cursor):
+    tu = cursor.translation_unit
+
+    start = cursor.extent.start
+    start = SourceLocation.from_position(
+        tu, start.file, start.line, start.column)
+
+    end = cursor.extent.end
+    end = SourceLocation.from_position(tu, end.file, end.line, end.column)
+
+    extent = SourceRange.from_locations(start, end)
+
+    yield from tu.get_tokens(extent=extent)

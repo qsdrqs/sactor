@@ -1,6 +1,8 @@
 from clang import cindex
 from clang.cindex import Cursor
 
+from sactor import utils
+
 from .enum_info import EnumValueInfo
 from .struct_info import StructInfo
 from .global_var_info import GlobalVarInfo
@@ -18,6 +20,7 @@ class FunctionInfo:
         used_global_vars=None,
         used_enums=None,
         used_type_aliases=None,
+        standard_io=None
     ):
         self.node: Cursor = node
         self.name: str = name
@@ -30,12 +33,18 @@ class FunctionInfo:
         self.enum_dependencies: list[EnumValueInfo] = used_enums if used_enums is not None else []
         self.type_alias_dependencies: dict[str, str] = used_type_aliases if used_type_aliases is not None else {}
 
+        self.stdio_list = []
+
+    def add_stdio(self, stdio: str):
+        if stdio not in self.stdio_list:
+            self.stdio_list.append(stdio)
+
     def get_signature(self, function_name_sub=None):
         '''
         function_name_sub is used to substitute the function name in the signature
         '''
         tokens = []
-        for token in self.node.get_tokens():
+        for token in utils.cursor_get_tokens(self.node):
             if token.kind.name == 'PUNCTUATION' and token.spelling == '{':
                 break
             tokens.append(token.spelling)

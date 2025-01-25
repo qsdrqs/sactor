@@ -1,10 +1,11 @@
 import os
-from typing import override, Optional
+from typing import Optional, override
 
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo, EnumValueInfo
+from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
+                             GlobalVarInfo, StructInfo)
 from sactor.llm import LLM
 from sactor.thirdparty import Crown, CrownType
 from sactor.verifier import VerifyResult
@@ -62,6 +63,7 @@ class IdiomaticTranslator(Translator):
             executable_object=executable_object,
         )
         self.crown_result = crown_result
+
     @override
     def _translate_enum_impl(
         self,
@@ -162,10 +164,21 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print("Translated enum:")
         print(enum_result)
 
-        # TODO: may add verification here
+        # TODO: temporary solution, may need to add verification here
+        result = self.verifier.try_compile_rust_code(enum_result)
+        if result[0] != VerifyResult.SUCCESS:
+            if result[0] == VerifyResult.COMPILE_ERROR:
+                self.append_failure_info(
+                    enum.name, "COMPILE_ERROR", result[1])
+            return self._translate_enum_impl(
+                enum,
+                verify_result=result,
+                error_translation=enum_result,
+                attempts=attempts + 1
+            )
+
         utils.save_code(enum_save_path, enum_result)
         return TranslateResult.SUCCESS
-
 
     @override
     def _translate_global_vars_impl(
@@ -293,6 +306,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print(global_var_result)
 
         # TODO: may add verification here
+        result = self.verifier.try_compile_rust_code(global_var_result)
+        if result[0] != VerifyResult.SUCCESS:
+            if result[0] == VerifyResult.COMPILE_ERROR:
+                self.append_failure_info(
+                    global_var.name, "COMPILE_ERROR", result[1])
+            return self._translate_global_vars_impl(
+                global_var,
+                verify_result=result,
+                error_translation=global_var_result,
+                attempts=attempts + 1
+            )
+
         utils.save_code(global_var_save_path, global_var_result)
         return TranslateResult.SUCCESS
 
@@ -338,7 +363,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         # Get previous translation results as dependencies
         # Unlike the function, we only need to retrieve one level of dependencies
-        dependencies_code = []
+        dependencies_code = {}
         dependency_names = [d.name for d in struct_union.dependencies]
         for dependency_name in dependency_names:
             struct_path = os.path.join(
@@ -347,8 +372,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 raise RuntimeError(
                     f"Error: Dependency {dependency_name} of struct {struct_union.name} is not translated yet")
             with open(struct_path, "r") as file:
-                dependencies_code.append(file.read())
-        joined_dependencies_code = '\n'.join(dependencies_code)
+                dependencies_code[dependency_name] = file.read()
+        joined_dependencies_code = '\n'.join(dependencies_code.values())
 
         # Translate the struct
         prompt = f'''
@@ -467,8 +492,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         struct_result = llm_result["struct"]
 
-        # TODO: Verify the translation
-
         # add Debug trait for struct/union
         try:
             struct_result = rust_ast_parser.add_derive_to_struct_union(
@@ -485,6 +508,34 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=result,
                 attempts=attempts+1
             )
+
+        # TODO: temporary solution, may need to add verification here
+        result = self.verifier.verify_struct(
+            struct_union,
+            struct_result,
+            dependencies_code
+        )
+        if result[0] == VerifyResult.COMPILE_ERROR:
+            self.append_failure_info(
+                struct_union.name, "COMPILE_ERROR", result[1])
+            return self._translate_struct_impl(
+                struct_union,
+                verify_result=result,
+                error_translation=struct_result,
+                attempts=attempts + 1
+            )
+        elif result[0] == VerifyResult.TEST_ERROR:
+            self.append_failure_info(
+                struct_union.name, "TEST_ERROR", result[1])
+            return self._translate_struct_impl(
+                struct_union,
+                verify_result=result,
+                error_translation=struct_result,
+                attempts=attempts + 1
+            )
+        elif result[0] != VerifyResult.SUCCESS:
+            raise NotImplementedError(
+                f'erorr type {result[0]} not implemented')
 
         # Save the results
         utils.save_code(struct_save_path, struct_result)
@@ -519,6 +570,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         structs_in_function = function.struct_dependencies
         code_of_structs = {}
         visited_structs = set()
+        for f in function.function_dependencies:
+            structs_in_function.extend(f.struct_dependencies)
         for struct in structs_in_function:
             all_structs = self.c_parser.retrieve_all_struct_dependencies(
                 struct)
@@ -656,7 +709,6 @@ Which are already translated as:
 Directly use the translated enums in your translation. You should **NOT** include them in your translation, as the system will automatically include them.
 '''
 
-
         if len(code_of_structs) > 0:
             joint_struct_code = '\n'.join(code_of_structs.values())
             prompt += f'''
@@ -784,7 +836,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             function_result_sigs = rust_ast_parser.get_func_signatures(
                 function_result)
         except Exception as e:
-            error_message = f"Error: Failed to parse the function: {e}"
+            error_message = f"Error: Syntax error in the translated code: {e}"
             print(error_message)
             self.append_failure_info(
                 function.name, "COMPILE_ERROR", error_message
@@ -816,7 +868,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     error_translation=function_result,
                     attempts=attempts+1
                 )
-
 
         # fetch all struct dependencies
         all_structs = set()

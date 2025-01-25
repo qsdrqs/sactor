@@ -13,13 +13,33 @@ use syn::{
     Abi, AttrStyle, Attribute, File, LitStr, Meta, Result, Token,
 };
 
+fn get_error_context(source: &str, error: &syn::Error) -> String {
+   let lines: Vec<_> = source.lines().collect();
+   let span = error.span();
+   // pick -1 to +2
+   let start_line = span.start().line.saturating_sub(2);
+   let end_line = (span.end().line + 2).min(lines.len());
+
+   let mut context = String::new();
+   for (idx, line) in lines[start_line..end_line].iter().enumerate() {
+       let line_num = start_line + idx + 1;
+       context.push_str(&format!("{:>4} | {}\n", line_num, line));
+       if line_num == span.start().line {
+           let pad = " ".repeat(span.start().column + 4);
+           context.push_str(&format!(" Err:|{pad}^\n"));
+       }
+   }
+   context
+}
+
 fn parse_src(source_code: &str) -> PyResult<File> {
-    parse_str(source_code).map_err(|e| {
-        pyo3::exceptions::PySyntaxError::new_err(format!(
-            "Parse error: {}\n source code: {}",
-            e, source_code
-        ))
-    })
+   parse_str(source_code).map_err(|e| {
+       let msg = format!("Error: {:?}\nContext:\n{}",
+           e,
+           get_error_context(source_code, &e)
+       );
+       pyo3::exceptions::PySyntaxError::new_err(msg)
+   })
 }
 
 // Expose a function to C

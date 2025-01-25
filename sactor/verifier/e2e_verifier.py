@@ -35,7 +35,7 @@ class E2EVerifier(Verifier):
 
     def e2e_verify(self, code: str) -> tuple[VerifyResult, Optional[str]]:
         # try compile the code
-        compile_result = self._try_compile_rust_code(code, self.is_executable)
+        compile_result = self.try_compile_rust_code(code, self.is_executable)
 
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result

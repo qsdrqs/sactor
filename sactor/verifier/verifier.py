@@ -7,7 +7,8 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import FunctionInfo, c_parser_utils
+from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils
+from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
 from .verifier_types import VerifyResult
 
@@ -80,6 +81,27 @@ class Verifier(ABC):
     ) -> tuple[VerifyResult, Optional[str]]:
         pass
 
+    def verify_struct(
+        self,
+        struct: StructInfo,
+        struct_code: str,
+        struct_dependencies_code: dict[str, str],
+    ) -> tuple[VerifyResult, Optional[str]]:
+        structs = {struct.name: struct_code}
+        structs.update(struct_dependencies_code)
+
+        combiner = PartialCombiner({}, structs)
+        result, combined_code = combiner.combine()
+        if result != CombineResult.SUCCESS or combined_code is None:
+            raise ValueError(f"Failed to combine the struct {struct.name}")
+
+        compile_result = self.try_compile_rust_code(combined_code)
+        if compile_result[0] != VerifyResult.SUCCESS:
+            return compile_result
+
+        return (VerifyResult.SUCCESS, None)
+
+
     def _try_compile_rust_code_impl(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
         utils.create_rust_proj(rust_code, "build_attempt",
                                self.build_attempt_path, is_lib=(not executable))
@@ -109,7 +131,7 @@ class Verifier(ABC):
             print("Rust code compiled successfully")
             return (VerifyResult.SUCCESS, None)
 
-    def _try_compile_rust_code(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
+    def try_compile_rust_code(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
         return self._try_compile_rust_code_impl(rust_code, executable)
 
     def _load_test_cmd(self, target) -> list[list[str]]:
@@ -204,7 +226,19 @@ class Verifier(ABC):
         with open(filename, "r") as f:
             lines = f.readlines()
 
-        # get the function signature
+        # remove `static` from the function signature in function dependencies
+        source_code = "".join(lines)
+        for function_dependency in c_function.function_dependencies:
+            file = function_dependency.node.location.file.name
+            if file != filename:
+                continue
+
+            source_code = c_parser_utils.remove_function_static_decorator(
+                function_dependency.name, source_code)
+
+        lines = source_code.split("\n")
+
+        # remove the function body
         call_stmt = ""
         if prefix:
             signature = c_function.get_signature(c_function.name+"_") + ';'
@@ -230,11 +264,11 @@ class Verifier(ABC):
         used_global_vars = c_function.global_vars_dependencies
         for var in used_global_vars:
             if var.is_const:
-                continue # skip const global variables as it will be included
+                continue  # skip const global variables as it will be included
             var_node = var.node
             start_line = var_node.extent.start.line - 1
             end_line = var_node.extent.end.line
-            tokens = var_node.get_tokens()
+            tokens = utils.cursor_get_tokens(var_node)
             token_spellings = [token.spelling for token in tokens]
             if len(token_spellings) == 0:
                 print(
@@ -261,18 +295,6 @@ class Verifier(ABC):
             for i in range(start_line, end_line):
                 lines[i] = ""
             lines[start_line] = ' '.join(token_spellings) + ';\n'
-
-        # remove `static` from the function signature in function dependencies
-        source_code = "".join(lines)
-        for function_dependency in c_function.function_dependencies:
-            file = function_dependency.node.location.file.name
-            if file != filename:
-                continue
-
-            source_code = c_parser_utils.remove_function_static_decorator(
-                function_dependency.name, source_code)
-
-        lines = source_code.split("\n")
 
         # add fflush(stdout);fflush(stderr); to the end of the printf stmt # TODO: dirty hack
         for i in range(len(lines)):

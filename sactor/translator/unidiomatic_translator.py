@@ -149,7 +149,19 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print("Translated enum:")
         print(enum_result)
 
-        # TODO: may add verification here
+        # TODO: temporary solution, may need to add verification here
+        result = self.verifier.try_compile_rust_code(enum_result)
+        if result[0] != VerifyResult.SUCCESS:
+            if result[0] == VerifyResult.COMPILE_ERROR:
+                self.append_failure_info(
+                    enum.name, "COMPILE_ERROR", result[1])
+            return self._translate_enum_impl(
+                enum,
+                verify_result=result,
+                error_translation=enum_result,
+                attempts=attempts + 1
+            )
+
         utils.save_code(enum_save_path, enum_result)
         return TranslateResult.SUCCESS
 
@@ -178,7 +190,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         self.init_failure_info("global_var", global_var.name)
         if global_var.is_const:
-            code_of_global_var = global_var.get_code()
+            code_of_global_var = self.c_parser.extract_global_var_definition_code(global_var.name)
             prompt = f'''
 Translate the following C global variable to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
@@ -186,6 +198,10 @@ The global variable is:
 ```c
 {code_of_global_var}
 ```
+'''
+            if global_var.is_array:
+                prompt += f'''
+The global variable is an array with size {global_var.array_size}. Use `static mut` to bypass the Rust's mutability rules if necessary.
 '''
         else:
             code_of_global_var = global_var.get_decl()
@@ -280,6 +296,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print(global_var_result)
 
         # TODO: may add verification here
+        result = self.verifier.try_compile_rust_code(global_var_result)
+        if result[0] != VerifyResult.SUCCESS:
+            if result[0] == VerifyResult.COMPILE_ERROR:
+                self.append_failure_info(
+                    global_var.name, "COMPILE_ERROR", result[1])
+            return self._translate_global_vars_impl(
+                global_var,
+                verify_result=result,
+                error_translation=global_var_result,
+                attempts=attempts + 1
+            )
+
         utils.save_code(global_var_save_path, global_var_result)
         return TranslateResult.SUCCESS
 
@@ -366,6 +394,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         structs_in_function = function.struct_dependencies
         code_of_structs = {}
         visited_structs = set()
+        for f in function_dependencies:
+            structs_in_function.extend(f.struct_dependencies)
         for struct in structs_in_function:
             all_structs = self.c_parser.retrieve_all_struct_dependencies(
                 struct)
@@ -438,6 +468,24 @@ The function uses the following const global variables, which are already transl
 {joint_used_global_vars}
 ```
 '''
+
+        # handle stdio
+        used_stdio = function.stdio_list
+        used_stdio_code = ""
+        if len(used_stdio) > 0:
+            used_stdio_code = 'extern "C" {\n'
+            for stdio in used_stdio:
+                used_stdio_code += f"    static mut {stdio}: *mut libc::FILE;\n"
+            used_stdio_code += "}\n"
+            joint_stdio = ', '.join(used_stdio)
+            prompt += f'''
+The function uses some of the following stdio file descriptors: {joint_stdio}. Which will be included as
+```rust
+{used_stdio_code}
+```
+You should **NOT** include them in your translation, as the system will automatically include them.
+'''
+
         # TODO: check upper/lower case of the global variables
         # TODO: check extern "C" for global variables
         used_enums: list[EnumValueInfo] = function.enum_dependencies
@@ -573,7 +621,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             function_result_sigs = rust_ast_parser.get_func_signatures(
                 function_result)
         except Exception as e:
-            error_message = f"Error: Failed to parse the function: {e}"
+            error_message = f"Error: Syntax error in the translated code: {e}"
             print(error_message)
             # retry the translation
             self.append_failure_info(
@@ -644,7 +692,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print("Translated function:")
         print(function_result)
 
-        data_type_code = code_of_structs | used_global_vars | code_of_enum
+        data_type_code = code_of_structs | used_global_vars | code_of_enum | {"stdio": used_stdio_code}
 
         result = self.verifier.verify_function(
             function,
