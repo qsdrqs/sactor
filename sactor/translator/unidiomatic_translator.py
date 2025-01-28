@@ -422,7 +422,7 @@ The function is:
 
         if function.name == 'main':
             prompt += '''
-The function is the `main` function, which is the entry point of the program. The return type should be `()`, and the arguments should be `()`.
+The function is the `main` function, which is the entry point of the program. The function signature should be: `pub fn main() -> ()`.
 For `return 0;`, you can directly `return;` in Rust or ignore it if it's the last statement.
 For other return values, you can use `std::process::exit()` to return the value.
 For `argc` and `argv`, you can use `std::env::args()` to get the arguments.

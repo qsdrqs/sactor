@@ -99,6 +99,7 @@ class Sactor:
         unidiomatic_translator.save_failure_info(os.path.join(
             self.result_dir, "unidiomatic_failure_info.json"))
         if result != TranslateResult.SUCCESS:
+            self.llm.statistic(self.llm_stat)
             raise ValueError(
                 f"Failed to translate unidiomatic code: {result}")
         combine_result, _ = self.combiner.combine(
@@ -106,6 +107,7 @@ class Sactor:
             is_idiomatic=False,
         )
         if combine_result != CombineResult.SUCCESS:
+            self.llm.statistic(self.llm_stat)
             raise ValueError(
                 f"Failed to combine translated code for unidiomatic translation: {combine_result}")
         if not self.unidiomatic_only:
@@ -114,6 +116,7 @@ class Sactor:
             idiomatic_translator.save_failure_info(os.path.join(
                 self.result_dir, "idiomatic_failure_info.json"))
             if result != TranslateResult.SUCCESS:
+                self.llm.statistic(self.llm_stat)
                 raise ValueError(
                     f"Failed to translate idiomatic code: {result}")
 
@@ -122,6 +125,7 @@ class Sactor:
                 is_idiomatic=True,
             )
             if combine_result != CombineResult.SUCCESS:
+                self.llm.statistic(self.llm_stat)
                 raise ValueError(
                     f"Failed to combine translated code for idiomatic translation: {combine_result}")
 

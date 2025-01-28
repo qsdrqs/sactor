@@ -7,22 +7,49 @@ from .rust_code import RustCode
 
 class Combiner(ABC):
     def _merge_uses(self, all_uses: list[list[str]]) -> list[str]:
-        # find duplicated use in std::ffi and libc
-        std_ffi = [use for use in all_uses if use[0] == 'std' and use[1] == 'ffi']
-        libc = [use for use in all_uses if use[0] == 'libc']
+        libc_identifiers = {
+            "::".join(use[1:])
+            for use in all_uses
+            if use[0] == 'libc'
+        }
 
-        # remove duplicated use in std::ffi and libc, only keep the one in libc
-        for ffi_use in std_ffi:
-            use_end = "::".join(ffi_use[2:])
-            for libc_use in libc:
-                libc_end = "::".join(libc_use[1:])
-                if use_end == libc_end:
-                    all_uses.remove(ffi_use)
-                    break
+        # Collect all std::ffi identifiers
+        ffi_identifiers = {
+            "::".join(use[2:])
+            for use in all_uses
+            if use[0] == 'std' and use[1] == 'ffi'
+        }
+
+        converted_uses = []
+        for use in all_uses:
+            if use[0] == 'std' and use[1] == 'ffi':
+                # If this identifier exists in libc, convert to libc path
+                identifier = "::".join(use[2:])
+                if identifier in libc_identifiers:
+                    converted_uses.append(['libc'] + use[2:])
+                else:
+                    converted_uses.append(use)
+            elif use[0] == 'std' and use[1] == 'os' and use[2] == 'raw':
+                # Skip if this identifier exists in std::ffi
+                identifier = "::".join(use[3:])
+                if identifier in ffi_identifiers:
+                    continue
+                # If this identifier exists in libc, convert to libc path
+                if identifier in libc_identifiers:
+                    converted_uses.append(['libc'] + use[3:])
+                else:
+                    converted_uses.append(use)
+            elif use[0] == 'libc':
+                converted_uses.append(use)
+            else:
+                converted_uses.append(use)
+
+        # Remove duplicates by converting to set of tuples (since lists aren't hashable)
+        unique_uses = {tuple(use) for use in converted_uses}
 
         return [
             f'use {"::".join(use)};'
-            for use in all_uses
+            for use in unique_uses
         ]
 
     def _combine_code(self, function_code: dict[str, RustCode], data_type_code: dict[str, RustCode]) -> str:

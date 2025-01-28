@@ -33,18 +33,23 @@ def test_merge_groups():
 
 def test_handle_ffi_libc_conflict():
     all_uses = [
+        ['std', 'env'],
+        ['std', 'ffi', 'CString'],
         ['std', 'ffi', 'c_void'],
         ['std', 'ffi', 'c_int'],
         ['libc', 'c_void'],
+        ['std', 'os', 'raw', 'c_int'],
     ]
 
     combiner = ProgramCombiner.__new__(ProgramCombiner)
     merged_uses = combiner._merge_uses(all_uses)
-    assert merged_uses == [
+    print(merged_uses)
+    assert set(merged_uses) == {
+        'use std::env;',
+        'use std::ffi::CString;',
+        'use libc::c_void;',
         'use std::ffi::c_int;',
-        'use libc::c_void;'
-    ]
-
+    }
 
 def test_combine(config):
     file_path = 'tests/c_examples/course_manage/course_manage.c'

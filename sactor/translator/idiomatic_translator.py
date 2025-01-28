@@ -746,6 +746,7 @@ Output the translated function into this format (wrap with the following tags):
 ----END FUNCTION----
 '''
 
+        feed_to_verify = (VerifyResult.SUCCESS, None)
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
 Lastly, the function is translated as:
@@ -767,6 +768,7 @@ Remember, you should only provide the translation for the function and necessary
 '''
 
         elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
+            feed_to_verify = verify_result
             prompt += f'''
 Lastly, the function is translated as:
 ```rust

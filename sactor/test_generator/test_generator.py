@@ -29,7 +29,7 @@ class TestGenerator(ABC):
         self.test_samples_output = []
         self.config = utils.try_load_config(config_path)
         self.max_attempts = self.config['test_generator']['max_attempts']
-        self.timeout_seconds = self.config['test_runner']['timeout_seconds']
+        self.timeout_seconds = self.config['test_generator']['timeout_seconds']
 
         # get the LLM
         self.llm = llm_factory(self.config)

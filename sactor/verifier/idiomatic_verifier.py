@@ -1,5 +1,5 @@
 import os
-from typing import override, Optional
+from typing import Optional, override
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo
@@ -43,14 +43,15 @@ class IdiomaticVerifier(Verifier):
         else:
             self.result_path = os.path.join(
                 utils.find_project_root(), 'result')
-        self.saved_test_harness_path = os.path.join(self.result_path, "test_harness")
+        self.saved_test_harness_path = os.path.join(
+            self.result_path, "test_harness")
         if unidiomatic_result_path is not None:
             self.unidiomatic_result_path = unidiomatic_result_path
         else:
             self.unidiomatic_result_path = self.result_path
 
-
     # generate test harness for the function
+
     def _function_generate_test_harness(
         self,
         function_name,
@@ -532,7 +533,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         struct_name,
                         unidiomatic_struct_code,
                         data_type_code[struct_name],
-                        struct.dependencies
+                        struct.dependencies,
                     )
                     # TODO: harness feedback may not be useful
                     if result[0] != VerifyResult.SUCCESS:
@@ -564,7 +565,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 combined_code_harness,
                 unidiomatic_signature,
                 idiomatic_signature,
-                list(struct_signature_dependency_names)
+                list(struct_signature_dependency_names),
             )
             if result[0] != VerifyResult.SUCCESS:
                 # TODO: harness feedback may not be useful
