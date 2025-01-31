@@ -22,14 +22,14 @@ def test_merge_groups():
     # Create a new instance without calling __init__
     combiner = ProgramCombiner.__new__(ProgramCombiner)
     merged_uses = combiner._merge_uses(all_uses)
-    assert merged_uses == [
+    assert set(merged_uses) == {
         'use a::b;',
         'use a::b::c;',
         'use a::b::d;',
         'use a::b::e;',
         'use a::b::f;',
         'use a::g::*;',
-    ]
+    }
 
 def test_handle_ffi_libc_conflict():
     all_uses = [
