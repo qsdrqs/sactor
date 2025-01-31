@@ -10,7 +10,6 @@ classifiers = [
 name = "sactor"
 version = "0.1.0"
 description = "Structure-Aware C to Rust Translator"
-authors = ["Tianyang Zhou <qsdrqs@gmail.com>"]
 readme = "README.md"
 packages = [
     { include = "sactor" }
