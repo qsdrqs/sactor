@@ -283,3 +283,14 @@ def cursor_get_tokens(cursor: Cursor):
     extent = SourceRange.from_locations(start, end)
 
     yield from tu.get_tokens(extent=extent)
+
+def try_backup_file(file_path):
+    if not os.path.exists(file_path):
+        return
+    backup_path = file_path + ".bak"
+    number = 1
+    while os.path.exists(backup_path):
+        backup_path = file_path + f".bak.{number}"
+        number += 1
+
+    os.rename(file_path, backup_path)

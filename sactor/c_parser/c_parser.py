@@ -241,6 +241,13 @@ class CParser:
                         node)
                     # Collect enums
                     used_enums = self._collect_enum_dependencies(node)
+                    used_enum_values = set()
+                    used_enum_definitions = set()
+                    for used_enum in used_enums:
+                        if type(used_enum) == EnumValueInfo:
+                            used_enum_values.add(used_enum)
+                        else:
+                            used_enum_definitions.add(used_enum)
                     function_info = FunctionInfo(
                         node,
                         name,
@@ -249,7 +256,8 @@ class CParser:
                         called_functions,
                         list(used_structs),
                         list(used_global_vars),
-                        list(used_enums),
+                        list(used_enum_values),
+                        list(used_enum_definitions),
                         used_type_aliases
                     )
                     self._functions[name] = function_info
@@ -335,6 +343,18 @@ class CParser:
                     enum_value_info = EnumValueInfo(referenced_cursor)
                     self._enums[enum_value_info.definition.name] = enum_value_info.definition
                     used_enums.add(enum_value_info)
+            elif child.kind == cindex.CursorKind.TYPE_REF or child.kind == cindex.CursorKind.ENUM_DECL:
+                if child.kind == cindex.CursorKind.TYPE_REF:
+                    referenced_type = child.referenced
+                    if referenced_type.kind == cindex.CursorKind.ENUM_DECL:
+                        enum_info = EnumInfo(referenced_type)
+                        self._enums[enum_info.name] = enum_info
+                        used_enums.add(enum_info)
+                else:  # ENUM_DECL
+                    enum_info = EnumInfo(child)
+                    self._enums[enum_info.name] = enum_info
+                    used_enums.add(enum_info)
+
             used_enums.update(self._collect_enum_dependencies(child))
         return used_enums
 
@@ -480,7 +500,7 @@ class CParser:
             for used_global_var in func.global_vars_dependencies:
                 result += f"  {used_global_var.name}\n"
             result += "Enum Dependencies:\n"
-            for used_enum in func.enum_dependencies:
+            for used_enum in func.enum_values_dependencies:
                 result += f"  {used_enum.name} = {used_enum.value}\n"
                 result += f"    Definition: {
                     used_enum.definition_node.extent.start.line}\n"

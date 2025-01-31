@@ -29,6 +29,7 @@ class C2Rust(ThirdParty):
             raise OSError("c2rust executable not found")
 
         tmpdir = os.path.join(utils.get_temp_dir(), "c2rust")
+        shutil.rmtree(tmpdir, ignore_errors=True) # remove old files if any
         os.makedirs(tmpdir, exist_ok=True)
         filename_noext = os.path.splitext(self.filename)[0]
         tmp_filename = os.path.join(
@@ -51,8 +52,9 @@ class C2Rust(ThirdParty):
             stderr=subprocess.PIPE
         )
         if result.returncode != 0:
-            print("c2rust failed")
-            os.remove(tmp_filename_rs)
+            print(f"c2rust failed: {result.stderr.decode()}")
+            if os.path.exists(tmp_filename_rs):
+                os.remove(tmp_filename_rs)
             raise RuntimeError("c2rust transpile command failed")
 
         # this is the translated Rust code

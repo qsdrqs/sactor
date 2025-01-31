@@ -1,6 +1,5 @@
 from ctypes import c_buffer
 import os
-from re import S
 from typing import Optional, override
 
 import sactor.translator as translator
@@ -107,7 +106,7 @@ Analyzing the error messages, think about the possible reasons, and try to avoid
 '''
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
-                f'erorr type {verify_result[0]} not implemented')
+                f'error type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
         try:
@@ -162,6 +161,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts + 1
             )
 
+        enum_result = rust_ast_parser.unidiomatic_types_cleanup(
+            enum_result)
         utils.save_code(enum_save_path, enum_result)
         return TranslateResult.SUCCESS
 
@@ -235,7 +236,7 @@ Analyzing the error messages, think about the possible reasons, and try to avoid
 
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
-                f'erorr type {verify_result[0]} not implemented')
+                f'error type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
         try:
@@ -307,6 +308,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=global_var_result,
                 attempts=attempts + 1
             )
+
+        global_var_result = rust_ast_parser.unidiomatic_types_cleanup(
+            global_var_result)
 
         utils.save_code(global_var_save_path, global_var_result)
         return TranslateResult.SUCCESS
@@ -464,7 +468,7 @@ The function uses the following type aliases, which are defined as:
             joint_used_global_vars = '\n'.join(used_global_vars.values())
             prompt += f'''
 The function uses the following const global variables, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
-```rs
+```rust
 {joint_used_global_vars}
 ```
 '''
@@ -488,14 +492,19 @@ You should **NOT** include them in your translation, as the system will automati
 
         # TODO: check upper/lower case of the global variables
         # TODO: check extern "C" for global variables
-        used_enums: list[EnumValueInfo] = function.enum_dependencies
+        used_enum_values: list[EnumValueInfo] = function.enum_values_dependencies
+        used_enum_definitions = function.enum_dependencies
         code_of_enum = {}
-        if len(used_enums) > 0:
+        if len(used_enum_values) > 0 or len(used_enum_definitions) > 0:
             enum_definitions = set()
             used_enum_names = []
-            for enum in used_enums:
+            for enum in used_enum_values:
                 used_enum_names.append(enum.name)
                 enum_definitions.add(enum.definition)
+
+            for enum_def in used_enum_definitions:
+                used_enum_names.append(enum_def.name)
+                enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
                 self._translate_enum_impl(enum_def)
@@ -561,7 +570,7 @@ The error message may be cause your translation includes other functions or stru
 Remember, you should only provide the translation for the function and necessary `use` statements. The system will automatically include the dependencies in the final translation.
 '''
 
-        elif verify_result[0] == VerifyResult.TEST_ERROR:
+        elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             prompt += f'''
 Lastly, the function is translated as:
 ```rust
@@ -589,7 +598,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
-                f'erorr type {verify_result[0]} not implemented')
+                f'error type {verify_result[0]} not implemented')
 
         # result = query_llm(prompt, False, f"test.rs")
         result = self.llm.query(prompt)
@@ -716,7 +725,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
             else:
                 raise NotImplementedError(
-                    f'erorr type {result[0]} not implemented')
+                    f'error type {result[0]} not implemented')
             return self._translate_function_impl(
                 function,
                 result,

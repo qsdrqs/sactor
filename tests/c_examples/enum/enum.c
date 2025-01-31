@@ -26,3 +26,7 @@ int main(int argc, char *argv[]) {
     printf("Day number: %d\n", today);
     return 0;
 }
+
+enum Days foo(enum Days e) {
+    return e;
+}

@@ -146,7 +146,7 @@ class Verifier(ABC):
                 cmd = cmd.split()
             for i, arg in enumerate(cmd):
                 if arg == "%t":
-                    cmd[i] = target
+                    cmd[i] = os.path.abspath(target)
             test_cmd.append(cmd)
 
         return test_cmd

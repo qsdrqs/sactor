@@ -29,6 +29,10 @@ class LLM(ABC):
         pass
 
     def query(self, prompt, model=None, override_system_message=None) -> str:
+        input_tokens = self.enc.encode(prompt)
+        if len(input_tokens) > 20480:
+            print(f"Input is too long: {len(prompt)}")
+            return ""
         utils.print_red(prompt)
         old_system_msg = None
         if override_system_message is not None:
@@ -41,7 +45,6 @@ class LLM(ABC):
         last_costed_time = end_time - start_time
         self.costed_time.append(last_costed_time)
 
-        input_tokens = self.enc.encode(prompt)
         output_tokens = self.enc.encode(response)
 
         self.costed_input_tokens.append(len(input_tokens))
@@ -71,5 +74,6 @@ class LLM(ABC):
             "costed_output_tokens": self.costed_output_tokens,
             "costed_time": self.costed_time,
         }
+        utils.try_backup_file(path)
         with open(path, "w") as f:
             json.dump(statistic_result, f, indent=4)

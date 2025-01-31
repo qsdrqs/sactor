@@ -126,51 +126,10 @@ class ProgramCombiner(Combiner):
                         raise ValueError(
                             f"Unexpected error during verification: {result[0]}")
 
-        # create a rust project
         build_program = os.path.join(self.build_path, "program")
-        utils.create_rust_proj(
-            rust_code=output_code,
-            proj_name="program",
-            path=build_program,
-            is_lib=not self.is_executable
-        )
 
-        # format the code
-        cmd = ["cargo", "fmt", "--manifest-path",
-               os.path.join(build_program, "Cargo.toml")]
-        result = subprocess.run(
-            cmd, capture_output=True)
-
-        if result.returncode != 0:
-            print(f"Error: Failed to format the code: {result.stderr}")
-            return CombineResult.RUSTFMT_FAILED, None
-
-        # fix the code
-        cmd = ["cargo", "clippy", "--fix", "--allow-no-vcs", "--manifest-path",
-               os.path.join(build_program, "Cargo.toml")]
-        print(cmd)
-        result = subprocess.run(
-            cmd, capture_output=True)
-
-        if result.returncode != 0:
-            print(f"Error: Failed to fix the code: {result.stderr}")
-            return CombineResult.RUSTFIX_FAILED, None
-
-        # cargo clippy
-        cmd = ["cargo", "clippy", "--manifest-path",
-               os.path.join(build_program, "Cargo.toml")]
-
-        result = subprocess.run(
-            # Can have both warnings and errors, but this is not compile error
-            cmd, capture_output=True)
-
-        has_error = False
-        if result.returncode != 0:
-            has_error = True
-
-        # collect warnings count
-        self._stat_warnings_errors(
-            build_program, result.stderr.decode("utf-8"), has_error)
+        # collect warnings and errors
+        self._stat_warnings_errors(output_code)
 
         # copy the combined code to the result directory
         cmd = ["cp", "-f",
@@ -188,7 +147,7 @@ class ProgramCombiner(Combiner):
         compiler_output_lines = compiler_output.split("\n")
         for output in compiler_output_lines:
             total_pattern = re.compile(
-                    r'.*`program` \((?:bin "program"|lib)\) generated (\d+) warnings.*')
+                    r'.*`program` \((?:bin "program"|lib)\) generated (\d+) warning(s)?.*')
             total_match = total_pattern.match(output)
             if total_match:
                 warnings_count = int(total_match.group(1))
@@ -198,7 +157,7 @@ class ProgramCombiner(Combiner):
         if has_error:
             for output in compiler_output_lines:
                 error_pattern = re.compile(
-                    r'.*could not compile `program` \((?:bin "program"|lib)\) due to (\d+) previous errors.*')
+                    r'.*could not compile `program` \((?:bin "program"|lib)\) due to (\d+) previous error(s)?.*')
                 error_match = error_pattern.match(output)
                 if error_match:
                     errors_count = int(error_match.group(1))
@@ -206,10 +165,54 @@ class ProgramCombiner(Combiner):
 
         return warnings_count, errors_count
 
-    def _stat_warnings_errors(self, build_dir, compiler_output: str, has_errror: bool):
+    def _stat_warnings_errors(self, output_code):
+        # create a rust project
+        build_dir = os.path.join(self.build_path, "program")
+        utils.create_rust_proj(
+            rust_code=output_code,
+            proj_name="program",
+            path=build_dir,
+            is_lib=not self.is_executable
+        )
+
+        # format the code
+        cmd = ["cargo", "fmt", "--manifest-path",
+               os.path.join(build_dir, "Cargo.toml")]
+        result = subprocess.run(
+            cmd, capture_output=True)
+
+        if result.returncode != 0:
+            print(f"Error: Failed to format the code: {result.stderr}")
+            return CombineResult.RUSTFMT_FAILED, None
+
+        # fix the code
+        cmd = ["cargo", "clippy", "--fix", "--allow-no-vcs", "--manifest-path",
+               os.path.join(build_dir, "Cargo.toml")]
+        print(cmd)
+        result = subprocess.run(
+            cmd, capture_output=True)
+
+        if result.returncode != 0:
+            print(f"Error: Failed to fix the code: {result.stderr}")
+            return CombineResult.RUSTFIX_FAILED, None
+
+        # cargo clippy
+        cmd = ["cargo", "clippy", "--manifest-path",
+               os.path.join(build_dir, "Cargo.toml")]
+
+        result = subprocess.run(
+            # Can have both warnings and errors, but this is not compile error
+            cmd, capture_output=True)
+
+        has_error = False
+        if result.returncode != 0:
+            has_error = True
+
+        compiler_output = result.stderr.decode("utf-8")
+
         compiler_output_lines = compiler_output.split("\n")
         total_warnings, total_errors = self._get_warning_error_count(
-            compiler_output, has_errror)
+            compiler_output, has_error)
         warning_types = []
         error_types = []
 
@@ -256,7 +259,7 @@ class ProgramCombiner(Combiner):
                 cmd, capture_output=True)
 
             _, new_error_count = self._get_warning_error_count(
-                result.stderr.decode("utf-8"), has_errror)
+                result.stderr.decode("utf-8"), has_error)
             diff = current_count - new_error_count
             self.clippy_stat["errors"][error_type] = diff
             current_count = new_error_count
@@ -282,7 +285,7 @@ class ProgramCombiner(Combiner):
                 cmd, capture_output=True, check=True) # this should not fail
 
             new_warning_cout, _ = self._get_warning_error_count(
-                result.stderr.decode("utf-8"), has_errror)
+                result.stderr.decode("utf-8"), has_error)
             diff = current_count - new_warning_cout
             self.clippy_stat["warnings"][warning_type] = diff
             current_count = new_warning_cout

@@ -37,7 +37,7 @@ model = 'gemini-2.0-flash-exp' # change this to your own model
 [Ollama]
 host = "http://127.0.0.1:11434"
 model = "llama3.3"
-# temperature = 0.6 # Uncomment this line if you want to set a temperature
+# temperature = 0.8 # Uncomment this line if you want to set a temperature
 
 [Ollama.headers]
 # Add any headers you want to send with the request

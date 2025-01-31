@@ -579,6 +579,21 @@ fn unidiomatic_function_cleanup(code: &str) -> PyResult<String> {
     Ok(prettyplease::unparse(&ast))
 }
 
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn unidiomatic_types_cleanup(code: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+
+    for item in ast.items.iter_mut() {
+        if let syn::Item::ExternCrate(_) = item {
+            // remove `extern crate`
+            *item = syn::Item::Verbatim(Default::default());
+        }
+    }
+
+    Ok(prettyplease::unparse(&ast))
+}
+
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
@@ -594,6 +609,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_attr_to_struct_union, m)?)?;
     m.add_function(wrap_pyfunction!(add_derive_to_struct_union, m)?)?;
     m.add_function(wrap_pyfunction!(unidiomatic_function_cleanup, m)?)?;
+    m.add_function(wrap_pyfunction!(unidiomatic_types_cleanup, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;

@@ -187,6 +187,9 @@ def test_extract_enum_def():
     c_parser = CParser(file_path)
     print(c_parser._enums)
 
+    foo = c_parser.get_function_info('foo')
+    assert len(foo.enum_dependencies) == 1
+
     days = c_parser.get_enum_info('Days')
     code = c_parser.extract_enum_definition_code(days.name)
     expected_code = '''

@@ -44,3 +44,6 @@ def rename_struct_union(code:str,old_name:str,new_name:str) -> str:
 def unidiomatic_function_cleanup(code:str) -> str:
     ...
 
+def unidiomatic_types_cleanup(code:str) -> str:
+    ...
+

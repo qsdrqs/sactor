@@ -466,7 +466,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
-                f'erorr type {verify_result[0]} not implemented')
+                f'error type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
         try:
@@ -533,9 +533,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=struct_result,
                 attempts=attempts + 1
             )
+        elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
+            self.append_failure_info(
+                struct_union.name, "TEST_ERROR", result[1])
+            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+
         elif result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
-                f'erorr type {result[0]} not implemented')
+                f'error type {result[0]} not implemented')
 
         # Save the results
         utils.save_code(struct_save_path, struct_result)
@@ -600,7 +605,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 code_of_global_var = file.read()
                 used_global_vars[global_var.name] = code_of_global_var
 
-        used_enums: list[EnumValueInfo] = function.enum_dependencies
+        used_enum_values: list[EnumValueInfo] = function.enum_values_dependencies
+        used_enum_defs = function.enum_dependencies
         code_of_enum = {}
 
         # Get used functions
@@ -682,12 +688,15 @@ The function uses the following const global variables, which are already transl
 {joint_used_global_vars}
 ```
 '''
-        if len(used_enums) > 0:
+        if len(used_enum_values) > 0 or len(used_enum_defs) > 0:
             enum_definitions = set()
             used_enum_names = []
-            for enum in used_enums:
+            for enum in used_enum_values:
                 used_enum_names.append(enum.name)
                 enum_definitions.add(enum.definition)
+            for enum_def in used_enum_defs:
+                used_enum_names.append(enum_def.name)
+                enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
                 self._translate_enum_impl(enum_def)
@@ -796,7 +805,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
-                f'erorr type {verify_result[0]} not implemented')
+                f'error type {verify_result[0]} not implemented')
 
         result = self.llm.query(prompt)
         try:
@@ -930,9 +939,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK:
                 self.append_failure_info(
                     function.name, "TEST_ERROR", result[1])
+            elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
+                self.append_failure_info(
+                    function.name, "TEST_ERROR", result[1])
+                return TranslateResult.MAX_ATTEMPTS_EXCEEDED
             else:
                 raise NotImplementedError(
-                    f'erorr type {result[0]} not implemented')
+                    f'error type {result[0]} not implemented')
 
             return self._translate_function_impl(
                 function,

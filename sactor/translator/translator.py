@@ -88,7 +88,10 @@ class Translator(ABC):
             }
 
     def save_failure_info(self, path):
+        if self.failure_info == {}:
+            return
         # write into json format
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        utils.try_backup_file(path)
         with open(path, 'w') as f:
             json.dump(self.failure_info, f, indent=4)

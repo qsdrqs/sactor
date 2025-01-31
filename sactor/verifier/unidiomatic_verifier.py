@@ -52,6 +52,12 @@ class UnidiomaticVerifier(Verifier):
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
 
+        try:
+            rust_ast_parser.get_standalone_uses_code_paths(function_code)
+        except Exception as e:
+            print(f"Error: Failed to get standalone uses code paths for function {function.name}")
+            return (VerifyResult.COMPILE_ERROR, str(e))
+
         # Run the tests
         test_error = self._embed_test_rust(
             function, combined_code, function_dependency_signatures, has_prefix)

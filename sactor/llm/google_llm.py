@@ -35,7 +35,7 @@ class GoogleLLM(LLM):
             config['temperature'] = temperature
 
         resp = self.client.models.generate_content(
-            model='gemini-2.0-flash-exp',
+            model=model,
             contents=prompt,
             config=config,
         )
