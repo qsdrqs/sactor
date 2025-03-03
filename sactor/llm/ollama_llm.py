@@ -42,7 +42,8 @@ class OllamaLLM(LLM):
             model=model,
             messages=messages,
             options={
-                "temperature": temperature
+                "temperature": temperature,
+                'num_ctx': 8192,
             }
         )
 

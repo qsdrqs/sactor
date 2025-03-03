@@ -74,10 +74,11 @@ class Translator(ABC):
     ) -> TranslateResult:
         pass
 
-    def append_failure_info(self, item, error_type, error_message):
+    def append_failure_info(self, item, error_type, error_message, error_translation):
         self.failure_info[item]["errors"].append({
             "type": error_type,
-            "message": error_message
+            "message": error_message,
+            "translation": error_translation
         })
 
     def init_failure_info(self, type, item):

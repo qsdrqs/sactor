@@ -138,7 +138,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                enum.name, "COMPILE_ERROR", error_message
+                enum.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_enum_impl(
                 enum,
@@ -151,7 +151,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if len(enum_result.strip()) == 0:
             error_message = "Translated code doesn't wrap by the tags as instructed"
             self.append_failure_info(
-                enum.name, "COMPILE_ERROR", error_message
+                enum.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_enum_impl(
                 enum,
@@ -169,7 +169,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
-                    enum.name, "COMPILE_ERROR", result[1])
+                    enum.name, "COMPILE_ERROR", result[1], enum_result)
             return self._translate_enum_impl(
                 enum,
                 verify_result=result,
@@ -261,7 +261,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                global_var.name, "COMPILE_ERROR", error_message
+                global_var.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_global_vars_impl(
                 global_var,
@@ -274,13 +274,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if len(global_var_result.strip()) == 0:
             error_message = "Translated code doesn't wrap by the tags as instructed"
             self.append_failure_info(
-                global_var.name, "COMPILE_ERROR", error_message
+                global_var.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_global_vars_impl(
                 global_var,
                 verify_result=(
                     VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=global_var_result,
+                error_translation=result,
                 attempts=attempts+1
             )
 
@@ -292,7 +292,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
                 print(error_message)
                 self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", error_message
+                    global_var.name, "COMPILE_ERROR", error_message, global_var_result
                 )
                 return self._translate_global_vars_impl(
                     global_var,
@@ -310,7 +310,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", result[1])
+                    global_var.name, "COMPILE_ERROR", result[1], global_var_result)
             return self._translate_global_vars_impl(
                 global_var,
                 verify_result=result,
@@ -482,7 +482,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                struct_union.name, "COMPILE_ERROR", error_message
+                struct_union.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_struct_impl(
                 struct_union,
@@ -500,7 +500,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             error_message = f"Error: Failed to add Debug trait to the struct: {e}, please check if the struct has a correct syntax"
             print(error_message)
             self.append_failure_info(
-                struct_union.name, "COMPILE_ERROR", error_message
+                struct_union.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_struct_impl(
                 struct_union,
@@ -517,7 +517,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         )
         if result[0] == VerifyResult.COMPILE_ERROR:
             self.append_failure_info(
-                struct_union.name, "COMPILE_ERROR", result[1])
+                struct_union.name, "COMPILE_ERROR", result[1], struct_result)
             return self._translate_struct_impl(
                 struct_union,
                 verify_result=result,
@@ -526,7 +526,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         elif result[0] == VerifyResult.TEST_ERROR:
             self.append_failure_info(
-                struct_union.name, "TEST_ERROR", result[1])
+                struct_union.name, "TEST_ERROR", result[1], struct_result)
             return self._translate_struct_impl(
                 struct_union,
                 verify_result=result,
@@ -535,7 +535,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
             self.append_failure_info(
-                struct_union.name, "TEST_ERROR", result[1])
+                struct_union.name, "TEST_ERROR", result[1], struct_result)
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
 
         elif result[0] != VerifyResult.SUCCESS:
@@ -821,7 +821,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message
+                function.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_function_impl(
                 function,
@@ -834,7 +834,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         except KeyError:
             error_message = f"Error: Output does not wrapped in the correct format!"
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message
+                function.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_function_impl(
                 function,
@@ -850,7 +850,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             error_message = f"Error: Syntax error in the translated code: {e}"
             print(error_message)
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message
+                function.name, "COMPILE_ERROR", error_message, result
             )
             # retry the translation
             return self._translate_function_impl(
@@ -934,14 +934,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
-                    function.name, "COMPILE_ERROR", result[1])
+                    function.name, "COMPILE_ERROR", result[1], function_result)
 
             elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK:
                 self.append_failure_info(
-                    function.name, "TEST_ERROR", result[1])
+                    function.name, "TEST_ERROR", result[1], function_result)
             elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
                 self.append_failure_info(
-                    function.name, "TEST_ERROR", result[1])
+                    function.name, "TEST_ERROR", result[1], function_result)
                 return TranslateResult.MAX_ATTEMPTS_EXCEEDED
             else:
                 raise NotImplementedError(

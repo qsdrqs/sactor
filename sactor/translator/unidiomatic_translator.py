@@ -122,7 +122,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                enum.name, "COMPILE_ERROR", error_message
+                enum.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_enum_impl(
                 enum,
@@ -135,13 +135,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if len(enum_result.strip()) == 0:
             error_message = "Translated code doesn't wrap by the tags as instructed"
             self.append_failure_info(
-                enum.name, "COMPILE_ERROR", error_message
+                enum.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_enum_impl(
                 enum,
                 verify_result=(
                     VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=enum_result,
+                error_translation=result,
                 attempts=attempts+1
             )
 
@@ -153,7 +153,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
-                    enum.name, "COMPILE_ERROR", result[1])
+                    enum.name, "COMPILE_ERROR", result[1], enum_result)
             return self._translate_enum_impl(
                 enum,
                 verify_result=result,
@@ -252,7 +252,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                global_var.name, "COMPILE_ERROR", error_message
+                global_var.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_global_vars_impl(
                 global_var,
@@ -265,13 +265,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if len(global_var_result.strip()) == 0:
             error_message = "Translated code doesn't wrap by the tags as instructed"
             self.append_failure_info(
-                global_var.name, "COMPILE_ERROR", error_message
+                global_var.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_global_vars_impl(
                 global_var,
                 verify_result=(
                     VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=global_var_result,
+                error_translation=result,
                 attempts=attempts+1
             )
 
@@ -283,7 +283,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
                 print(error_message)
                 self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", error_message
+                    global_var.name, "COMPILE_ERROR", error_message, global_var_result
                 )
                 return self._translate_global_vars_impl(
                     global_var,
@@ -301,7 +301,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", result[1])
+                    global_var.name, "COMPILE_ERROR", result[1], global_var_result)
             return self._translate_global_vars_impl(
                 global_var,
                 verify_result=result,
@@ -615,7 +615,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message
+                function.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_function_impl(
                 function,
@@ -634,7 +634,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             print(error_message)
             # retry the translation
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message
+                function.name, "COMPILE_ERROR", error_message, function_result
             )
             return self._translate_function_impl(
                 function,
@@ -653,7 +653,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 else:
                     error_message = f"Function {name_prefix} not found in the translated code"
                     self.append_failure_info(
-                        function.name, "COMPILE_ERROR", error_message
+                        function.name, "COMPILE_ERROR", error_message, function_result
                     )
                     return self._translate_function_impl(
                         function,
@@ -668,7 +668,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 )}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa."
                 print(error_message)
                 self.append_failure_info(
-                    function.name, "COMPILE_ERROR", error_message
+                    function.name, "COMPILE_ERROR", error_message, function_result
                 )
                 return self._translate_function_impl(
                     function,
@@ -688,13 +688,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if len(function_result.strip()) == 0:
             error_message = "Translated code doesn't wrap by the tags as instructed"
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message
+                function.name, "COMPILE_ERROR", error_message, result
             )
             return self._translate_function_impl(
                 function,
                 verify_result=(
                     VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=function_result,
+                error_translation=result,
                 attempts=attempts+1
             )
 
@@ -714,14 +714,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             if result[0] == VerifyResult.COMPILE_ERROR:
                 compile_error = result[1]
                 self.append_failure_info(
-                    function.name, "COMPILE_ERROR", compile_error)
+                    function.name, "COMPILE_ERROR", compile_error, function_result)
                 # Try to translate the function again, with the error message
 
             elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK or result[0] == VerifyResult.TEST_TIMEOUT:
                 # TODO: maybe simply retry the translation here
                 test_error = result[1]
                 self.append_failure_info(
-                    function.name, "TEST_ERROR", test_error)
+                    function.name, "TEST_ERROR", test_error, function_result)
 
             else:
                 raise NotImplementedError(
