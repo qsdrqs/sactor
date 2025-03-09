@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 import subprocess
 
 import tomli as toml
@@ -61,10 +62,11 @@ def find_project_root():
 
 
 def get_temp_dir():
-    # tmpdir = tempfile.mkdtemp(prefix='sactor_')
-    tmpdir = '/tmp/sactor'
-    os.makedirs(tmpdir, exist_ok=True)
-    return tmpdir
+    tmpdir = tempfile.gettempdir()
+    os.makedirs(os.path.join(tmpdir, "sactor"), exist_ok=True)
+    new_tmp_dir = tempfile.mkdtemp(dir=os.path.join(tmpdir, "sactor"))
+    # tmpdir = '/tmp/sactor'
+    return new_tmp_dir
 
 
 def parse_llm_result(llm_result, *args):
