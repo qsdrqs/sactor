@@ -23,6 +23,14 @@ model = "gpt-4o" # change this to your own model
 # project_id = "your-project-id" # uncomment this line if you are using a project id
 # base_url = "https://api.openai.com/v1" # uncomment this line if you are using a custom base url
 
+[DeepSeek]
+base_url = "https://api.deepseek.com"
+api_key = "your-api-key"
+model = "deeepseek-reasoner" # change this to your own model
+# temperature = 1 # Uncomment this line if you want to set a temperature
+# organization = "your-organization" # uncomment this line if you are using an organization
+# project_id = "your-project-id" # uncomment this line if you are using a project id
+
 [Anthropic]
 api_key = "your-api-key"
 model = "claude-3-5-sonnet-latest" # change this to your own model

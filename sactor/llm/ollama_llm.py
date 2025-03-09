@@ -43,7 +43,7 @@ class OllamaLLM(LLM):
             messages=messages,
             options={
                 "temperature": temperature,
-                'num_ctx': 8192,
+                'num_ctx': 16384,
             }
         )
 
