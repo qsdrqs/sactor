@@ -402,6 +402,6 @@ extern "C" {{
                 return (result[0], feedback)
             else:
                 # No feedback, return the original error message
-                return (result[0], result[1])
+                return (result[0], previous_result[1])
 
         return (VerifyResult.SUCCESS, None)

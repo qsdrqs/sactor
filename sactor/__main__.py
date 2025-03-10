@@ -275,9 +275,9 @@ def run_tests(parser, args):
             print(f'✅ Test {args.test_sample_number} passed successfully!')
             sys.exit(0)
         else:
-            print(f'❌ Test {args.test_sample_number} failed!')
-            print('Diff (-actual +expected):')
-            print(result[1])
+            print(f'❌ Test {args.test_sample_number} failed!', file=sys.stderr)
+            print('Diff (-actual +expected):', file=sys.stderr)
+            print(result[1], file=sys.stderr)
             sys.exit(1)
 
     elif args.type == 'lib':
