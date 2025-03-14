@@ -30,9 +30,43 @@ option with the `sactor` command.
 
 ## Usage
 
-### Test Command in `sactor run-tests`
+Several examples are provided in the (c_example directory)[https://github.com/qsdrqs/sactor/tree/main/tests/c_examples].
 
-The `test_command_path` option in the configuration file specifies the path that
+### Command Line Interface
+
+Sactor provides a command line interface (CLI) for running the translation and
+testing processes. The main command is `sactor`, which has several subcommands:
+
+- `run-tests`: Runs end-to-end tests on the translation process.
+- `generate-tests`: Generates test commands based on the provided test samples.
+- `translate`: Translates C code to Rust code using the specified translation
+  method.
+
+Example usage:
+
+```bash
+sactor translate /path/to/c /path/to/test_task.json -r /path/to/result/ --type bin
+```
+This command translates the C code located at `/path/to/c` using the test
+task specified in `/path/to/test_task.json`, and saves the result to
+`/path/to/result/`. The `--type` option specifies the type of the binary (e.g.,
+`bin`, `lib`). The `-r` option specifies the path to save the translation result.
+
+Sactor also implements a *test generator* that generates test commands based on
+the provided C code and test samples to provide more end-to-end testing
+capabilities. The test generator can be run using the `generate-tests` subcommand.
+
+```bash
+sactor generate-tests /path/to/c 10 --type bin --executable /path/to/executable
+```
+In this example, `10` is the number of test commands to generate. The
+`--type` option specifies the type of the binary (e.g., `bin`, `lib`), and
+`--executable` specifies the path to the executable of the C code that is
+required for generating the end-to-end tests.
+
+### Test Task in `sactor translate`
+
+The `test_task_path` option in the configuration file specifies the path that
 contains the end-to-end test commands. It should be a json file with the following
 format:
 

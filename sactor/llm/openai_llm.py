@@ -42,11 +42,13 @@ class OpenAILLM(LLM):
         messages.append({"role": "user", "content": f"{prompt}"})
 
         temperature = self.config[self.config_key].get('temperature') # default is 1 if not set
+        max_tokens = self.config[self.config_key].get('max_tokens')
 
         resp = self.client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         return resp

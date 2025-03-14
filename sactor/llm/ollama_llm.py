@@ -37,13 +37,14 @@ class OllamaLLM(LLM):
 
         temperature = self.config['Ollama'].get(
             'temperature')  # default value varies by model
+        max_tokens = self.config['Ollama'].get('max_tokens')
 
         resp = self.client.chat(
             model=model,
             messages=messages,
             options={
                 "temperature": temperature,
-                'num_ctx': 16384,
+                'num_ctx': max_tokens
             }
         )
 

@@ -37,11 +37,13 @@ class AzureOpenAILLM(LLM):
         messages.append({"role": "user", "content": f"{prompt}"})
 
         temperature =  self.config['AzureOpenAI'].get('temperature') # default is 1 if not set
+        max_tokens = self.config['AzureOpenAI'].get('max_tokens')
 
         resp = self.client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         if resp.choices[0].message.content is None:

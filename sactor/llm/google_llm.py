@@ -28,11 +28,14 @@ class GoogleLLM(LLM):
             model = self.config['Google']['model']
 
         temperature = self.config['Google'].get('temperature') # default value varies by model
+        max_tokens = self.config['Google'].get('max_tokens')
         config: GenerateContentConfigDict = {}
         if self.system_msg is not None:
             config['system_instruction'] = self.system_msg
         if temperature is not None:
             config['temperature'] = temperature
+        if max_tokens is not None:
+            config['max_output_tokens'] = max_tokens
 
         resp = self.client.models.generate_content(
             model=model,
