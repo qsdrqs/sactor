@@ -30,7 +30,7 @@ option with the `sactor` command.
 
 ## Usage
 
-Several examples are provided in the (c_example directory)[https://github.com/qsdrqs/sactor/tree/main/tests/c_examples].
+Several examples are provided in the [c_example directory](tests/c_examples).
 
 ### Command Line Interface
 
