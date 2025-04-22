@@ -1,0 +1,10 @@
+{
+    "atoi": {
+        "type": "function",
+        "errors": []
+    },
+    "main": {
+        "type": "function",
+        "errors": []
+    }
+}

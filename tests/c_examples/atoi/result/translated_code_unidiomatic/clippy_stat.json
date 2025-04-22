@@ -1,0 +1,8 @@
+{
+    "total_warnings": 1,
+    "total_errors": 0,
+    "warnings": {
+        "clippy::missing_safety_doc": 1
+    },
+    "errors": {}
+}

@@ -1,0 +1,42 @@
+[
+    {
+        "input": "2147483647",
+        "output": "Parsed integer: 2147483647"
+    },
+    {
+        "input": "999999999",
+        "output": "Parsed integer: 999999999"
+    },
+    {
+        "input": "32768",
+        "output": "Parsed integer: 32768"
+    },
+    {
+        "input": "-456",
+        "output": "Parsed integer: -456"
+    },
+    {
+        "input": "+42",
+        "output": "Parsed integer: 42"
+    },
+    {
+        "input": "-2147483648",
+        "output": "Parsed integer: -2147483648"
+    },
+    {
+        "input": "0",
+        "output": "Parsed integer: 0"
+    },
+    {
+        "input": "-999999999",
+        "output": "Parsed integer: -999999999"
+    },
+    {
+        "input": "123",
+        "output": "Parsed integer: 123"
+    },
+    {
+        "input": "-153423",
+        "output": "Parsed integer: -153423"
+    }
+]
