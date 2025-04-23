@@ -109,17 +109,7 @@ Output the translated enum into this format (wrap with the following tags):
 '''
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
-            prompt += f'''
-Lastly, the enum is translated as:
-```rust
-{error_translation}
-```
-It failed to compile with the following error message:
-```
-{verify_result[1]}
-```
-Analyzing the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'erorr type {verify_result[0]} not implemented')
@@ -231,17 +221,7 @@ Output the translated global variable into this format (wrap with the following 
 ----END GLOBAL VAR----
 '''
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
-            prompt += f'''
-Lastly, the global variable is translated as:
-```rust
-{error_translation}
-```
-It failed to compile with the following error message:
-```
-{verify_result[1]}
-```
-Analyzing the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
 
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
@@ -433,37 +413,13 @@ Output the translated struct into this format (wrap with the following tags):
 '''
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
-            prompt += f'''
-Lastly, the struct is translated as:
-```rust
-{error_translation}
-```
-It failed to compile with the following error message:
-```
-{verify_result[1]}
-```
-Analyzing the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
             # for redefine error
             assert verify_result[1] is not None
             if verify_result[1].find("is defined multiple times") != -1:
-                prompt += f'''
-The error message may be cause your translation includes other structs (maybe the dependencies).
-Remember, you should only provide the translation for the struct and necessary `use` statements. The system will automatically include the dependencies in the final translation.
-'''
-
+                prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] == VerifyResult.TEST_ERROR:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed the following tests:
-```
-{verify_result[1]}
-```
-Analyze the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
@@ -757,52 +713,17 @@ Output the translated function into this format (wrap with the following tags):
 
         feed_to_verify = (VerifyResult.SUCCESS, None)
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed to compile with the following error message:
-```
-{verify_result[1]}
-```
-Analyzing the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
             # for redefine error
             assert verify_result[1] is not None
             if verify_result[1].find("is defined multiple times") != -1:
-                prompt += f'''
-The error message may be cause your translation includes other functions or structs (maybe the dependencies).
-Remember, you should only provide the translation for the function and necessary `use` statements. The system will automatically include the dependencies in the final translation.
-'''
+                prompt += f'''''' # NOTE: ablation study by removing the feedback
 
         elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             feed_to_verify = verify_result
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed the following tests:
-```
-{verify_result[1]}
-```
-Analyze the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] == VerifyResult.FEEDBACK:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-When running the test, it failed with the following error message:
-```
-{verify_result[1]}
-```
-In this error message, the 'original output' is the actual output from the program error message. The 'Feedback' is information of function calls collected during the test.
-
-Analyze the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
