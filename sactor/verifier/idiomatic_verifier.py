@@ -149,29 +149,9 @@ Output the translated function into this format (wrap with the following tags):
 ----END FUNCTION----
 '''
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed to compile with the following error message:
-```
-{verify_result[1]}
-```
-Analyzing the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed the following tests:
-```
-{verify_result[1]}
-```
-Analyze the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
@@ -360,29 +340,9 @@ Output the two transformation functions into this format (wrap with the followin
 '''
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed to compile with the following error message:
-```
-{verify_result[1]}
-```
-Analyzing the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
-            prompt += f'''
-Lastly, the function is translated as:
-```rust
-{error_translation}
-```
-It failed the following tests:
-```
-{verify_result[1]}
-```
-Analyze the error messages, think about the possible reasons, and try to avoid this error.
-'''
+            prompt += f'''''' # NOTE: ablation study by removing the feedback
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
