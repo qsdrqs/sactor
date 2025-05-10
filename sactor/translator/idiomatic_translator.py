@@ -936,7 +936,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 self.append_failure_info(
                     function.name, "COMPILE_ERROR", result[1], function_result)
 
-            elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK:
+            elif result[0] == VerifyResult.TEST_ERROR or result[0] == VerifyResult.FEEDBACK or result[0] == VerifyResult.TEST_TIMEOUT:
                 self.append_failure_info(
                     function.name, "TEST_ERROR", result[1], function_result)
             elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
