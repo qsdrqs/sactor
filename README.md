@@ -13,9 +13,8 @@ the benefits of Rust's safety and performance guarantees.
 - Python 3.8 or later
 - rustup
 - poetry (Python package manager)
-
-- c2rust
-- crown
+- C2Rust (https://github.com/immunant/c2rust)
+- Crown (https://github.com/qsdrqs/crown/tree/sactor)
 
 ## Installation
 1. Install `rust_ast_parser`
