@@ -10,7 +10,7 @@ the benefits of Rust's safety and performance guarantees.
 
 ## Requirements
 
-- Python 3.8 or later
+- Python 3.8 or later (tested on python 3.12)
 - rustup
 - poetry (Python package manager)
 - C2Rust (https://github.com/immunant/c2rust)

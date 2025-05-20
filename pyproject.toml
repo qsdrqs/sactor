@@ -1,49 +1,54 @@
 [project]
 name = "sactor"
-classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
-]
-
-[tool.poetry]
-name = "sactor"
 version = "0.1.0"
 description = "Structure-Aware C to Rust Translator"
+authors = [
+    { name = "Tianyang Zhou", email = "qsdrqs@gmail.com" }
+]
 readme = "README.md"
-packages = [
-    { include = "sactor" }
+requires-python = ">=3.9"
+dependencies = [
+    "anthropic>=0.43.0",
+    "google-genai>=0.5.0",
+    "libclang>=18.1.1",
+    "maturin>=1.7.8",
+    "ollama>=0.4.5",
+    "openai>=1.58.1",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+    "tiktoken>=0.8.0",
+    "tomli>=2.2.1",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.12"
-maturin = "^1.7.8"
-libclang = "^18.1.1"
-tiktoken = "^0.8.0"
-openai = "^1.58.1"
-pytest = "^8.3.4"
-pytest-cov = "^6.0.0"
-tomli = "^2.2.1"
-ollama = "^0.4.5"
-anthropic = "^0.43.0"
-google-genai = "^0.5.0"
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
-[tool.poetry.group.dev.dependencies]
-autopep8 = "^2.3.1"
-isort = "^5.13.2"
-debugpy = "^1.8.11"
+[tool.setuptools]
+packages = ["sactor"]
 
-[tool.poetry.scripts]
-sactor = "sactor:__main__.main"
+[tool.uv]
+package = true
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
 
 [tool.maturin]
 python-source = '.'
 module-name = "sactor.rust_ast_parser"
 features = ["pyo3/extension-module"]
+manifest-path = "rust_ast_parser/Cargo.toml"
+include = [
+  { path = "rust-toolchain.toml", format = "sdist" }
+]
+
+[dependency-groups]
+dev = [
+    "autopep8>=2.3.1",
+    "debugpy>=1.8.11",
+    "isort>=5.13.2",
+]
+
+[project.scripts]
+sactor = "sactor:__main__.main"

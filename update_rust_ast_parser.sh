@@ -8,4 +8,4 @@ trap "cd ${ORIGINAL_PWD}" EXIT
 
 cd $SCRIPT_DIR
 cargo run --bin stub_gen
-maturin develop -m rust_ast_parser/Cargo.toml
+maturin develop -m rust_ast_parser/Cargo.toml --uv
