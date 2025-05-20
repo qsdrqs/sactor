@@ -12,13 +12,19 @@ the benefits of Rust's safety and performance guarantees.
 
 - Python 3.8 or later (tested on python 3.12)
 - rustup
-- poetry (Python package manager)
+- uv (https://github.com/astral-sh/uv)
 - C2Rust (https://github.com/immunant/c2rust)
 - Crown (https://github.com/qsdrqs/crown/tree/sactor)
 
 ## Installation
-1. Install `rust_ast_parser`
-2. Install `sactor`
+1. Install the required dependencies.
+2. For the C2Rust and Crown dependencies, follow the instructions in their
+   respective repositories to build and install them. Then add the `c2rust` and `crown`
+   binaries to your `PATH` environment variable.
+
+3. Run `uv sync` to add all the required python dependencies.
+4. (Optional) Run `sh update_rust_ast_parser.sh` to update the Rust AST
+   parser. This is only needed if you modify the Rust code under `rust_ast_parser`.
 
 ## Configuration
 
@@ -27,9 +33,22 @@ configuration, create a `config.yaml` file in the same directory. Alternatively,
 you can specify a custom configuration file path by using the `-c` or `--config`
 option with the `sactor` command.
 
+
 ## Usage
 
 Several examples are provided in the [c_example directory](tests/c_examples).
+
+### Run examples
+After installing the required dependencies and configuring the environment with
+proper LLMs, you can run the examples provided in the `tests/c_examples`.
+
+To run the examples, you can use the `sactor` command with the `translate` subcommand.
+Take `atoi.c` as an example:
+
+```bash
+cd tests/c_examples/atoi/
+sactor translate atoi.c ./test_task/test_task.json -r ./result_tmp --type bin
+```
 
 ### Command Line Interface
 
