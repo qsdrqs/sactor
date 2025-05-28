@@ -14,7 +14,7 @@ the benefits of Rust's safety and performance guarantees.
 - rustup
 - uv (https://github.com/astral-sh/uv)
 - C2Rust (https://github.com/immunant/c2rust)
-- Crown (https://github.com/qsdrqs/crown/tree/sactor)
+- Crown fork on `sactor` branch (https://github.com/qsdrqs/crown/tree/sactor)
 
 ## Installation
 1. Install the required dependencies.
@@ -23,13 +23,15 @@ the benefits of Rust's safety and performance guarantees.
    binaries to your `PATH` environment variable.
 
 3. Run `uv sync` to add all the required python dependencies.
-4. (Optional) Run `sh update_rust_ast_parser.sh` to update the Rust AST
+4. Activate the virtual environment by running `source .venv/bin/activate`
+   in the root directory of the project.
+5. (Optional) Run `sh update_rust_ast_parser.sh` to update the Rust AST
    parser. This is only needed if you modify the Rust code under `rust_ast_parser`.
 
 ## Configuration
 
-The default configuration is located in `config.default.yaml`. To customize the
-configuration, create a `config.yaml` file in the same directory. Alternatively,
+The default configuration is located in `sactor.default.toml`. To customize the
+configuration, create a `sactor.toml` file in the same directory. Alternatively,
 you can specify a custom configuration file path by using the `-c` or `--config`
 option with the `sactor` command.
 
