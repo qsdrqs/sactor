@@ -222,7 +222,6 @@ class Verifier(ABC):
     def _mutate_c_code(self, c_function: FunctionInfo, filename, prefix=False) -> str:
         # remove the c code of the function, but keep the function signature
         node = c_function.node
-        location = node.location
         with open(filename, "r") as f:
             lines = f.readlines()
 
@@ -347,20 +346,34 @@ extern "C" {{
         with open(f"{self.embed_test_c_dir}/{name}.c", "w") as f:
             f.write(c_code_removed)
 
-        # compile the C code
+        # build C compile command
         compiler = utils.get_compiler()
-        c_compile_cmd = [compiler, '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
-            self.embed_test_c_dir, f'{name}.c'), f'-L{self.embed_test_rust_dir}/target/debug', f'-l{name}']
-        if self.extra_compile_command:
-            c_compile_cmd.extend(self.extra_compile_command.split())
-        if self.executable_object:
-            c_compile_cmd.extend(self.executable_object.split())
+        output_path = os.path.join(self.embed_test_c_dir, name)
+        source_path = os.path.join(self.embed_test_c_dir, f'{name}.c')
+
+        executable_objects = self.executable_object.split() if self.executable_object else []
+        extra_compile_command = self.extra_compile_command.split() if self.extra_compile_command else []
+        link_flags = [
+            f'-L{self.embed_test_rust_dir}/target/debug',
+            '-lm',
+            f'-l{name}',
+        ]
+
+        c_compile_cmd = [
+            compiler,
+            '-o', output_path,
+            source_path,
+            *executable_objects,
+            *link_flags,
+            *extra_compile_command,
+        ]
+
+
+        #compile C code
         print(c_compile_cmd)
         res = subprocess.run(c_compile_cmd)
         if res.returncode != 0:
-            raise RuntimeError(
-                f"Error: Failed to compile C code for function {name}")
-
+            raise RuntimeError(f"Error: Failed to compile C code for function {name}")
         # run tests
         result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
         if result[0] != VerifyResult.SUCCESS:
