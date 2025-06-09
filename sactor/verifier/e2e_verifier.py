@@ -49,34 +49,58 @@ class E2EVerifier(Verifier):
                 raise ValueError(
                     "executable_object must be provided for library code")
 
+            # executable_objects = self.executable_object.split()
+
+            # program_combiner_path = os.path.join(
+            #     self.build_path, "program_combiner")
+            # os.makedirs(program_combiner_path, exist_ok=True)
+            # compiler = utils.get_compiler()
+            # c_compile_cmd = [
+            #     compiler,
+            #     '-o',
+            #     os.path.join(program_combiner_path, "combined"),
+            #     f'-L{self.build_attempt_path}/target/debug',
+            #     f'-lbuild_attempt',
+            # ]
+            # c_compile_cmd.extend(executable_objects)
+            # if self.extra_compile_command:
+            #     c_compile_cmd.extend(self.extra_compile_command.split())
+            # print(c_compile_cmd)
+            # res = subprocess.run(c_compile_cmd)
+            # if res.returncode != 0:
+            #     raise RuntimeError(
+            #         f"Error: Failed to compile C code for testing the combined code")
+
             executable_objects = self.executable_object.split()
 
             program_combiner_path = os.path.join(
                 self.build_path, "program_combiner")
             os.makedirs(program_combiner_path, exist_ok=True)
             compiler = utils.get_compiler()
+
+            # make sure executable_objects in front of -l 
             c_compile_cmd = [
                 compiler,
                 '-o',
                 os.path.join(program_combiner_path, "combined"),
+                *executable_objects, 
                 f'-L{self.build_attempt_path}/target/debug',
                 f'-lbuild_attempt',
             ]
-            c_compile_cmd.extend(executable_objects)
             if self.extra_compile_command:
                 c_compile_cmd.extend(self.extra_compile_command.split())
+
             print(c_compile_cmd)
             res = subprocess.run(c_compile_cmd)
             if res.returncode != 0:
                 raise RuntimeError(
                     f"Error: Failed to compile C code for testing the combined code")
-
+            
             env = os.environ.copy()
             env["LD_LIBRARY_PATH"] = os.path.abspath(
                 f"{self.build_attempt_path}/target/debug")
             test_error = self._run_tests(
                 os.path.join(program_combiner_path, "combined"), env=env)
-
 
         if test_error[0] != VerifyResult.SUCCESS:
             print("Error: Failed to run tests for the combined code")

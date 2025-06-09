@@ -347,20 +347,48 @@ extern "C" {{
         with open(f"{self.embed_test_c_dir}/{name}.c", "w") as f:
             f.write(c_code_removed)
 
-        # compile the C code
+        # # compile the C code  original code
+        # compiler = utils.get_compiler()
+        # c_compile_cmd = [compiler, '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
+        #     self.embed_test_c_dir, f'{name}.c'), f'-L{self.embed_test_rust_dir}/target/debug',  '-lm', f'-l{name}']
+        # if self.extra_compile_command:
+        #     c_compile_cmd.extend(self.extra_compile_command.split())
+        # if self.executable_object:
+        #     c_compile_cmd.extend(self.executable_object.split())
+        # print(c_compile_cmd)
+        # res = subprocess.run(c_compile_cmd)
+        # if res.returncode != 0:
+        #     raise RuntimeError(
+        #         f"Error: Failed to compile C code for function {name}")
+
+
+
         compiler = utils.get_compiler()
-        c_compile_cmd = [compiler, '-o', os.path.join(self.embed_test_c_dir, name), os.path.join(
-            self.embed_test_c_dir, f'{name}.c'), f'-L{self.embed_test_rust_dir}/target/debug', f'-l{name}']
-        if self.extra_compile_command:
-            c_compile_cmd.extend(self.extra_compile_command.split())
+        c_compile_cmd = [
+            compiler,
+            '-o',
+            os.path.join(self.embed_test_c_dir, name),
+            os.path.join(self.embed_test_c_dir, f'{name}.c'),
+        ]
+
+        # first add test.o
         if self.executable_object:
             c_compile_cmd.extend(self.executable_object.split())
+
+        c_compile_cmd.extend([
+            f'-L{self.embed_test_rust_dir}/target/debug',
+            '-lm',
+            f'-l{name}',
+        ])
+        if self.extra_compile_command:
+            c_compile_cmd.extend(self.extra_compile_command.split())
+
+
+        #compile C code
         print(c_compile_cmd)
         res = subprocess.run(c_compile_cmd)
         if res.returncode != 0:
-            raise RuntimeError(
-                f"Error: Failed to compile C code for function {name}")
-
+            raise RuntimeError(f"Error: Failed to compile C code for function {name}")
         # run tests
         result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
         if result[0] != VerifyResult.SUCCESS:
