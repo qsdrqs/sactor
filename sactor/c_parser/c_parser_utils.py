@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 from clang.cindex import Cursor
 
@@ -59,3 +60,54 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
     os.remove(os.path.join(tmpdir, "tmp.c"))
 
     return removed_code
+
+def expand_all_macros(input_file):
+    filename = os.path.basename(input_file)
+    with open(input_file, 'r') as f:
+        content = f.read()
+    # Find the last #include line and insert the marker
+    lines = content.splitlines()
+
+    # remove #ifdef __cplusplus
+    start = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith('#ifdef __cplusplus'):
+            start = i
+        if line.strip().startswith('#endif'):
+            if start != -1:
+                lines = lines[:start] + lines[i+1:]
+
+    removed_includes = []
+    for i, line in enumerate(lines):
+        if line.strip().startswith('#include'):
+            # remove the include line, to prevent expand macros in the header
+            removed_includes.append(line)
+            lines[i] = ''
+
+    tmpdir = utils.get_temp_dir()
+    os.makedirs(tmpdir, exist_ok=True)
+
+    # Write to a temporary file
+    with open(os.path.join(tmpdir, filename), 'w') as f:
+        f.write('\n'.join(lines))
+
+    # use `cpp -C -P` to expand all macros
+    result = subprocess.run(
+        ['cpp', '-C', '-P', os.path.join(tmpdir, filename)],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+
+    # Combine with expanded part
+    expanded = '\n'.join(removed_includes) + '\n' + result.stdout
+    out_path = os.path.join(tmpdir, f"expanded_{filename}")
+
+    with open(out_path, 'w') as f:
+        f.write(expanded)
+
+    # check if it can compile, if not, will raise an error
+    utils.compile_c_executable(out_path)
+
+    return out_path
+
