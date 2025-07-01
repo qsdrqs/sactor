@@ -2,7 +2,7 @@ import os
 
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
-from sactor.c_parser.c_parser_utils import expand_all_macros
+from sactor.c_parser.c_parser_utils import preprocess_source_code
 from sactor.combiner import CombineResult, ProgramCombiner
 from sactor.divider import Divider
 from sactor.llm import llm_factory
@@ -30,7 +30,7 @@ class Sactor:
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
-        self.input_file_macro_expanded = expand_all_macros(self.input_file)
+        self.input_file_preprocessed = preprocess_source_code(input_file)
         self.test_cmd_path = test_cmd_path
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
@@ -60,7 +60,7 @@ class Sactor:
                 f"Missing requirements: {', '.join(missing_requirements)}")
 
         # Initialize Processors
-        self.c_parser = CParser(self.input_file_macro_expanded)
+        self.c_parser = CParser(self.input_file_preprocessed)
         self.divider = Divider(self.c_parser)
 
         self.struct_order = self.divider.get_struct_order()

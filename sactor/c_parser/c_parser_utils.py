@@ -111,3 +111,9 @@ def expand_all_macros(input_file):
 
     return out_path
 
+def preprocess_source_code(input_file):
+    # Expand all macros in the input file
+    expanded_file = expand_all_macros(input_file)
+    # TODO: unfold the typedefines
+    return expanded_file
+
