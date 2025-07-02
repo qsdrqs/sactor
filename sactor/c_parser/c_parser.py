@@ -94,6 +94,14 @@ class CParser:
     def get_enums(self) -> list[EnumInfo]:
         return list(self._enums.values())
 
+    def get_typedef_nodes(self):
+        """
+        Returns a list of all typedef declaration nodes in the C file.
+        """
+        typedef_nodes = []
+        self._collect_typedef_nodes(self.translation_unit.cursor, typedef_nodes)
+        return typedef_nodes
+
     def _extract_type_alias(self):
         """
         Extracts type aliases (typedefs) from the C file.
@@ -117,21 +125,28 @@ class CParser:
             # Skip system headers
             if node.location and not self._is_in_system_header(node):
                 alias_name = node.spelling
+                underlying_type = node.underlying_typedef_type.get_canonical()
 
-                # Get the underlying type
-                underlying_type = node.underlying_typedef_type
-                if underlying_type:
-                    target_spelling = underlying_type.spelling
-                    # handle the `typedef struct` and `struct` cases
-                    if target_spelling.startswith("struct ") or target_spelling.startswith("union "):
-                        target_spelling = target_spelling.split(" ")[1]
-                    if target_spelling.strip() == alias_name.strip():
-                        # Skip self-referencing typedefs
-                        return
-                    type_alias[alias_name] = target_spelling
+                # Get the full type string
+                target_spelling = underlying_type.spelling
+
+                # Skip self-referencing typedefs
+                if target_spelling.strip() == alias_name.strip():
+                    return
+
+                # Store the alias and its original type
+                type_alias[alias_name] = target_spelling
 
         for child in node.get_children():
             self._process_typedef(child, type_alias)
+
+    def _collect_typedef_nodes(self, node, typedef_nodes):
+        if node.kind == cindex.CursorKind.TYPEDEF_DECL:
+            if node.location and not self._is_in_system_header(node):
+                typedef_nodes.append(node)
+
+        for child in node.get_children():
+            self._collect_typedef_nodes(child, typedef_nodes)
 
     def _update_function_dependencies(self, function: FunctionInfo):
         """

@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+import re
+from clang import cindex
 from clang.cindex import Cursor
 
 from sactor import utils
@@ -114,6 +116,42 @@ def expand_all_macros(input_file):
 def preprocess_source_code(input_file):
     # Expand all macros in the input file
     expanded_file = expand_all_macros(input_file)
-    # TODO: unfold the typedefines
-    return expanded_file
+    # Unfold all typedefs in the expanded file
+    unfolded_file = unfold_typedefs(expanded_file)
+    return unfolded_file
 
+
+def unfold_typedefs(input_file):
+    c_parser = CParser(input_file, omit_error=True)
+    type_aliases = c_parser._type_alias
+    typedef_nodes = c_parser.get_typedef_nodes()
+
+    with open(input_file, 'r') as f:
+        lines = f.readlines()
+
+    lines_to_remove = set()
+    for node in typedef_nodes:
+        for i in range(node.extent.start.line - 1, node.extent.end.line):
+            lines_to_remove.add(i)
+
+    modified_lines = []
+    for i, line in enumerate(lines):
+        if i not in lines_to_remove:
+            modified_lines.append(line)
+        else:
+            modified_lines.append("\n")
+
+    code = "".join(modified_lines)
+
+    # replace all occurrences of the alias with the original type.
+    for alias, original in type_aliases.items():
+        # This regex replaces all occurrences of the alias with the original type.
+        # It uses word boundaries (\b) to ensure that it only replaces whole words,
+        # preventing it from replacing parts of other identifiers.
+        pattern = rf"""\b{re.escape(alias)}\b"""
+        code = re.sub(pattern, original, code)
+
+    with open(input_file, 'w') as f:
+        f.write(code)
+
+    return input_file

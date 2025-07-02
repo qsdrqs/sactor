@@ -72,3 +72,24 @@ def test_expand_macro():
 
     finally:
         shutil.rmtree(tmpdir)
+
+def test_unfold_typedefs():
+    original_file = "tests/c_parser/test_unfold_typedefs_original.c"
+    expected_file = "tests/c_parser/test_unfold_typedefs_expected.c"
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        test_file = os.path.join(tmpdir, "test.c")
+        shutil.copy(original_file, test_file)
+
+        out_path = c_parser_utils.unfold_typedefs(test_file);
+        with open(out_path) as f:
+            actual_content = f.read()
+
+        with open(expected_file) as f:
+            expected_content = f.read()
+
+        assert actual_content == expected_content, "The unfolded code does not match the expected code."
+
+    finally:
+        shutil.rmtree(tmpdir)
