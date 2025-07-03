@@ -12,6 +12,8 @@ from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
 from .verifier_types import VerifyResult
 
+from ..combiner.rust_code import RustCode
+from ..combiner.combiner import Combiner
 
 class Verifier(ABC):
     def __init__(
@@ -309,21 +311,37 @@ class Verifier(ABC):
         rust_code,
         function_dependency_signatures: list[str] | None = None,
         prefix=False,
-        idiomatic=False
+        idiomatic=False,
+        function_dependency_uses=None
     ) -> tuple[VerifyResult, Optional[str]]:
         name = c_function.name
         filename = c_function.node.location.file.name
 
         rust_code = rust_ast_parser.expose_function_to_c(rust_code, name)
+
+        _rust_code = RustCode(rust_code)
+        all_uses = _rust_code.used_code_list
         if function_dependency_signatures:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)
+            joint_function_dependency_uses = ""
+            remained_code = _rust_code.remained_code
+
+            if function_dependency_uses:
+                all_uses+= function_dependency_uses
+            all_uses_tuples = set(tuple(x) for x in all_uses)
+            all_uses = [list(x) for x in all_uses_tuples]
+            all_dependency_uses= PartialCombiner(dict[str, str], dict[str, str])._merge_uses(all_uses)
+            joint_function_dependency_uses = '\n'.join(all_dependency_uses)
             rust_code = f'''
+#![allow(unused_imports)]
+
+{joint_function_dependency_uses}
 extern "C" {{
 {joint_function_depedency_signatures}
 }}
-
-{rust_code}
+/* __START_TRANSLATION__ */
+{remained_code}
 '''
         utils.create_rust_proj(
             rust_code, name, self.embed_test_rust_dir, is_lib=True)
@@ -346,7 +364,6 @@ extern "C" {{
         with open(f"{self.embed_test_c_dir}/{name}.c", "w") as f:
             f.write(c_code_removed)
 
-        # build C compile command
         compiler = utils.get_compiler()
         output_path = os.path.join(self.embed_test_c_dir, name)
         source_path = os.path.join(self.embed_test_c_dir, f'{name}.c')
@@ -367,7 +384,6 @@ extern "C" {{
             *link_flags,
             *extra_compile_command,
         ]
-
 
         #compile C code
         print(c_compile_cmd)
@@ -418,3 +434,4 @@ extern "C" {{
                 return (result[0], previous_result[1])
 
         return (VerifyResult.SUCCESS, None)
+

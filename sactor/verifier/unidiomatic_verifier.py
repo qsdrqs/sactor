@@ -9,6 +9,8 @@ from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 from .verifier import Verifier
 from .verifier_types import VerifyResult
 
+from ..combiner.rust_code import RustCode
+from ..combiner.combiner import Combiner
 
 class UnidiomaticVerifier(Verifier):
     def __init__(
@@ -37,6 +39,7 @@ class UnidiomaticVerifier(Verifier):
         data_type_code: dict[str, str],
         function_dependency_signatures,
         has_prefix,
+        function_dependency_uses=None,
     ) -> tuple[VerifyResult, Optional[str]]:
         functions = {function.name: function_code}
         combiner = PartialCombiner(functions, data_type_code)
@@ -47,7 +50,8 @@ class UnidiomaticVerifier(Verifier):
         # Try to compile the Rust code
         compile_result = self.try_compile_rust_code(
             combined_code,
-            function_dependency_signatures=function_dependency_signatures
+            function_dependency_signatures=function_dependency_signatures,
+            function_dependency_uses=function_dependency_uses
         )
         if compile_result[0] != VerifyResult.SUCCESS:
             return compile_result
@@ -60,7 +64,7 @@ class UnidiomaticVerifier(Verifier):
 
         # Run the tests
         test_error = self._embed_test_rust(
-            function, combined_code, function_dependency_signatures, has_prefix)
+            function, combined_code, function_dependency_signatures, has_prefix,function_dependency_uses=function_dependency_uses)
 
         if test_error[0] != VerifyResult.SUCCESS:
             print(f"Error: Failed to run tests for function {function.name}")
@@ -69,14 +73,32 @@ class UnidiomaticVerifier(Verifier):
         return (VerifyResult.SUCCESS, None)
 
     @override
-    def try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None) -> tuple[VerifyResult, Optional[str]]:
+    def try_compile_rust_code(self, rust_code, executable=False, function_dependency_signatures=None, function_dependency_uses=None) -> tuple[VerifyResult, Optional[str]]:
+        #
+        
+        _rust_code = RustCode(rust_code)
+        all_uses = _rust_code.used_code_list
         if function_dependency_signatures:
             joint_function_depedency_signatures = '\n'.join(
                 function_dependency_signatures)
+            joint_function_dependency_uses = ""
+            remained_code = _rust_code.remained_code
+
+            if function_dependency_uses:
+                all_uses+= function_dependency_uses
+            all_uses_tuples = set(tuple(x) for x in all_uses)
+            all_uses = [list(x) for x in all_uses_tuples]
+            all_dependency_uses= PartialCombiner(dict[str, str], dict[str, str])._merge_uses(all_uses)
+            joint_function_dependency_uses = '\n'.join(all_dependency_uses)
             rust_code = f'''
+#![allow(unused_imports)]
+
+{joint_function_dependency_uses}
 extern "C" {{
 {joint_function_depedency_signatures}
 }}
-{rust_code}
+/* __START_TRANSLATION__ */
+{remained_code}
 '''
         return self._try_compile_rust_code_impl(rust_code, executable)
+
