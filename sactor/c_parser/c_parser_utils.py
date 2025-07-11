@@ -1,7 +1,8 @@
 import os
+import re
+import shutil
 import subprocess
 
-import re
 from clang import cindex
 from clang.cindex import Cursor
 
@@ -20,14 +21,17 @@ def _remove_static_decorator_impl(node: Cursor, source_code: str) -> str:
         start_line = first_token.extent.start.line - 1
         start_column = first_token.extent.start.column
         end_column = first_token.extent.end.column
-        code_lines[start_line] = code_lines[start_line][:start_column-1] + code_lines[start_line][end_column:]
+        code_lines[start_line] = code_lines[start_line][:start_column -
+                                                        1] + code_lines[start_line][end_column:]
 
     return "\n".join(code_lines)
+
 
 def _is_empty(node: Cursor) -> bool:
     tokens = utils.cursor_get_tokens(node)
     token_spellings = [token.spelling for token in tokens]
     return len(token_spellings) == 0
+
 
 def remove_function_static_decorator(function_name: str, source_code: str) -> str:
     """
@@ -62,6 +66,7 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
     os.remove(os.path.join(tmpdir, "tmp.c"))
 
     return removed_code
+
 
 def expand_all_macros(input_file):
     filename = os.path.basename(input_file)
@@ -113,6 +118,7 @@ def expand_all_macros(input_file):
 
     return out_path
 
+
 def preprocess_source_code(input_file):
     # Expand all macros in the input file
     expanded_file = expand_all_macros(input_file)
@@ -124,34 +130,120 @@ def preprocess_source_code(input_file):
 def unfold_typedefs(input_file):
     c_parser = CParser(input_file, omit_error=True)
     type_aliases = c_parser._type_alias
-    typedef_nodes = c_parser.get_typedef_nodes()
 
     with open(input_file, 'r') as f:
-        lines = f.readlines()
+        content = f.read()
 
-    lines_to_remove = set()
+    # Remove/replace typedef declarations using libclang
+    typedef_nodes = c_parser.get_typedef_nodes()
+
+    # Sort nodes by position in reverse order to avoid offset issues when removing
+    typedef_nodes.sort(key=lambda n: n.extent.start.offset, reverse=True)
+
     for node in typedef_nodes:
-        for i in range(node.extent.start.line - 1, node.extent.end.line):
-            lines_to_remove.add(i)
+        struct_child = None
+        for child in node.get_children():
+            if child.kind == cindex.CursorKind.STRUCT_DECL or child.kind == cindex.CursorKind.UNION_DECL:
+                struct_child = child
+                break
 
-    modified_lines = []
-    for i, line in enumerate(lines):
-        if i not in lines_to_remove:
-            modified_lines.append(line)
+        start_offset = node.extent.start.offset
+        end_offset = node.extent.end.offset
+
+        # Extend end_offset to include any trailing semicolon and whitespace
+        while end_offset < len(content) and content[end_offset] in ' \t\n':
+            end_offset += 1
+        if end_offset < len(content) and content[end_offset] == ';':
+            end_offset += 1
+
+        if struct_child:
+            # This typedef defines a struct - keep only the struct part with semicolon
+            struct_start = struct_child.extent.start.offset
+            struct_end = struct_child.extent.end.offset
+            struct_text = content[struct_start:struct_end] + ";"
+            content = content[:start_offset] + \
+                struct_text + content[end_offset:]
         else:
-            modified_lines.append("\n")
+            # Simple typedef - remove entirely including trailing semicolon
+            content = content[:start_offset] + content[end_offset:]
 
-    code = "".join(modified_lines)
+    # Replace type aliases using libclang analysis of the modified content
+    if type_aliases:
+        # Write modified content to a temporary file for re-parsing
+        tmp_dir = utils.get_temp_dir()
+        tmp_file_path = os.path.join(tmp_dir, 'temp_unfolded.c')
+        with open(tmp_file_path, 'w') as tmp_file:
+            tmp_file.write(content)
 
-    # replace all occurrences of the alias with the original type.
-    for alias, original in type_aliases.items():
-        # This regex replaces all occurrences of the alias with the original type.
-        # It uses word boundaries (\b) to ensure that it only replaces whole words,
-        # preventing it from replacing parts of other identifiers.
-        pattern = rf"""\b{re.escape(alias)}\b"""
-        code = re.sub(pattern, original, code)
+        try:
+            # Re-parse the modified content
+            temp_parser = CParser(tmp_file_path, omit_error=True)
+
+            # Get all identifier tokens that match our type aliases
+            source_range = temp_parser.translation_unit.cursor.extent
+            tokens = list(temp_parser.translation_unit.get_tokens(
+                extent=source_range))
+
+            # Filter tokens to only those in the main file
+            main_file_tokens = []
+            for token in tokens:
+                token_file = str(
+                    token.location.file) if token.location.file else ""
+                if tmp_file_path in token_file or token_file.endswith(tmp_file_path.split('/')[-1]):
+                    main_file_tokens.append(token)
+
+            # Collect replacements
+            replacements = []
+            for i, token in enumerate(main_file_tokens):
+                if (token.kind == cindex.TokenKind.IDENTIFIER and
+                        token.spelling in type_aliases):
+
+                    start_offset = token.extent.start.offset
+                    end_offset = token.extent.end.offset
+
+                    # Make sure the token text actually matches
+                    if (start_offset < len(content) and
+                        end_offset <= len(content) and
+                            content[start_offset:end_offset] == token.spelling):
+
+                        replacement = type_aliases[token.spelling]
+
+                        # Check if we need to handle "struct alias" vs "alias" carefully
+                        if replacement.startswith('struct '):
+                            # Look at the previous token to see if it's already "struct"
+                            prev_token = None
+                            if i > 0:
+                                prev_token = main_file_tokens[i - 1]
+
+                            if (prev_token and prev_token.kind == cindex.TokenKind.KEYWORD
+                                    and prev_token.spelling == "struct"):
+                                # Remove "struct " prefix (handling any amount of whitespace)
+                                struct_name = re.sub(
+                                    r'^struct\s+', '', replacement)
+                                replacements.append(
+                                    (start_offset, end_offset, struct_name))
+                            else:
+                                # Replace with full "struct name"
+                                replacements.append(
+                                    (start_offset, end_offset, replacement))
+                        else:
+                            # Simple replacement
+                            replacements.append(
+                                (start_offset, end_offset, replacement))
+
+            # Sort replacements by position in reverse order to avoid offset issues
+            replacements.sort(key=lambda x: x[0], reverse=True)
+
+            # Apply replacements
+            for start_offset, end_offset, replacement in replacements:
+                content = content[:start_offset] + \
+                    replacement + content[end_offset:]
+
+        finally:
+            # Clean up temporary file
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     with open(input_file, 'w') as f:
-        f.write(code)
+        f.write(content)
 
     return input_file
