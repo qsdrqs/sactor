@@ -94,27 +94,32 @@ def expand_all_macros(input_file):
     tmpdir = utils.get_temp_dir()
     os.makedirs(tmpdir, exist_ok=True)
 
-    # Write to a temporary file
-    with open(os.path.join(tmpdir, filename), 'w') as f:
-        f.write('\n'.join(lines))
+    try:
+        # Write to a temporary file
+        with open(os.path.join(tmpdir, filename), 'w') as f:
+            f.write('\n'.join(lines))
 
-    # use `cpp -C -P` to expand all macros
-    result = subprocess.run(
-        ['cpp', '-C', '-P', os.path.join(tmpdir, filename)],
-        capture_output=True,
-        text=True,
-        check=True
-    )
+        # use `cpp -C -P` to expand all macros
+        result = subprocess.run(
+            ['cpp', '-C', '-P', os.path.join(tmpdir, filename)],
+            capture_output=True,
+            text=True,
+            check=True
+        )
 
-    # Combine with expanded part
-    expanded = '\n'.join(removed_includes) + '\n' + result.stdout
-    out_path = os.path.join(tmpdir, f"expanded_{filename}")
+        # Combine with expanded part
+        expanded = '\n'.join(removed_includes) + '\n' + result.stdout
+        out_path = os.path.join(tmpdir, f"expanded_{filename}")
 
-    with open(out_path, 'w') as f:
-        f.write(expanded)
+        with open(out_path, 'w') as f:
+            f.write(expanded)
 
-    # check if it can compile, if not, will raise an error
-    utils.compile_c_executable(out_path)
+        # check if it can compile, if not, will raise an error
+        # assume it is a library, compatible with the executable
+        utils.compile_c_code(out_path, is_library=True)
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     return out_path
 

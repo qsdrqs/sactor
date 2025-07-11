@@ -246,7 +246,7 @@ def get_compiler_include_paths() -> list[str]:
     return search_include_paths
 
 
-def compile_c_executable(file_path) -> str:
+def compile_c_code(file_path, is_library=False) -> str:
     '''
     Compile a C file to a executable file, return the path to the executable
     '''
@@ -264,6 +264,8 @@ def compile_c_executable(file_path) -> str:
         executable_path,
         '-ftrapv',  # enable overflow checking
     ]
+    if is_library:
+        cmd.append('-c')  # compile to object file instead of executable
     subprocess.run(cmd, check=True)  # raise exception if failed
 
     return executable_path

@@ -35,7 +35,7 @@ class ExecutableTestGenerator(TestGenerator):
 
         if executable is None:
             # try to compile the file
-            executable = utils.compile_c_executable(file_path)
+            executable = utils.compile_c_code(file_path)
 
         executable = os.path.abspath(executable) # get the absolute path
         self.executable = executable
