@@ -99,7 +99,7 @@ class CParser:
         Returns a list of all typedef declaration nodes in the C file.
         """
         typedef_nodes = []
-        self._collect_typedef_nodes(self.translation_unit.cursor, typedef_nodes)
+        self._process_typedef_nodes(self.translation_unit.cursor, typedef_nodes=typedef_nodes)
         return typedef_nodes
 
     def _extract_type_alias(self):
@@ -108,10 +108,7 @@ class CParser:
         Returns a dictionary mapping alias names to their original types.
         """
         type_alias = {}
-
-        # Start processing from the translation unit
-        self._process_typedef(self.translation_unit.cursor, type_alias)
-
+        self._process_typedef_nodes(self.translation_unit.cursor, type_alias=type_alias)
         return type_alias
 
     def _extract_structs_unions(self):
@@ -120,33 +117,30 @@ class CParser:
         """
         self._collect_structs_and_unions(self.translation_unit.cursor)
 
-    def _process_typedef(self, node, type_alias: dict[str, str]):
+    def _process_typedef_nodes(self, node, type_alias=None, typedef_nodes=None):
+        """
+        Unified function to process typedef nodes.
+        Can collect type aliases and/or typedef nodes based on provided parameters.
+        """
         if node.kind == cindex.CursorKind.TYPEDEF_DECL:
             # Skip system headers
             if node.location and not self._is_in_system_header(node):
-                alias_name = node.spelling
-                underlying_type = node.underlying_typedef_type.get_canonical()
+                # Collect typedef node if requested
+                if typedef_nodes is not None:
+                    typedef_nodes.append(node)
 
-                # Get the full type string
-                target_spelling = underlying_type.spelling
+                # Extract type alias if requested
+                if type_alias is not None:
+                    alias_name = node.spelling
+                    underlying_type = node.underlying_typedef_type.get_canonical()
+                    target_spelling = underlying_type.spelling
 
-                # Skip self-referencing typedefs
-                if target_spelling.strip() == alias_name.strip():
-                    return
-
-                # Store the alias and its original type
-                type_alias[alias_name] = target_spelling
-
-        for child in node.get_children():
-            self._process_typedef(child, type_alias)
-
-    def _collect_typedef_nodes(self, node, typedef_nodes):
-        if node.kind == cindex.CursorKind.TYPEDEF_DECL:
-            if node.location and not self._is_in_system_header(node):
-                typedef_nodes.append(node)
+                    # Skip self-referencing typedefs
+                    if target_spelling.strip() != alias_name.strip():
+                        type_alias[alias_name] = target_spelling
 
         for child in node.get_children():
-            self._collect_typedef_nodes(child, typedef_nodes)
+            self._process_typedef_nodes(child, type_alias, typedef_nodes)
 
     def _update_function_dependencies(self, function: FunctionInfo):
         """
