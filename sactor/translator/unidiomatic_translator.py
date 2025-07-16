@@ -1,5 +1,5 @@
-from ctypes import c_buffer
 import os
+from ctypes import c_buffer
 from typing import Optional, override
 
 import sactor.translator as translator
@@ -7,13 +7,14 @@ import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
+from sactor.combiner import RustCode
 from sactor.data_types import DataType
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
 from .translator import Translator
 from .translator_types import TranslateResult
-
+from ..combiner.rust_code import RustCode
 
 class UnidiomaticTranslator(Translator):
     def __init__(
@@ -191,7 +192,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         self.init_failure_info("global_var", global_var.name)
         if global_var.is_const:
-            code_of_global_var = self.c_parser.extract_global_var_definition_code(global_var.name)
+            code_of_global_var = self.c_parser.extract_global_var_definition_code(
+                global_var.name)
             prompt = f'''
 Translate the following C global variable to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
@@ -376,6 +378,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         function_name_dependencies = [f.name for f in function_dependencies]
         # check the presence of the dependencies
         function_depedency_signatures = []
+        function_dependency_uses = []
+        all_uses = []
         prefix_ref = False
         for f in function_name_dependencies:
             if f == function.name:
@@ -388,11 +392,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
                 code = file.read()
                 function_signatures = rust_ast_parser.get_func_signatures(code)
+                function_use = RustCode(code).used_code_list
+                all_uses += function_use
                 if f in translator.RESERVED_KEYWORDS:
                     f = f + "_"
                     prefix_ref = True
                 function_depedency_signatures.append(
                     function_signatures[f] + ';')  # add a semicolon to the end
+
+        function_dependency_uses = all_uses
 
         # Translate the function using LLM
         structs_in_function = function.struct_dependencies
@@ -418,6 +426,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         prompt = f'''
 Translate the following C function to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
+Your solution should only have **one** function, if you need to create help function, define the help function inside the function you translate.
 The function is:
 ```c
 {code_of_function}
@@ -634,7 +643,10 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             print(error_message)
             # retry the translation
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message, function_result
+                function.name,
+                "COMPILE_ERROR",
+                error_message,
+                function_result
             )
             return self._translate_function_impl(
                 function,
@@ -643,6 +655,24 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=function_result,
                 attempts=attempts+1
             )
+
+        # detect whether there are too many functions which many causing multi-definition problem after combining
+        if len(function_result_sigs) > 1:
+            error_message = f"Error: {len(function_result_sigs)} functions are generated, expect **only one** function. If you need to define help function please generate it as a subfuncion in the translated function."
+            self.append_failure_info(
+                function.name,
+                "COMPILE_ERROR",
+                error_message,
+                function_result
+            )
+            return self._translate_function_impl(
+                function,
+                verify_result=(
+                    VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=function_result,
+                attempts=attempts+1
+            )
+
         prefix = False
         if function.name not in function_result_sigs:
             if function.name in translator.RESERVED_KEYWORDS:
@@ -701,13 +731,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print("Translated function:")
         print(function_result)
 
-        data_type_code = code_of_structs | used_global_vars | code_of_enum | {"stdio": used_stdio_code}
+        data_type_code = code_of_structs | used_global_vars | code_of_enum | {
+            "stdio": used_stdio_code}
 
         result = self.verifier.verify_function(
             function,
             function_code=function_result,
             data_type_code=data_type_code,
             function_dependency_signatures=function_depedency_signatures,
+            function_dependency_uses=function_dependency_uses,
             has_prefix=prefix
         )
         if result[0] != VerifyResult.SUCCESS:
@@ -737,3 +769,4 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS
+

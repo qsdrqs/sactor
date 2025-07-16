@@ -5,6 +5,7 @@ import tempfile
 from sactor import utils
 from sactor.c_parser import CParser
 from sactor.combiner import ProgramCombiner
+from sactor.combiner import merge_uses
 from sactor.combiner.combiner_types import CombineResult
 from tests.utils import config
 
@@ -19,9 +20,7 @@ def test_merge_groups():
         ['a', 'g', '*'],
     ]
 
-    # Create a new instance without calling __init__
-    combiner = ProgramCombiner.__new__(ProgramCombiner)
-    merged_uses = combiner._merge_uses(all_uses)
+    merged_uses = merge_uses(all_uses)
     assert set(merged_uses) == {
         'use a::b;',
         'use a::b::c;',
@@ -41,8 +40,7 @@ def test_handle_ffi_libc_conflict():
         ['std', 'os', 'raw', 'c_int'],
     ]
 
-    combiner = ProgramCombiner.__new__(ProgramCombiner)
-    merged_uses = combiner._merge_uses(all_uses)
+    merged_uses = merge_uses(all_uses)
     print(merged_uses)
     assert set(merged_uses) == {
         'use std::env;',

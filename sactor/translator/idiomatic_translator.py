@@ -653,6 +653,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 Translate the following unidiomatic Rust function into idiomatic Rust. Try to remove all the `unsafe` blocks and only use the safe Rust code or use the `unsafe` blocks only when necessary.
 Before translating, analyze the unsafe blocks one by one and how to convert them into safe Rust code.
 **libc may not be provided in the idiomatic code, so try to avoid using libc functions and types, and avoid using `std::ffi` module.**
+Your solution should only have **one** function, if you need to create help function, define the help function inside the function you translate.
 ```rust
 {unidiomatic_function_code}
 ```
@@ -860,6 +861,23 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=function_result,
                 attempts=attempts+1
             )
+
+        # detect whether there are too many functions which many causing multi-definition problem after combining
+        if len(function_result_sigs) > 1:
+            error_message = f"Error: {len(function_result_sigs)} functions are generated, expect **only one** function. If you need to define help function please generate it as a subfuncion in the translated function."
+            self.append_failure_info(
+                function.name,
+                "COMPILE_ERROR",
+                error_message,
+                function_result
+            )
+            return self._translate_function_impl(
+                        function,
+                        verify_result=(
+                            VerifyResult.COMPILE_ERROR, error_message),
+                        error_translation=function_result,
+                        attempts=attempts+1
+                    )
 
         if function.name not in function_result_sigs:
             if function.name in translator.RESERVED_KEYWORDS:
