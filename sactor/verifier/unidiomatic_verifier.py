@@ -2,7 +2,7 @@ from typing import Optional, override
 
 from sactor import rust_ast_parser
 from sactor.c_parser import FunctionInfo
-from sactor.combiner import RustCode, merge_uses
+from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
 from .verifier import Verifier

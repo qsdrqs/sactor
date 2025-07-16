@@ -121,6 +121,12 @@ def expand_all_macros(input_file):
         # Clean up temporary directory
         shutil.rmtree(tmpdir, ignore_errors=True)
 
+    # Return the path to the expanded file
+    tmp_dir = utils.get_temp_dir()
+    out_path = os.path.join(tmp_dir, f"expanded_{filename}")
+    with open(out_path, 'w') as f:
+        f.write(expanded)
+
     return out_path
 
 
@@ -248,7 +254,9 @@ def unfold_typedefs(input_file):
             # Clean up temporary file
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    with open(input_file, 'w') as f:
+    tmp_dir = utils.get_temp_dir()
+    output_file = os.path.join(tmp_dir, 'unfolded_typedefs.c')
+    with open(output_file, 'w') as f:
         f.write(content)
 
-    return input_file
+    return output_file

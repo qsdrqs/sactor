@@ -8,13 +8,10 @@ from typing import Optional
 
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils
-from sactor.combiner import RustCode, merge_uses
+from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
 from .verifier_types import VerifyResult
-
-from ..combiner.rust_code import RustCode
-from ..combiner.combiner import Combiner
 
 class Verifier(ABC):
     def __init__(
