@@ -35,8 +35,8 @@ class Sactor:
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
 
-        self.result_dir = os.path.join(utils.get_temp_dir(
-        ), "result") if result_dir is None else result_dir
+        self.result_dir = os.path.join(
+            os.getcwd(), "sactor_result") if result_dir is None else result_dir
 
         self.llm_stat = llm_stat if llm_stat is not None else os.path.join(
             self.result_dir, "llm_stat.json")
