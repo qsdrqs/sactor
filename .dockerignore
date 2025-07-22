@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# IDE settings
+.vscode
+.idea
+
+# Local environment
+.direnv
+.venv
+__pycache__
+*.pyc
+
+# Build artifacts
+target
+dist
+*.so
+*.a
+*.dll
+
+# Logs and caches
+*.log
+.pytest_cache
+
+# Nix environment
+flake.nix
+flake.lock
+result

@@ -13,8 +13,9 @@ the benefits of Rust's safety and performance guarantees.
 - Python 3.8 or later (tested on python 3.12)
 - rustup
 - uv (https://github.com/astral-sh/uv)
-- C2Rust (https://github.com/immunant/c2rust)
+- C2Rust (https://github.com/immunant/c2rust, tested on version 0.20.0)
 - Crown fork on `sactor` branch (https://github.com/qsdrqs/crown/tree/sactor)
+- valgrind (for testing)
 
 ## Installation
 1. Install the required dependencies.

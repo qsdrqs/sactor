@@ -21,6 +21,7 @@
               pkgs.rustup
               pkgs.zlib
               pkgs.uv
+              pkgs.valgrind
             ];
             # shellHook = with pkgs; ''
             #   export LD_LIBRARY_PATH="${lib.makeLibraryPath buildInputs}:$LD_LIBRARY_PATH"
