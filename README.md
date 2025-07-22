@@ -32,10 +32,70 @@ the benefits of Rust's safety and performance guarantees.
 ## Configuration
 
 The default configuration is located in `sactor.default.toml`. To customize the
-configuration, create a `sactor.toml` file in the same directory. Alternatively,
+configuration, create a `sactor.toml` file in the same directory to override the
+default settings. Alternatively,
 you can specify a custom configuration file path by using the `-c` or `--config`
 option with the `sactor` command.
 
+## Quick Start with Docker
+
+Follow these steps to build and run Sactor in a Docker container:
+
+1. **Build the Docker image**
+
+   ```bash
+   docker build -t sactor .
+   ```
+
+2. **Prepare your C code and configuration**
+
+   - Create a working directory:
+     ```bash
+     mkdir -p /tmp/sactor_atoi
+     ```
+   - Copy the example sources:
+     ```bash
+     cp -r tests/c_examples/atoi /tmp/sactor_atoi
+     ```
+   - Update `test_task.json` paths:
+     ```bash
+     sed -i 's|.*/tests/c_examples/atoi|/tmp/sactor_atoi|g' \
+       /tmp/sactor_atoi/test_task/test_task.json
+     ```
+
+3. **Clean previous results**
+
+   ```bash
+   rm -rf /tmp/sactor_atoi/result
+   ```
+
+4. **Run the translation (Need to have `sactor.toml` in the current directory)**
+
+   Ensure you have a `sactor.toml` file in your current directory. If you don't
+   have one, you can copy the default configuration file:
+
+   ```bash
+   cp sactor.default.toml sactor.toml
+   # Configure the sactor.toml with your desired models and API keys.
+   ```
+
+   ```bash
+   docker run --rm \
+     -v "$PWD/sactor.toml":/app/sactor.toml \
+     -v /tmp/sactor_atoi:/tmp/sactor_atoi \
+     sactor translate \
+       /tmp/sactor_atoi/atoi.c \
+       /tmp/sactor_atoi/test_task/test_task.json \
+       --result-dir /tmp/sactor_atoi/result \
+       --type bin
+   ```
+
+5. **Review the output**
+
+   Results are written to:
+   ```bash
+   /tmp/sactor_atoi/result
+   ```
 
 ## Usage
 
