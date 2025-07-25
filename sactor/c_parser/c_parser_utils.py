@@ -153,9 +153,13 @@ def unfold_typedefs(input_file):
 
     for node in typedef_nodes:
         struct_child = None
+        enum_child = None
         for child in node.get_children():
             if child.kind == cindex.CursorKind.STRUCT_DECL or child.kind == cindex.CursorKind.UNION_DECL:
                 struct_child = child
+                break
+            elif child.kind == cindex.CursorKind.ENUM_DECL:
+                enum_child = child
                 break
 
         start_offset = node.extent.start.offset
@@ -174,6 +178,25 @@ def unfold_typedefs(input_file):
             struct_text = content[struct_start:struct_end] + ";"
             content = content[:start_offset] + \
                 struct_text + content[end_offset:]
+        elif enum_child:
+            enum_start = enum_child.extent.start.offset
+            enum_end = enum_child.extent.end.offset
+
+            # Get the typedef name from the typedef declaration node itself
+            typedef_name = node.spelling
+
+            if typedef_name:
+                enum_body = content[enum_start:enum_end]
+                # Replace "enum" with "enum typedef_name"
+                if enum_body.startswith("enum"):
+                    enum_text = f"enum {typedef_name}" + enum_body[4:] + ";"
+                else:
+                    enum_text = f"enum {typedef_name} {enum_body};"
+            else:
+                # Fallback: just keep the enum part with semicolon
+                enum_text = content[enum_start:enum_end] + ";"
+
+            content = content[:start_offset] + enum_text + content[end_offset:]
         else:
             # Simple typedef - remove entirely including trailing semicolon
             content = content[:start_offset] + content[end_offset:]
@@ -235,6 +258,23 @@ def unfold_typedefs(input_file):
                                     (start_offset, end_offset, struct_name))
                             else:
                                 # Replace with full "struct name"
+                                replacements.append(
+                                    (start_offset, end_offset, replacement))
+                        elif replacement.startswith('enum '):
+                            # Look at the previous token to see if it's already "enum"
+                            prev_token = None
+                            if i > 0:
+                                prev_token = main_file_tokens[i - 1]
+
+                            if (prev_token and prev_token.kind == cindex.TokenKind.KEYWORD
+                                    and prev_token.spelling == "enum"):
+                                # Remove "enum " prefix (handling any amount of whitespace)
+                                enum_name = re.sub(
+                                    r'^enum\s+', '', replacement)
+                                replacements.append(
+                                    (start_offset, end_offset, enum_name))
+                            else:
+                                # Replace with full "enum name"
                                 replacements.append(
                                     (start_offset, end_offset, replacement))
                         else:

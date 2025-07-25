@@ -135,7 +135,19 @@ class CParser:
                     underlying_type = node.underlying_typedef_type.get_canonical()
                     target_spelling = underlying_type.spelling
 
-                    # Skip self-referencing typedefs
+                    # Check if this typedef has an enum child
+                    enum_child = None
+                    for child in node.get_children():
+                        if child.kind == cindex.CursorKind.ENUM_DECL:
+                            enum_child = child
+                            break
+
+                    # For enum typedefs, the underlying type is often self-referencing
+                    # We need to detect this case and create proper mapping
+                    if enum_child and target_spelling.strip() == alias_name.strip():
+                        target_spelling = f"enum {alias_name}"
+
+                    # Skip self-referencing typedefs (except for the enum case handled above)
                     if target_spelling.strip() != alias_name.strip():
                         type_alias[alias_name] = target_spelling
 
