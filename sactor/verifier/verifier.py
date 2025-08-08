@@ -407,9 +407,11 @@ extern "C" {{
                     rust_code, name, "#[sactor_proc_macros::trace_fn]")
             utils.create_rust_proj(
                 rust_code, name, self.embed_test_rust_dir, is_lib=True, proc_macro=True)
-            res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
+            res = subprocess.run(rust_compile_cmd, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
             if res.returncode != 0:
+                print(f"Error: Failed to compile Rust code for function {name}")
+                print(res.stderr.decode())
                 raise RuntimeError(
                     f"Failed to compile Rust code for function {name}")
 
