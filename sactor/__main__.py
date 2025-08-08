@@ -328,7 +328,10 @@ def generate_tests(parser, args):
         result = test_generator.generate_tests(args.count)
         if result == TestGeneratorResult.SUCCESS:
             print('✅ Tests generated successfully!')
-            test_generator.create_test_task(args.out_test_sample_path, args.out_test_task_path)
+            test_generator.create_test_task(
+                args.out_test_task_path,
+                args.out_test_sample_path
+            )
             sys.exit(0)
         else:
             print('❌ Failed to generate tests')
