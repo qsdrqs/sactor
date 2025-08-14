@@ -2,6 +2,8 @@
 
 
 
+typedef int (*operation_fn)(int a, int b);
+
 struct node {
     int data;
     struct node* next;
@@ -17,6 +19,11 @@ struct point {
 void print_node(struct node* n) { printf("%d\n", n->data); }
 
 void print_point(struct point p) { printf("%d, %d\n", p.x, p.y); }
+
+void test(operation_fn op) {
+    int result = op(3, 4);
+    printf("Result of operation: %d\n", result);
+}
 
 int main() {
     struct node n1;

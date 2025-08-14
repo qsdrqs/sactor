@@ -165,14 +165,12 @@ def unfold_typedefs(input_file):
         start_offset = node.extent.start.offset
         end_offset = node.extent.end.offset
 
-        # Extend end_offset to include any trailing semicolon and whitespace
         while end_offset < len(content) and content[end_offset] in ' \t\n':
             end_offset += 1
         if end_offset < len(content) and content[end_offset] == ';':
             end_offset += 1
 
         if struct_child:
-            # This typedef defines a struct - keep only the struct part with semicolon
             struct_start = struct_child.extent.start.offset
             struct_end = struct_child.extent.end.offset
             struct_text = content[struct_start:struct_end] + ";"
@@ -181,25 +179,20 @@ def unfold_typedefs(input_file):
         elif enum_child:
             enum_start = enum_child.extent.start.offset
             enum_end = enum_child.extent.end.offset
-
-            # Get the typedef name from the typedef declaration node itself
             typedef_name = node.spelling
-
             if typedef_name:
                 enum_body = content[enum_start:enum_end]
-                # Replace "enum" with "enum typedef_name"
                 if enum_body.startswith("enum"):
                     enum_text = f"enum {typedef_name}" + enum_body[4:] + ";"
                 else:
                     enum_text = f"enum {typedef_name} {enum_body};"
             else:
-                # Fallback: just keep the enum part with semicolon
                 enum_text = content[enum_start:enum_end] + ";"
-
             content = content[:start_offset] + enum_text + content[end_offset:]
         else:
-            # Simple typedef - remove entirely including trailing semicolon
-            content = content[:start_offset] + content[end_offset:]
+            underlying = node.underlying_typedef_type.get_canonical()
+            if not CParser.is_func_type(underlying):
+                content = content[:start_offset] + content[end_offset:]
 
     # Replace type aliases using libclang analysis of the modified content
     if type_aliases:
