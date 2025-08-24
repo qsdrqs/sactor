@@ -173,13 +173,28 @@ def unfold_typedefs(input_file):
         if struct_child:
             struct_start = struct_child.extent.start.offset
             struct_end = struct_child.extent.end.offset
-            struct_text = content[struct_start:struct_end] + ";"
+            typedef_name = node.spelling
+            struct_body = content[struct_start:struct_end]
+
+            # Handle anonymous struct/union typedef
+            if typedef_name and struct_child.spelling == typedef_name:
+                if struct_body.startswith("struct"):
+                    struct_text = f"struct {typedef_name}" + struct_body[6:] + ";"
+                elif struct_body.startswith("union"):
+                    struct_text = f"union {typedef_name}" + struct_body[5:] + ";"
+                else:
+                    struct_text = f"struct {typedef_name} {struct_body};"
+            else:
+                struct_text = struct_body + ";"
+
             content = content[:start_offset] + \
                 struct_text + content[end_offset:]
         elif enum_child:
             enum_start = enum_child.extent.start.offset
             enum_end = enum_child.extent.end.offset
             typedef_name = node.spelling
+
+            # Handle anonymous enum typedef
             if typedef_name:
                 enum_body = content[enum_start:enum_end]
                 if enum_body.startswith("enum"):

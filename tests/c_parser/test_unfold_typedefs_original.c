@@ -9,12 +9,10 @@ struct node {
     node_t* next;
 };
 
-struct point {
+typedef struct {
     int x;
     int y;
-};
-
-typedef struct point point_t;
+} point_t;
 
 void print_node(node_t* n) { printf("%d\n", n->data); }
 
@@ -38,7 +36,7 @@ int main() {
     p1.x = 1;
     p1.y = 2;
 
-    struct point p2;
+    point_t p2;
     p2.x = 3;
     p2.y = 4;
 

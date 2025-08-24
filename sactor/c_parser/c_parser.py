@@ -146,13 +146,20 @@ class CParser:
                     target_spelling = underlying_type.spelling
 
                     enum_child = None
+                    struct_child = None
                     for child in node.get_children():
                         if child.kind == cindex.CursorKind.ENUM_DECL:
                             enum_child = child
                             break
+                        elif child.kind == cindex.CursorKind.STRUCT_DECL or child.kind == cindex.CursorKind.UNION_DECL:
+                            struct_child = child
+                            break
 
+                    # Handle anonymous enum/struct/union typedef like: typedef struct { ... } alias_name;
                     if enum_child and target_spelling.strip() == alias_name.strip():
                         target_spelling = f"enum {alias_name}"
+                    elif struct_child and target_spelling.strip() == alias_name.strip():
+                        target_spelling = f"struct {alias_name}"
 
                     if not self.is_func_type(underlying_type) and target_spelling.strip() != alias_name.strip():
                         type_alias[alias_name] = target_spelling
