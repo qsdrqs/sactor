@@ -23,6 +23,9 @@ class IdiomaticVerifier(Verifier):
         result_path=None,
         unidiomatic_result_path=None,
         executable_object=None,
+        all_compile_commands: str = "",
+        with_tests_filepath: str=""
+
     ):
         super().__init__(
             test_cmd_path,
@@ -31,6 +34,8 @@ class IdiomaticVerifier(Verifier):
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            all_compile_commands=all_compile_commands,
+            with_tests_filepath=with_tests_filepath
         )
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")

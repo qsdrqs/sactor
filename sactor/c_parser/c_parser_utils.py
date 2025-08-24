@@ -1,6 +1,6 @@
 import os
 import re
-import shutil
+import shutil, shlex
 import subprocess
 
 from clang import cindex
@@ -68,7 +68,7 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
     return removed_code
 
 
-def expand_all_macros(input_file):
+def expand_all_macros(input_file, commands: str=""):
     filename = os.path.basename(input_file)
     with open(input_file, 'r') as f:
         content = f.read()
@@ -83,6 +83,7 @@ def expand_all_macros(input_file):
         if line.strip().startswith('#endif'):
             if start != -1:
                 lines = lines[:start] + lines[i+1:]
+                start = -1
 
     removed_includes = []
     for i, line in enumerate(lines):
@@ -94,52 +95,56 @@ def expand_all_macros(input_file):
     tmpdir = utils.get_temp_dir()
     os.makedirs(tmpdir, exist_ok=True)
 
-    try:
-        # Write to a temporary file
-        with open(os.path.join(tmpdir, filename), 'w') as f:
-            f.write('\n'.join(lines))
-
-        # use `cpp -C -P` to expand all macros
+    def get_expanded_code(tmpdir: str, filename: str, flags: list[str], output_filename_prefix: str="expanded") -> str:
         result = subprocess.run(
-            ['cpp', '-C', '-P', os.path.join(tmpdir, filename)],
+            ['cpp', '-C', '-P', os.path.join(tmpdir, filename), *flags],
             capture_output=True,
             text=True,
             check=True
         )
-
-        # Combine with expanded part
+                # Combine with expanded part
         expanded = '\n'.join(removed_includes) + '\n' + result.stdout
-        out_path = os.path.join(tmpdir, f"expanded_{filename}")
+        out_path = os.path.join(tmpdir, f"{output_filename_prefix}_{filename}")
 
         with open(out_path, 'w') as f:
             f.write(expanded)
 
         # check if it can compile, if not, will raise an error
         # assume it is a library, compatible with the executable
-        utils.compile_c_code(out_path, is_library=True)
-    finally:
-        # Clean up temporary directory
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        utils.compile_c_code(out_path, commands=commands, is_library=True)
+        return out_path
 
-    # Return the path to the expanded file
-    tmp_dir = utils.get_temp_dir()
-    out_path = os.path.join(tmp_dir, f"expanded_{filename}")
-    with open(out_path, 'w') as f:
-        f.write(expanded)
+    # Write to a temporary file
+    with open(os.path.join(tmpdir, filename), 'w') as f:
+        f.write('\n'.join(lines))
 
-    return out_path
+    if commands:
+        flags_with_tests, flags_without_tests = utils.get_compile_flags_from_commands(commands, filename)
+        with_test_output_filepath = get_expanded_code(tmpdir, filename, flags_with_tests, "has_test_expanded")
+        no_test_output_filepath = get_expanded_code(tmpdir, filename, flags_without_tests, "no_test_expanded")
+
+    else:    
+        # use `cpp -C -P` to expand all macros
+        # note, if commands is "", with_test_output is the same as no_test_output
+        with_test_output_filepath = get_expanded_code(tmpdir, filename, [], "has_test_expanded")
+        no_test_output_filepath = get_expanded_code(tmpdir, filename, [], "no_test_expanded")
+
+    return no_test_output_filepath, with_test_output_filepath
 
 
-def preprocess_source_code(input_file):
+def preprocess_source_code(input_file, commands: str=""):
     # Expand all macros in the input file
-    expanded_file = expand_all_macros(input_file)
+    no_test_expanded_file, with_test_expanded_file = expand_all_macros(input_file, commands)
     # Unfold all typedefs in the expanded file
-    unfolded_file = unfold_typedefs(expanded_file)
-    return unfolded_file
+    compile_flags, _ = utils.get_compile_flags_from_commands(commands, input_file)
+    include_flags = list(filter(lambda s: s.startswith("-I"), compile_flags))
+    no_test_unfolded_file = unfold_typedefs(no_test_expanded_file, include_flags)
+    with_test_unfolded_file = unfold_typedefs(with_test_expanded_file, include_flags)
+    return no_test_unfolded_file, with_test_unfolded_file
 
 
-def unfold_typedefs(input_file):
-    c_parser = CParser(input_file, omit_error=True)
+def unfold_typedefs(input_file, compile_flags: list[str]=[]):
+    c_parser = CParser(input_file, omit_error=True, extra_args=compile_flags)
     type_aliases = c_parser._type_alias
 
     with open(input_file, 'r') as f:
@@ -164,7 +169,6 @@ def unfold_typedefs(input_file):
 
         start_offset = node.extent.start.offset
         end_offset = node.extent.end.offset
-
         # Extend end_offset to include any trailing semicolon and whitespace
         while end_offset < len(content) and content[end_offset] in ' \t\n':
             end_offset += 1

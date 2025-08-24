@@ -26,11 +26,14 @@ class Sactor:
         llm_stat=None,
         extra_compile_command=None,
         executable_object=None,
+        all_compile_commands: str="",
+        # compile_commands_file: compile_commands.json
+        compile_commands_file: str=""
     ):
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
-        self.input_file_preprocessed = preprocess_source_code(input_file)
+        self.input_file_preprocessed, self.with_test_input_file_preprocessed = preprocess_source_code(input_file, all_compile_commands)
         self.test_cmd_path = test_cmd_path
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
@@ -47,6 +50,8 @@ class Sactor:
         self.extra_compile_command = extra_compile_command
         self.is_executable = is_executable
         self.executable_object = executable_object
+        self.all_compile_commands = all_compile_commands
+        self.compile_commands_file = compile_commands_file
         if not is_executable and executable_object is None:
             raise ValueError(
                 "executable_object must be provided for library translation")
@@ -60,7 +65,10 @@ class Sactor:
                 f"Missing requirements: {', '.join(missing_requirements)}")
 
         # Initialize Processors
-        self.c_parser = CParser(self.input_file_preprocessed)
+        flags_without_tests, _ = utils.get_compile_flags_from_commands(self.all_compile_commands, self.input_file)
+        include_flags = list(filter(lambda s: s.startswith("-I"), flags_without_tests))
+        self.c_parser = CParser(self.input_file_preprocessed, extra_args=include_flags)
+
         self.divider = Divider(self.c_parser)
 
         self.struct_order = self.divider.get_struct_order()
@@ -77,7 +85,7 @@ class Sactor:
 
         print("Struct order: ", self.struct_order)
         print("Function order: ", self.function_order)
-
+        # todo: if input_file needs to exclude tests
         self.c2rust = C2Rust(self.input_file)
         self.combiner = ProgramCombiner(
             self.config,
@@ -87,6 +95,7 @@ class Sactor:
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             is_executable=self.is_executable,
+            all_compile_commands=all_compile_commands
         )
 
         # Initialize LLM
@@ -135,7 +144,7 @@ class Sactor:
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation()
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(compile_commands_file=self.compile_commands_file)
 
         translator = UnidiomaticTranslator(
             self.llm,
@@ -147,6 +156,8 @@ class Sactor:
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
+            all_compile_commands=self.all_compile_commands,
+            with_tests_filepath=self.with_test_input_file_preprocessed
         )
         return translator
 
@@ -172,7 +183,7 @@ class Sactor:
 
     def _new_idiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation()
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(self.compile_commands_file)
 
         crown = Crown(self.build_dir)
         crown.analyze(self.c2rust_translation)
@@ -188,6 +199,8 @@ class Sactor:
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
+            all_compile_commands=self.all_compile_commands,
+            with_tests_filepath=self.with_test_input_file_preprocessed
         )
 
         return translator

@@ -28,6 +28,8 @@ class UnidiomaticTranslator(Translator):
         result_path=None,
         extra_compile_command=None,
         executable_object=None,
+        all_compile_commands: str = "",
+        with_tests_filepath: str=""
     ) -> None:
         super().__init__(
             llm=llm,
@@ -52,6 +54,8 @@ class UnidiomaticTranslator(Translator):
             build_path=build_path,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            all_compile_commands=all_compile_commands,
+            with_tests_filepath=with_tests_filepath
         )
 
     @override

@@ -7,6 +7,10 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import rust_ast_parser, utils
+from sactor.utils import retry
+
+from sactor.utils import is_compile_command, process_commands
+
 from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils
 from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
@@ -22,7 +26,17 @@ class Verifier(ABC):
         no_feedback=False,
         extra_compile_command=None,
         executable_object=None,
+        all_compile_commands: str="",
+        with_tests_filepath: str=""
     ):
+        """
+        all_compile_commands: all build commands, disregarding this verifier's customizations (but linker args will be added to the last command). e.g.,
+        `
+        gcc -DHAVE_CONFIG_H -I. -I..  -I../include -I../include  -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2 -MT test_bitwise-bitwise.o -MD -MP -MF .deps/test_bitwise-bitwise.Tpo -c -o test_bitwise-bitwise.o `test -f 'bitwise.c' || echo './'`bitwise.c
+        mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
+        /bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o  
+        `
+        """
         self.config = config
         if build_path:
             self.build_path = build_path
@@ -38,6 +52,8 @@ class Verifier(ABC):
         self.no_feedback = no_feedback
         self.extra_compile_command = extra_compile_command
         self.executable_object = executable_object
+        self.all_compile_commands = all_compile_commands
+        self.with_tests_filepath = with_tests_filepath
 
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
@@ -302,6 +318,7 @@ class Verifier(ABC):
 
         return "\n".join(lines)
 
+    @retry(5)
     def _embed_test_rust(
         self,
         c_function: FunctionInfo,
@@ -312,8 +329,8 @@ class Verifier(ABC):
         function_dependency_uses=None
     ) -> tuple[VerifyResult, Optional[str]]:
         name = c_function.name
-        filename = c_function.node.location.file.name
-
+        # filename = c_function.node.location.file.name
+        filename = self.with_tests_filepath
         rust_code = rust_ast_parser.expose_function_to_c(rust_code, name)
 
         parsed_rust_code = RustCode(rust_code)
@@ -374,21 +391,34 @@ extern "C" {{
             f'-l{name}',
         ]
 
-        c_compile_cmd = [
-            compiler,
-            '-o', output_path,
-            source_path,
-            *executable_objects,
-            *link_flags,
-            *extra_compile_command,
-        ]
+        if self.all_compile_commands:
+            commands = process_commands(self.all_compile_commands, output_path, source_path)
+            commands[-1].extend(link_flags)
+            for command in commands:
+                to_check = False
+                if is_compile_command(command):
+                    to_check = True
+                res = subprocess.run(command)
+                if to_check and res.returncode != 0:
+                    raise RuntimeError(
+                        f"Error: Failed to compile C code for function {name}")              
 
-        # compile C code
-        print(c_compile_cmd)
-        res = subprocess.run(c_compile_cmd)
-        if res.returncode != 0:
-            raise RuntimeError(
-                f"Error: Failed to compile C code for function {name}")
+        else:
+            c_compile_cmd = [
+                compiler,
+                '-o', output_path,
+                source_path,
+                *executable_objects,
+                *link_flags,
+                *extra_compile_command,
+            ]
+
+            # compile C code
+            print(c_compile_cmd)
+            res = subprocess.run(c_compile_cmd)
+            if res.returncode != 0:
+                raise RuntimeError(
+                    f"Error: Failed to compile C code for function {name}")
         # run tests
         result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
         if result[0] != VerifyResult.SUCCESS:

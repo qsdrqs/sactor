@@ -28,6 +28,8 @@ class IdiomaticTranslator(Translator):
         result_path=None,
         extra_compile_command=None,
         executable_object=None,
+        all_compile_commands: str = "",
+        with_tests_filepath: str="",
     ):
         super().__init__(
             llm=llm,
@@ -61,6 +63,8 @@ class IdiomaticTranslator(Translator):
             unidiomatic_result_path=self.unidiomatic_result_path,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            all_compile_commands=all_compile_commands,
+            with_tests_filepath=with_tests_filepath
         )
         self.crown_result = crown_result
 

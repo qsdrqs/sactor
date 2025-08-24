@@ -1,6 +1,7 @@
 from clang import cindex
 
 from sactor import utils
+import re
 
 from .enum_info import EnumInfo, EnumValueInfo
 from .function_info import FunctionInfo
@@ -25,7 +26,6 @@ class CParser:
         args.extend([f"-I{path}" for path in self.compiler_include_paths])
         self.translation_unit = index.parse(
             self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
-
         # check diagnostics
         if not omit_error and len(self.translation_unit.diagnostics) > 0:
             for diag in self.translation_unit.diagnostics:
@@ -48,7 +48,8 @@ class CParser:
 
     def get_code(self):
         with open(self.filename, "r") as file:
-            return file.read()
+            code = file.read()
+            return code
 
     def get_struct_info(self, struct_name):
         """
@@ -101,7 +102,13 @@ class CParser:
         typedef_nodes = []
         self._process_typedef_nodes(self.translation_unit.cursor, typedef_nodes=typedef_nodes)
         return typedef_nodes
-
+    
+    def _exclude_tests(self, content: str) -> str:
+        r"""exclude test code from `content`. test code is defined as starting at #ifdef [\w_\d]*TEST and ending at #endif"""
+        pattern = r'#if(?:n?def)?\s+[\w_\d]*TEST.*?#endif.*?(?:TEST|\n|$)'
+        new_content = re.sub(pattern, '', content, flags=re.DOTALL | re.IGNORECASE)
+        return new_content
+    
     def _extract_type_alias(self):
         """
         Extracts type aliases (typedefs) from the C file.
@@ -293,10 +300,15 @@ class CParser:
         excluding standard library functions.
         """
         called_functions = set()
+        #debug
+        print("_collect_function", node.displayname, flush=True)
         for child in node.get_children():
             if child.kind == cindex.CursorKind.CALL_EXPR:
+                print("child.kind:", child.displayname, flush=True)
                 called_func_cursor = child.referenced
+
                 if called_func_cursor:
+                    print("called func cursor:", called_func_cursor.displayname, flush=True)
                     # Exclude functions declared in system headers
                     if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
                         called_functions.add(called_func_cursor.spelling)
@@ -305,8 +317,13 @@ class CParser:
                     called_func_name = child.spelling or child.displayname
                     if called_func_name in function_names:
                         called_functions.add(called_func_name)
-            called_functions.update(
-                self._collect_function_dependencies(child, function_names))
+                # TODO: Optimize algorithm to be more efficient.
+                #       It seems when iterating all functions to calculate dependencies of 
+                #       each function, duplicate calculations will occur, because when below 
+                #       recursively calculates dependencies, it does not store the dependencies
+                #       for each function at the same time. Fix point algorithm should be more efficient.
+                    called_functions.update(
+                        self._collect_function_dependencies(child, function_names))
         return called_functions
 
     def _collect_structs_unions_dependencies(self, node):

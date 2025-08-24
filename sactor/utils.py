@@ -2,6 +2,8 @@ import os
 import shutil
 import tempfile
 import subprocess
+from typing import List, Tuple
+import re, shlex
 
 import tomli as toml
 from clang.cindex import Cursor, SourceLocation, SourceRange
@@ -10,6 +12,18 @@ from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 
+
+def retry(howmany):
+    def tryIt(func):
+        def f():
+            attempts = 0
+            while attempts < howmany:
+                try:
+                    return func()
+                except:
+                    attempts += 1
+        return f
+    return tryIt
 
 def create_rust_proj(rust_code, proj_name, path, is_lib: bool, proc_macro=False):
     if os.path.exists(path):
@@ -245,28 +259,79 @@ def get_compiler_include_paths() -> list[str]:
 
     return search_include_paths
 
+def is_compile_command(l: List[str]) -> bool:
+    if "gcc" in l or "clang" in l:
+        return True
+    return False
 
-def compile_c_code(file_path, is_library=False) -> str:
+def process_commands(commands: str, executable_path:str, source_path: str) -> List[List[str]]:
+    # parse into list of list of str
+    commands = list(map(lambda s: shlex.split(s), filter(lambda s: len(s) > 0, map(lambda s: s.strip(), commands.splitlines()))))
+    # add -Og -g flags to all compiler commands 
+    for command in commands:
+        if is_compile_command(command):
+            #delete .c source file path in the command
+            del_index = []
+            for i, item in enumerate(command):
+                if item.endswith(".c"):
+                    del_index.append(i)
+            for i in del_index[::-1]:
+                del command[i]
+            # add custom c source path
+            if del_index:
+                command.append(source_path)
+            # The last -O flag overrides all previous -O flags, so don't need to care previous ones
+            command.extend(("-Og", "-g"))
+    # The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
+    if commands and is_compile_command(commands[-1]):
+        try:
+            i = commands[-1].index("-o")
+        except ValueError:
+            commands[-1].extend(("-o", executable_path))
+        else:
+            commands[-1][i + 1] = executable_path
+        return commands
+
+
+def compile_c_code(file_path: str, commands: str = "", is_library=False) -> str:
     '''
     Compile a C file to a executable file, return the path to the executable
-    '''
 
+    commands: compilation command for a C file. If it requires multiple commands sequentially, separate the commands by newlines.
+    The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
+    All gcc or libtool will be added -Og -g flags.
+    e.g., 
+commands : `gcc -DHAVE_CONFIG_H -I. -I..  -I../include -I../include  -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2 -MT test_bitwise-bitwise.o -MD -MP -MF .deps/test_bitwise-bitwise.Tpo -c -o test_bitwise-bitwise.o `test -f 'bitwise.c' || echo './'`bitwise.c
+mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
+/bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o  ` 
+    '''
     compiler = get_compiler()
     tmpdir = os.path.join(get_temp_dir(), "c_compile")
     os.makedirs(tmpdir, exist_ok=True)
     executable_path = os.path.join(
         tmpdir, os.path.basename(file_path) + ".out")
-
-    cmd = [
-        compiler,
-        file_path,
-        '-o',
-        executable_path,
-        '-ftrapv',  # enable overflow checking
-    ]
-    if is_library:
-        cmd.append('-c')  # compile to object file instead of executable
-    subprocess.run(cmd, check=True)  # raise exception if failed
+    
+    commands = process_commands(commands, executable_path, file_path)
+    if commands:
+        for command in commands:
+            to_check = False
+            if is_compile_command(command):
+                to_check = True
+                command.append("-ftrapv")
+                if is_library:
+                    command.append("-c")
+            _result = subprocess.run(command, check=to_check)
+    else:        
+        cmd = [
+            compiler,
+            file_path,
+            '-o',
+            executable_path,
+            '-ftrapv',  # enable overflow checking
+        ]
+        if is_library:
+            cmd.append('-c')  # compile to object file instead of executable
+        subprocess.run(cmd, check=True)  # raise exception if failed
 
     return executable_path
 
@@ -298,3 +363,36 @@ def try_backup_file(file_path):
         number += 1
 
     os.rename(file_path, backup_path)
+
+def get_compile_flags_from_commands(commands: str, filename: str) -> Tuple[list[str], list[str]]:
+        import copy
+        processed_commands = commands.splitlines()
+        found = False
+        for cmd in processed_commands:
+            if os.path.basename(filename) in cmd:
+                found = True
+                break
+        if not found:
+            raise Exception(f"target command containing \"{filename}\" not found. commands: {commands}") 
+
+        processed_commands = cmd
+        processed_commands = shlex.split(cmd)
+        flags =  list(filter(lambda s: s.startswith("-"), processed_commands))
+        # generate C source code with code for tests, for validation
+        del_index = []
+        for i, flag in enumerate(flags):
+            if flag == "-o" or flag == '-c' or flag.startswith("-M"):
+                del_index.append(i)
+        for i in del_index[::-1]:
+            del flags[i]
+        flags_with_tests = copy.deepcopy(flags)
+        # C source code without code for tests, for translation
+        del_index = []
+        for i, flag in enumerate(flags):
+            if re.search(r"-D[\w\d_]*?TEST", flag) :
+                del_index.append(i)
+        for i in del_index[::-1]:
+            del flags[i]
+        flags_without_tests = flags
+        return flags_with_tests, flags_without_tests
+

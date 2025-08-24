@@ -18,6 +18,9 @@ class E2EVerifier(Verifier):
         extra_compile_command=None,
         is_executable=True,
         executable_object=None,
+        all_compile_commands: str = "",
+        with_tests_filepath: str=""
+
     ):
         super().__init__(
             test_cmd_path,
@@ -26,6 +29,8 @@ class E2EVerifier(Verifier):
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            all_compile_commands=all_compile_commands,
+            with_tests_filepath=with_tests_filepath
         )
         self.is_executable = is_executable
 

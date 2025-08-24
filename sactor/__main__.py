@@ -81,6 +81,21 @@ def parse_translate(parser):
         help='The path to the executable object file, required and only required for library targets'
     )
 
+    parser.add_argument(
+        '--all-compile-commands',
+        '-a',
+        type=str,
+        default="",
+        help='The complete compile commands for the source code'
+    )
+
+    parser.add_argument(
+        '--compile-commands-file',
+        '-C',
+        type=str,
+        default="",
+        help='The  compile commands json file for the project'
+    )
 
 
 def parse_run_tests(parser):
@@ -235,7 +250,9 @@ def translate(parser, args):
         llm_stat=args.llm_stat,
         extra_compile_command=args.extra_compile_command,
         is_executable=is_executable,
-        executable_object=args.executable_object
+        executable_object=args.executable_object,
+        all_compile_commands=args.all_compile_commands,
+        compile_commands_file=args.compile_commands_file
     )
 
     sactor.run()
