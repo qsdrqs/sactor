@@ -2,21 +2,26 @@
 
 typedef struct node node_t;
 
+typedef int (*operation_fn)(int a, int b);
+
 struct node {
     int data;
     node_t* next;
 };
 
-struct point {
+typedef struct {
     int x;
     int y;
-};
-
-typedef struct point point_t;
+} point_t;
 
 void print_node(node_t* n) { printf("%d\n", n->data); }
 
 void print_point(point_t p) { printf("%d, %d\n", p.x, p.y); }
+
+void test(operation_fn op) {
+    int result = op(3, 4);
+    printf("Result of operation: %d\n", result);
+}
 
 int main() {
     node_t n1;
@@ -31,7 +36,7 @@ int main() {
     p1.x = 1;
     p1.y = 2;
 
-    struct point p2;
+    point_t p2;
     p2.x = 3;
     p2.y = 4;
 

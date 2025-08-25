@@ -30,7 +30,8 @@ class CParser:
         if not omit_error and len(self.translation_unit.diagnostics) > 0:
             for diag in self.translation_unit.diagnostics:
                 if diag.severity >= cindex.Diagnostic.Error:
-                    print(f"Warning: Parsing error in {filename}: {diag.spelling}")
+                    print(
+                        f"Warning: Parsing error in {filename}: {diag.spelling}")
 
         # Initialize data structures
         self._global_vars: dict[str, GlobalVarInfo] = {}
@@ -45,6 +46,16 @@ class CParser:
 
         self._extract_functions()
         self._update_functions()
+
+    @staticmethod
+    def is_func_type(t: cindex.Type) -> bool:
+        try:
+            if t.kind == cindex.TypeKind.POINTER:
+                p = t.get_pointee()
+                return p.kind in (cindex.TypeKind.FUNCTIONPROTO, cindex.TypeKind.FUNCTIONNOPROTO)
+            return t.kind in (cindex.TypeKind.FUNCTIONPROTO, cindex.TypeKind.FUNCTIONNOPROTO)
+        except Exception:
+            return False
 
     def get_code(self):
         with open(self.filename, "r") as file:
@@ -100,7 +111,8 @@ class CParser:
         Returns a list of all typedef declaration nodes in the C file.
         """
         typedef_nodes = []
-        self._process_typedef_nodes(self.translation_unit.cursor, typedef_nodes=typedef_nodes)
+        self._process_typedef_nodes(
+            self.translation_unit.cursor, typedef_nodes=typedef_nodes)
         return typedef_nodes
     
     def _exclude_tests(self, content: str) -> str:
@@ -115,7 +127,8 @@ class CParser:
         Returns a dictionary mapping alias names to their original types.
         """
         type_alias = {}
-        self._process_typedef_nodes(self.translation_unit.cursor, type_alias=type_alias)
+        self._process_typedef_nodes(
+            self.translation_unit.cursor, type_alias=type_alias)
         return type_alias
 
     def _extract_structs_unions(self):
@@ -130,32 +143,32 @@ class CParser:
         Can collect type aliases and/or typedef nodes based on provided parameters.
         """
         if node.kind == cindex.CursorKind.TYPEDEF_DECL:
-            # Skip system headers
             if node.location and not self._is_in_system_header(node):
-                # Collect typedef node if requested
                 if typedef_nodes is not None:
                     typedef_nodes.append(node)
 
-                # Extract type alias if requested
                 if type_alias is not None:
                     alias_name = node.spelling
                     underlying_type = node.underlying_typedef_type.get_canonical()
                     target_spelling = underlying_type.spelling
 
-                    # Check if this typedef has an enum child
                     enum_child = None
+                    struct_child = None
                     for child in node.get_children():
                         if child.kind == cindex.CursorKind.ENUM_DECL:
                             enum_child = child
                             break
+                        elif child.kind == cindex.CursorKind.STRUCT_DECL or child.kind == cindex.CursorKind.UNION_DECL:
+                            struct_child = child
+                            break
 
-                    # For enum typedefs, the underlying type is often self-referencing
-                    # We need to detect this case and create proper mapping
+                    # Handle anonymous enum/struct/union typedef like: typedef struct { ... } alias_name;
                     if enum_child and target_spelling.strip() == alias_name.strip():
                         target_spelling = f"enum {alias_name}"
+                    elif struct_child and target_spelling.strip() == alias_name.strip():
+                        target_spelling = f"struct {alias_name}"
 
-                    # Skip self-referencing typedefs (except for the enum case handled above)
-                    if target_spelling.strip() != alias_name.strip():
+                    if not self.is_func_type(underlying_type) and target_spelling.strip() != alias_name.strip():
                         type_alias[alias_name] = target_spelling
 
         for child in node.get_children():
