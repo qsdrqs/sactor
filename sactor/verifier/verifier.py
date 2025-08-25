@@ -7,8 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import rust_ast_parser, utils
-from sactor.utils import retry
-
+from tenacity import retry, stop_after_attempt
 from sactor.utils import is_compile_command, process_commands
 
 from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils
@@ -318,7 +317,7 @@ class Verifier(ABC):
 
         return "\n".join(lines)
 
-    @retry(5)
+    @retry(stop=stop_after_attempt(5))
     def _embed_test_rust(
         self,
         c_function: FunctionInfo,

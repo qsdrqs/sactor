@@ -4,7 +4,6 @@ import tempfile
 import subprocess
 from typing import List, Tuple
 import re, shlex
-
 import tomli as toml
 from clang.cindex import Cursor, SourceLocation, SourceRange
 
@@ -12,18 +11,6 @@ from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 
-
-def retry(howmany):
-    def tryIt(func):
-        def f():
-            attempts = 0
-            while attempts < howmany:
-                try:
-                    return func()
-                except:
-                    attempts += 1
-        return f
-    return tryIt
 
 def create_rust_proj(rust_code, proj_name, path, is_lib: bool, proc_macro=False):
     if os.path.exists(path):
