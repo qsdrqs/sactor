@@ -88,13 +88,13 @@ def expand_all_macros(input_file, commands: str=""):
         sha256 = result.stdout.split()[0].strip()
         return sha256
     
-    def expand_custom_headers(tmp_file_path: str):
+    def expand_custom_headers(tmp_file_path: str, flags: list):
         """
         This will only expand the custom header non-recursively.
         """
         index = cindex.Index.create()
         compiler_include_paths = utils.get_compiler_include_paths()
-        args = ['-x', 'c', '-std=c99'] + (flags_without_tests or [])
+        args = ['-x', 'c', '-std=c99'] + (flags or [])
         args.extend([f"-I{path}" for path in compiler_include_paths])
         translation_unit = index.parse(
                 tmp_file_path, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
@@ -164,14 +164,12 @@ def expand_all_macros(input_file, commands: str=""):
         shutil.copy(input_file, tmp_file_path)
 
         # For #include, keep system headers, expand custom headers.
-        # Only for no test version (ie, the file given to the translator)
-        if output_filename_prefix.startswith("no_test"):
-            while True:
-                hash_before = get_file_hash(tmp_file_path)
-                expand_custom_headers(tmp_file_path)
-                hash_after = get_file_hash(tmp_file_path)
-                if hash_before == hash_after:
-                    break
+        while True:
+            hash_before = get_file_hash(tmp_file_path)
+            expand_custom_headers(tmp_file_path, flags)
+            hash_after = get_file_hash(tmp_file_path)
+            if hash_before == hash_after:
+                break
         # remove all remaining headers, to be added after preprocessing
         includes_lines = remove_includes(tmp_file_path)
 
@@ -184,7 +182,7 @@ def expand_all_macros(input_file, commands: str=""):
             check=True
         )
 
-        # Combine with expanded part
+        # add removed headers
         content = result.stdout.splitlines(keepends=True)
         for i, line in enumerate(content[:]):
             if line in includes_lines:
@@ -197,8 +195,6 @@ def expand_all_macros(input_file, commands: str=""):
         # assume it is a library, compatible with the executable
         utils.compile_c_code(tmp_file_path, commands=commands, is_library=True)
         return tmp_file_path
-
-
 
     # use `cpp -C -P` to expand all macros
     # note, if commands is "", with_test_output is the same as no_test_output
