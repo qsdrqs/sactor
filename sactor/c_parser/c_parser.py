@@ -314,7 +314,7 @@ class CParser:
         """
         called_functions = set()
         #debug
-        print("_collect_function", node.displayname, flush=True)
+        # print("_collect_function", node.displayname, flush=True)
         for child in node.get_children():
             if child.kind == cindex.CursorKind.CALL_EXPR:
                 print("child.kind:", child.displayname, flush=True)

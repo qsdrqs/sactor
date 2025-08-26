@@ -4,7 +4,7 @@ import shutil, shlex
 import subprocess
 
 from clang import cindex
-from clang.cindex import Cursor
+from clang.cindex import Cursor, Index, TranslationUnit
 
 from sactor import utils
 from sactor.utils import get_temp_dir
@@ -69,65 +69,141 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
 
 
 def expand_all_macros(input_file, commands: str=""):
+    """
+    Return:
+    - no_test_output_filepath: source file for the translator
+    - with_test_output_filepath: source file for the verifier
+    """
     filename = os.path.basename(input_file)
-    with open(input_file, 'r') as f:
-        content = f.read()
-    # Find the last #include line and insert the marker
-    lines = content.splitlines()
-
-    # remove #ifdef __cplusplus
-    start = -1
-    for i, line in enumerate(lines):
-        if line.strip().startswith('#ifdef __cplusplus'):
-            start = i
-        if line.strip().startswith('#endif'):
-            if start != -1:
-                lines = lines[:start] + lines[i+1:]
-                start = -1
-
-    removed_includes = []
-    for i, line in enumerate(lines):
-        if line.strip().startswith('#include'):
-            # remove the include line, to prevent expand macros in the header
-            removed_includes.append(line)
-            lines[i] = ''
-
+    
+    if commands:
+        flags_with_tests, flags_without_tests = utils.get_compile_flags_from_commands(commands, filename)
+    else:
+        flags_with_tests, flags_without_tests = [], []
     tmpdir = utils.get_temp_dir()
     os.makedirs(tmpdir, exist_ok=True)
 
+    def get_file_hash(filepath: str) -> str:
+        result = subprocess.run(["sha256sum", filepath], capture_output=True, text=True)
+        sha256 = result.stdout.split()[0].strip()
+        return sha256
+    
+    def expand_custom_headers(tmp_file_path: str):
+        """
+        This will only expand the custom header non-recursively.
+        """
+        index = cindex.Index.create()
+        compiler_include_paths = utils.get_compiler_include_paths()
+        args = ['-x', 'c', '-std=c99'] + (flags_without_tests or [])
+        args.extend([f"-I{path}" for path in compiler_include_paths])
+        translation_unit = index.parse(
+                tmp_file_path, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+
+        #map: line number -> include file path (if non-system)
+        non_system_includes = {}
+        for include in translation_unit.get_includes():
+            loc = include.location
+            header = include.include
+            if not header or not loc:
+                continue
+            if os.path.realpath(loc.file.name) != os.path.realpath(tmp_file_path):
+                continue 
+            header_location = cindex.SourceLocation.from_position(
+                translation_unit,
+                header,
+                1,
+                1
+            )
+            if not bool(cindex.conf.lib.clang_Location_isInSystemHeader(header_location)):
+                # print(header.name , "include source location:", loc.file.name)
+                non_system_includes[loc.line] = header.name
+        new_lines = []
+        non_system_includes = {k: v for k, v in non_system_includes.items() if not v.startswith('/usr/lib/')}
+        if non_system_includes:
+            with open(tmp_file_path, 'r') as f:
+                for i, line in enumerate(f, start=1):
+                    if i in non_system_includes:
+                        header_file = non_system_includes[i]
+                        try:
+                            with open(header_file, "r") as hf:
+                                header_content = hf.read()
+                            # Paste raw contents, but don’t recursively expand
+                            new_lines.append(f"/* Begin expanded {header_file} */\n")
+                            new_lines.append(header_content)
+                            if not header_content.endswith("\n"):
+                                new_lines.append("\n")
+                            new_lines.append(f"/* End expanded {header_file} */\n")
+                        except Exception as e:
+                            print(f"Warning: could not read {header_file}: {e}")
+                            new_lines.append(line)  # fallback
+                    else:
+                        # Keep system includes and other code unchanged
+                        new_lines.append(line)
+            with open(tmp_file_path, 'w') as f:
+                f.writelines(new_lines)
+        
+    def remove_includes(filepath: str) -> dict:
+        includes = {}
+        new_lines = []
+        with open(filepath, "r") as f:
+            for line in f:
+                if re.search(r"# *include", line):
+                    remove_marker = f"/* sactor remove marker: {len(includes)} */\n"
+                    new_lines.append(remove_marker)
+                    includes[remove_marker] = line
+                else:
+                    new_lines.append(line)
+        with open(filepath, "w") as f:
+            f.writelines(new_lines)
+        return includes
+
+
     def get_expanded_code(tmpdir: str, filename: str, flags: list[str], output_filename_prefix: str="expanded") -> str:
+
+        tmp_file_path = os.path.join(tmpdir, f"{output_filename_prefix}_{filename}")
+        shutil.copy(input_file, tmp_file_path)
+
+        # For #include, keep system headers, expand custom headers.
+        # Only for no test version (ie, the file given to the translator)
+        if output_filename_prefix.startswith("no_test"):
+            while True:
+                hash_before = get_file_hash(tmp_file_path)
+                expand_custom_headers(tmp_file_path)
+                hash_after = get_file_hash(tmp_file_path)
+                if hash_before == hash_after:
+                    break
+        # remove all remaining headers, to be added after preprocessing
+        includes_lines = remove_includes(tmp_file_path)
+
+        # expand macros
+        # #ifdef __cplusplus will be automatically removed if there is no __cplusplus flag
         result = subprocess.run(
-            ['cpp', '-C', '-P', os.path.join(tmpdir, filename), *flags],
+            ['cpp', '-C', '-P', '-xc', '-std=c99', tmp_file_path, *flags],
             capture_output=True,
             text=True,
             check=True
         )
-                # Combine with expanded part
-        expanded = '\n'.join(removed_includes) + '\n' + result.stdout
-        out_path = os.path.join(tmpdir, f"{output_filename_prefix}_{filename}")
 
-        with open(out_path, 'w') as f:
-            f.write(expanded)
+        # Combine with expanded part
+        content = result.stdout.splitlines(keepends=True)
+        for i, line in enumerate(content[:]):
+            if line in includes_lines:
+                content[i] = includes_lines[line]
+
+        with open(tmp_file_path, 'w') as f:
+            f.writelines(content)
 
         # check if it can compile, if not, will raise an error
         # assume it is a library, compatible with the executable
-        utils.compile_c_code(out_path, commands=commands, is_library=True)
-        return out_path
+        utils.compile_c_code(tmp_file_path, commands=commands, is_library=True)
+        return tmp_file_path
 
-    # Write to a temporary file
-    with open(os.path.join(tmpdir, filename), 'w') as f:
-        f.write('\n'.join(lines))
 
-    if commands:
-        flags_with_tests, flags_without_tests = utils.get_compile_flags_from_commands(commands, filename)
-        with_test_output_filepath = get_expanded_code(tmpdir, filename, flags_with_tests, "has_test_expanded")
-        no_test_output_filepath = get_expanded_code(tmpdir, filename, flags_without_tests, "no_test_expanded")
 
-    else:    
-        # use `cpp -C -P` to expand all macros
-        # note, if commands is "", with_test_output is the same as no_test_output
-        with_test_output_filepath = get_expanded_code(tmpdir, filename, [], "has_test_expanded")
-        no_test_output_filepath = get_expanded_code(tmpdir, filename, [], "no_test_expanded")
+    # use `cpp -C -P` to expand all macros
+    # note, if commands is "", with_test_output is the same as no_test_output
+    with_test_output_filepath = get_expanded_code(tmpdir, filename, flags_with_tests, "has_test_expanded")
+    no_test_output_filepath = get_expanded_code(tmpdir, filename, flags_without_tests, "no_test_expanded")
 
     return no_test_output_filepath, with_test_output_filepath
 
@@ -157,6 +233,8 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
     typedef_nodes.sort(key=lambda n: n.extent.start.offset, reverse=True)
 
     for node in typedef_nodes:
+        if os.path.realpath(node.location.file.name) != os.path.realpath(input_file):
+            continue
         struct_child = None
         enum_child = None
         for child in node.get_children():
