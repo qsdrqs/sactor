@@ -115,12 +115,6 @@ class CParser:
             self.translation_unit.cursor, typedef_nodes=typedef_nodes)
         return typedef_nodes
     
-    def _exclude_tests(self, content: str) -> str:
-        r"""exclude test code from `content`. test code is defined as starting at #ifdef [\w_\d]*TEST and ending at #endif"""
-        pattern = r'#if(?:n?def)?\s+[\w_\d]*TEST.*?#endif.*?(?:TEST|\n|$)'
-        new_content = re.sub(pattern, '', content, flags=re.DOTALL | re.IGNORECASE)
-        return new_content
-    
     def _extract_type_alias(self):
         """
         Extracts type aliases (typedefs) from the C file.
