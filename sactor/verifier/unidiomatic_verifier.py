@@ -6,6 +6,7 @@ from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 from .verifier import Verifier
 from .verifier_types import VerifyResult
+from sactor.c_parser import CParser
 
 from ..combiner.rust_code import RustCode
 from ..combiner.combiner import Combiner
@@ -19,8 +20,7 @@ class UnidiomaticVerifier(Verifier):
         no_feedback=False,
         extra_compile_command=None,
         executable_object=None,
-        all_compile_commands: str = "",
-        with_tests_filepath: str=""
+        processed_compile_commands: list[list[str]] = [],
 
     ):
         super().__init__(
@@ -30,8 +30,7 @@ class UnidiomaticVerifier(Verifier):
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
-            all_compile_commands=all_compile_commands,
-            with_tests_filepath=with_tests_filepath
+            processed_compile_commands=processed_compile_commands,
         )
 
     @override

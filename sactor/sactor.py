@@ -1,4 +1,4 @@
-import os
+import os, shlex
 
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
@@ -30,10 +30,24 @@ class Sactor:
         # compile_commands_file: compile_commands.json
         compile_commands_file: str=""
     ):
+        """
+        all_compile_commands: all build commands, disregarding this verifier's customizations (but linker args will be added to the last command). e.g.,
+        `
+        gcc -DHAVE_CONFIG_H -I. -I..  -I../include -I../include  -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2 -MT test_bitwise-bitwise.o -MD -MP -MF .deps/test_bitwise-bitwise.Tpo -c -o test_bitwise-bitwise.o `test -f 'bitwise.c' || echo './'`bitwise.c
+        mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
+        /bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o  
+        `
+        """
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
-        self.input_file_preprocessed, self.with_test_input_file_preprocessed = preprocess_source_code(input_file, all_compile_commands)
+        
+        self.all_compile_commands = all_compile_commands
+        self.processed_compile_commands = utils.process_commands_to_list(
+            self.all_compile_commands,
+            self.input_file
+        )
+        self.input_file_preprocessed, self.with_test_input_file_preprocessed = preprocess_source_code(input_file, self.processed_compile_commands)
         self.test_cmd_path = test_cmd_path
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
@@ -50,7 +64,7 @@ class Sactor:
         self.extra_compile_command = extra_compile_command
         self.is_executable = is_executable
         self.executable_object = executable_object
-        self.all_compile_commands = all_compile_commands
+            
         self.compile_commands_file = compile_commands_file
         if not is_executable and executable_object is None:
             raise ValueError(
@@ -65,10 +79,11 @@ class Sactor:
                 f"Missing requirements: {', '.join(missing_requirements)}")
 
         # Initialize Processors
-        flags_without_tests, _ = utils.get_compile_flags_from_commands(self.all_compile_commands, self.input_file)
+        flags_without_tests, _ = utils.get_compile_flags_from_commands(self.processed_compile_commands)
         include_flags = list(filter(lambda s: s.startswith("-I"), flags_without_tests))
         self.c_parser = CParser(self.input_file_preprocessed, extra_args=include_flags)
-
+        # after preprossessing, #ifdef is already handled, so we can use flag_without_tests
+        self.with_tests_file_c_parser = CParser(self.with_test_input_file_preprocessed, extra_args=include_flags)
         self.divider = Divider(self.c_parser)
 
         self.struct_order = self.divider.get_struct_order()
@@ -85,7 +100,6 @@ class Sactor:
 
         print("Struct order: ", self.struct_order)
         print("Function order: ", self.function_order)
-        # todo: if input_file needs to exclude tests
         self.c2rust = C2Rust(self.input_file)
         self.combiner = ProgramCombiner(
             self.config,
@@ -95,7 +109,7 @@ class Sactor:
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             is_executable=self.is_executable,
-            all_compile_commands=all_compile_commands
+            processed_compile_commands=self.processed_compile_commands
         )
 
         # Initialize LLM
@@ -156,25 +170,35 @@ class Sactor:
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
-            all_compile_commands=self.all_compile_commands,
-            with_tests_filepath=self.with_test_input_file_preprocessed
+            processed_compile_commands=self.processed_compile_commands,
+            with_tests_file_c_parser=self.with_tests_file_c_parser
         )
         return translator
 
     def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
 
-        for struct_pairs in self.struct_order:
-            for struct in struct_pairs:
-                result = translator.translate_struct(struct)
-                if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate struct {struct}")
-                    return result, translator
+        # for struct_pairs in self.struct_order:
+        #     for struct in struct_pairs:
+        #         # get corresponding struct node in with_test_file
+        #         # since we want to replace and test it in the with_test_file
+        #         with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
+        #             struct.name
+        #         )
+        #         result = translator.translate_struct(with_test_file_struct)
+        #         if result != TranslateResult.SUCCESS:
+        #             print(f"Failed to translate struct {struct}")
+        #             return result, translator
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                # TODO: support multiple functions for each translation
-                result = translator.translate_function(function)
+                # get corresponding struct node in with_test_file
+                # since we want to replace and test it in the with_test_file
+                with_test_file_function = self.with_tests_file_c_parser.get_function_info(
+                    function.name
+                )
+
+                result = translator.translate_function(with_test_file_function)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate function {function}")
                     return result, translator
@@ -199,8 +223,8 @@ class Sactor:
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
-            all_compile_commands=self.all_compile_commands,
-            with_tests_filepath=self.with_test_input_file_preprocessed
+            processed_compile_commands=self.processed_compile_commands,
+            with_tests_file_c_parser=self.with_tests_file_c_parser
         )
 
         return translator
@@ -210,16 +234,25 @@ class Sactor:
 
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                # TODO: support multiple structs for each translation
-                result = translator.translate_struct(struct)
+                # get corresponding struct node in with_test_file
+                # since we want to replace and test it in the with_test_file
+                with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
+                    struct.name
+                )
+                result = translator.translate_struct(with_test_file_struct)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate struct {struct}")
                     return result, translator
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                # TODO: support multiple functions for each translation
-                result = translator.translate_function(function)
+                # get corresponding struct node in with_test_file
+                # since we want to replace and test it in the with_test_file
+                with_test_file_function = self.with_tests_file_c_parser.get_function_info(
+                    function.name
+                )
+
+                result = translator.translate_function(with_test_file_function)
                 if result != TranslateResult.SUCCESS:
                     print(f"Failed to translate function {function}")
                     return result, translator

@@ -68,7 +68,7 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
     return removed_code
 
 
-def expand_all_macros(input_file, commands: str=""):
+def expand_all_macros(input_file, commands: list[list[str]]):
     """
     Return:
     - no_test_output_filepath: source file for the translator
@@ -77,7 +77,7 @@ def expand_all_macros(input_file, commands: str=""):
     filename = os.path.basename(input_file)
     
     if commands:
-        flags_with_tests, flags_without_tests = utils.get_compile_flags_from_commands(commands, filename)
+        flags_with_tests, flags_without_tests = utils.get_compile_flags_from_commands(commands)
     else:
         flags_with_tests, flags_without_tests = [], []
     tmpdir = utils.get_temp_dir()
@@ -106,7 +106,7 @@ def expand_all_macros(input_file, commands: str=""):
             header = include.include
             if not header or not loc:
                 continue
-            if os.path.realpath(loc.file.name) != os.path.realpath(tmp_file_path):
+            if not os.path.samefile(loc.file.name, tmp_file_path):
                 continue 
             header_location = cindex.SourceLocation.from_position(
                 translation_unit,
@@ -204,11 +204,11 @@ def expand_all_macros(input_file, commands: str=""):
     return no_test_output_filepath, with_test_output_filepath
 
 
-def preprocess_source_code(input_file, commands: str=""):
+def preprocess_source_code(input_file, commands: list[list[str]]):
     # Expand all macros in the input file
     no_test_expanded_file, with_test_expanded_file = expand_all_macros(input_file, commands)
     # Unfold all typedefs in the expanded file
-    compile_flags, _ = utils.get_compile_flags_from_commands(commands, input_file)
+    compile_flags, _ = utils.get_compile_flags_from_commands(commands)
     include_flags = list(filter(lambda s: s.startswith("-I"), compile_flags))
     no_test_unfolded_file = unfold_typedefs(no_test_expanded_file, include_flags)
     with_test_unfolded_file = unfold_typedefs(with_test_expanded_file, include_flags)
@@ -229,7 +229,7 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
     typedef_nodes.sort(key=lambda n: n.extent.start.offset, reverse=True)
 
     for node in typedef_nodes:
-        if os.path.realpath(node.location.file.name) != os.path.realpath(input_file):
+        if not os.path.samefile(node.location.file.name, input_file):
             continue
         struct_child = None
         enum_child = None

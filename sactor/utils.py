@@ -1,4 +1,4 @@
-import os
+import os, copy
 import shutil
 import tempfile
 import subprocess
@@ -11,6 +11,7 @@ from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 
+TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
 
 def create_rust_proj(rust_code, proj_name, path, is_lib: bool, proc_macro=False):
     if os.path.exists(path):
@@ -251,24 +252,37 @@ def is_compile_command(l: List[str]) -> bool:
         return True
     return False
 
-def process_commands(commands: str, executable_path:str, source_path: str) -> List[List[str]]:
+def process_commands_to_list(commands: str, to_translate_file: str) -> List[List[str]]:
     # parse into list of list of str
-    commands = list(map(lambda s: shlex.split(s), filter(lambda s: len(s) > 0, map(lambda s: s.strip(), commands.splitlines()))))
+    commands = list(map(lambda s: shlex.split(s), filter(lambda s: len(s) > 0, commands.splitlines())))
     # add -Og -g flags to all compiler commands 
     for command in commands:
         if is_compile_command(command):
-            #delete .c source file path in the command
-            del_index = []
-            for i, item in enumerate(command):
-                if item.endswith(".c"):
-                    del_index.append(i)
-            for i in del_index[::-1]:
-                del command[i]
-            # add custom c source path
-            if del_index:
-                command.append(source_path)
+            for i, item in enumerate(command[:]):
+                if item.endswith(".c") and os.path.samefile(item, to_translate_file):
+                    command[i] = TO_TRANSLATE_C_FILE_MARKER
             # The last -O flag overrides all previous -O flags, so don't need to care previous ones
             command.extend(("-Og", "-g"))
+
+    return commands
+
+
+def process_commands_to_compile(commands: List[List[str]], executable_path: str, source_path: str | list[str]) -> List[List[str]]:
+    commands = copy.deepcopy(commands)
+    for i, command in enumerate(commands[:]):
+        if is_compile_command(command):
+            for j, item in enumerate(command[:]):
+                if item == TO_TRANSLATE_C_FILE_MARKER:
+                        command[j] = source_path
+            if isinstance(source_path, list):
+                flatten_command = []
+                for item in command:
+                    if isinstance(item, list):
+                        flatten_command.extend(item)
+                    else:
+                        flatten_command.append(item)
+                commands[i] = flatten_command
+            
     # The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
     if commands and is_compile_command(commands[-1]):
         try:
@@ -277,10 +291,10 @@ def process_commands(commands: str, executable_path:str, source_path: str) -> Li
             commands[-1].extend(("-o", executable_path))
         else:
             commands[-1][i + 1] = executable_path
-        return commands
+    return commands
 
 
-def compile_c_code(file_path: str, commands: str = "", is_library=False) -> str:
+def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) -> str:
     '''
     Compile a C file to a executable file, return the path to the executable
 
@@ -298,7 +312,7 @@ mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
     executable_path = os.path.join(
         tmpdir, os.path.basename(file_path) + ".out")
     
-    commands = process_commands(commands, executable_path, file_path)
+    commands = process_commands_to_compile(commands, executable_path, file_path)
     if commands:
         for command in commands:
             to_check = False
@@ -351,19 +365,13 @@ def try_backup_file(file_path):
 
     os.rename(file_path, backup_path)
 
-def get_compile_flags_from_commands(commands: str, filename: str) -> Tuple[list[str], list[str]]:
-        import copy
-        processed_commands = commands.splitlines()
-        found = False
+def get_compile_flags_from_commands(processed_compile_commands: List[List[str]]) -> Tuple[list[str], list[str]]:
+        processed_commands = copy.deepcopy(processed_compile_commands)
         for cmd in processed_commands:
-            if os.path.basename(filename) in cmd:
-                found = True
+            if TO_TRANSLATE_C_FILE_MARKER in cmd:
                 break
-        if not found:
-            raise Exception(f"target command containing \"{filename}\" not found. commands: {commands}") 
 
         processed_commands = cmd
-        processed_commands = shlex.split(cmd)
         flags =  list(filter(lambda s: s.startswith("-"), processed_commands))
         # generate C source code with code for tests, for validation
         del_index = []

@@ -28,8 +28,8 @@ class UnidiomaticTranslator(Translator):
         result_path=None,
         extra_compile_command=None,
         executable_object=None,
-        all_compile_commands: str = "",
-        with_tests_filepath: str=""
+        processed_compile_commands: list[list[str]] = [],
+        with_tests_file_c_parser: CParser | None = None
     ) -> None:
         super().__init__(
             llm=llm,
@@ -54,9 +54,9 @@ class UnidiomaticTranslator(Translator):
             build_path=build_path,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
-            all_compile_commands=all_compile_commands,
-            with_tests_filepath=with_tests_filepath
+            processed_compile_commands=processed_compile_commands,
         )
+        self.with_tests_file_c_parser = with_tests_file_c_parser
 
     @override
     def _translate_enum_impl(
@@ -419,8 +419,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 if struct_name in visited_structs:
                     continue
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
+                    result = self.translate_struct(
+                        self.with_tests_file_c_parser.get_struct_info(struct_name)
+                    )
+                    if result != TranslateResult.SUCCESS:
+                        raise RuntimeError(
+                            f"Error: Struct {struct_name} translation failed.")
+                if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
-                        f"Error: Struct {struct_name} is not translated yet")
+                            f"Error: Struct {struct_name} translation failed.")
                 with open(f"{self.translated_struct_path}/{struct_name}.rs", "r") as file:
                     code_of_struct = file.read()
                     code_of_structs[struct_name] = code_of_struct

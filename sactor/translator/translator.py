@@ -17,12 +17,12 @@ class Translator(ABC):
         self.max_attempts = config['general']['max_translation_attempts']
         self.c_parser = c_parser
         self.failure_info = {}
-
         if result_path:
             self.result_path = result_path
         else:
             self.result_path = os.path.join(
                 utils.find_project_root(), 'result')
+        
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         return self._translate_struct_impl(struct_union)

@@ -6,6 +6,7 @@ from sactor import utils
 
 from .verifier import Verifier
 from .verifier_types import VerifyResult
+from sactor.c_parser import CParser
 
 
 class E2EVerifier(Verifier):
@@ -18,8 +19,7 @@ class E2EVerifier(Verifier):
         extra_compile_command=None,
         is_executable=True,
         executable_object=None,
-        all_compile_commands: str = "",
-        with_tests_filepath: str=""
+        processed_compile_commands: list[list[str]] = [],
 
     ):
         super().__init__(
@@ -29,8 +29,7 @@ class E2EVerifier(Verifier):
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
-            all_compile_commands=all_compile_commands,
-            with_tests_filepath=with_tests_filepath
+            processed_compile_commands=processed_compile_commands,
         )
         self.is_executable = is_executable
 
@@ -55,24 +54,24 @@ class E2EVerifier(Verifier):
                     "executable_object must be provided for library code")
 
             executable_objects = self.executable_object.split()
-
+            link_flags = [f'-L{self.build_attempt_path}/target/debug',
+                '-lbuild_attempt',
+                '-lm']
             program_combiner_path = os.path.join(
                 self.build_path, "program_combiner")
             os.makedirs(program_combiner_path, exist_ok=True)
             compiler = utils.get_compiler()
-
+            
             # make sure executable_objects in front of -l
             c_compile_cmd = [
                 compiler,
                 '-o',
                 os.path.join(program_combiner_path, "combined"),
                 *executable_objects,
-                f'-L{self.build_attempt_path}/target/debug',
-                '-lbuild_attempt',
-                '-lm'
+                *link_flags
             ]
             if self.extra_compile_command:
-                c_compile_cmd.extend(self.extra_compile_command.split())
+                c_compile_cmd.extend(self.extra_compile_command)
 
             print(c_compile_cmd)
             res = subprocess.run(c_compile_cmd)
