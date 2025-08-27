@@ -313,15 +313,17 @@ class CParser:
         excluding standard library functions.
         """
         called_functions = set()
+        if not node:
+            return called_functions
         #debug
         # print("_collect_function", node.displayname, flush=True)
         for child in node.get_children():
             if child.kind == cindex.CursorKind.CALL_EXPR:
-                print("child.kind:", child.displayname, flush=True)
+                # print("child.kind:", child.displayname, flush=True)
                 called_func_cursor = child.referenced
 
                 if called_func_cursor:
-                    print("called func cursor:", called_func_cursor.displayname, flush=True)
+                    # print("called func cursor:", called_func_cursor.displayname, flush=True)
                     # Exclude functions declared in system headers
                     if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
                         called_functions.add(called_func_cursor.spelling)
@@ -335,8 +337,9 @@ class CParser:
                 #       each function, duplicate calculations will occur, because when below 
                 #       recursively calculates dependencies, it does not store the dependencies
                 #       for each function at the same time. Fix point algorithm should be more efficient.
-                    called_functions.update(
-                        self._collect_function_dependencies(child, function_names))
+
+            called_functions.update(
+                self._collect_function_dependencies(child, function_names))
         return called_functions
 
     def _collect_structs_unions_dependencies(self, node):
