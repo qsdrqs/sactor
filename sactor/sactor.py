@@ -178,17 +178,17 @@ class Sactor:
     def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
 
-        # for struct_pairs in self.struct_order:
-        #     for struct in struct_pairs:
-        #         # get corresponding struct node in with_test_file
-        #         # since we want to replace and test it in the with_test_file
-        #         with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
-        #             struct.name
-        #         )
-        #         result = translator.translate_struct(with_test_file_struct)
-        #         if result != TranslateResult.SUCCESS:
-        #             print(f"Failed to translate struct {struct}")
-        #             return result, translator
+        for struct_pairs in self.struct_order:
+            for struct in struct_pairs:
+                # get corresponding struct node in with_test_file
+                # since we want to replace and test it in the with_test_file
+                with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
+                    struct.name
+                )
+                result = translator.translate_struct(with_test_file_struct)
+                if result != TranslateResult.SUCCESS:
+                    print(f"Failed to translate struct {struct}")
+                    return result, translator
 
         for function_pairs in self.function_order:
             for function in function_pairs:

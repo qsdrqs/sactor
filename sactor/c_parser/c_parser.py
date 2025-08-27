@@ -46,7 +46,8 @@ class CParser:
 
         self._extract_functions()
         self._update_functions()
-
+        # only structs used by functions are preserved. Otherwise c2rust does not have corresponding translation
+        self._structs_unions = self._get_all_used_structs()
     @staticmethod
     def is_func_type(t: cindex.Type) -> bool:
         try:
@@ -94,6 +95,7 @@ class CParser:
 
     def get_global_vars(self) -> list[GlobalVarInfo]:
         return list(self._global_vars.values())
+    
 
     def get_enum_info(self, enum_name):
         """
@@ -238,6 +240,19 @@ class CParser:
                     self._structs_unions[name] = struct_info
         for child in node.get_children():
             self._collect_structs_and_unions(child)
+
+    def _get_all_used_structs(self) -> dict[str, StructInfo]:
+        used = {}
+        for item in self.get_functions():
+            for item2 in item.struct_dependencies:
+                used[item2.name] = item2
+        for item in used.values():
+            for item2 in item.dependencies:
+                used[item2.name] = item2
+        # TODO: global variable struct and enum dependencies
+        # struct's enum dependencies
+        # enum's struct dependencies
+        return used        
 
     def _extract_function_info(self, node):
         """
