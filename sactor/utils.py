@@ -367,6 +367,7 @@ def try_backup_file(file_path):
 
 def get_compile_flags_from_commands(processed_compile_commands: List[List[str]]) -> Tuple[list[str], list[str]]:
         processed_commands = copy.deepcopy(processed_compile_commands)
+        cmd = []
         for cmd in processed_commands:
             if TO_TRANSLATE_C_FILE_MARKER in cmd:
                 break
