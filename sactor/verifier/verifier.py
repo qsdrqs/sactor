@@ -307,7 +307,7 @@ class Verifier(ABC):
 
         return "\n".join(lines)
 
-    @retry(stop=stop_after_attempt(5))
+    # @retry(stop=stop_after_attempt(5))
     def _embed_test_rust(
         self,
         c_function: FunctionInfo,

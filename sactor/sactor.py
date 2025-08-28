@@ -79,7 +79,8 @@ class Sactor:
                 f"Missing requirements: {', '.join(missing_requirements)}")
 
         # Initialize Processors
-        flags_without_tests, _ = utils.get_compile_flags_from_commands(self.processed_compile_commands)
+        flags_without_tests, flags_with_tests = utils.get_compile_flags_from_commands(self.processed_compile_commands)
+        self.flags_with_tests = flags_with_tests
         include_flags = list(filter(lambda s: s.startswith("-I"), flags_without_tests))
         self.c_parser = CParser(self.input_file_preprocessed, extra_args=include_flags)
         # after preprossessing, #ifdef is already handled, so we can use flag_without_tests
@@ -100,7 +101,7 @@ class Sactor:
 
         print("Struct order: ", self.struct_order)
         print("Function order: ", self.function_order)
-        self.c2rust = C2Rust(self.input_file)
+        self.c2rust = C2Rust(self.input_file_preprocessed)
         self.combiner = ProgramCombiner(
             self.config,
             c_parser=self.c_parser,
@@ -122,8 +123,10 @@ class Sactor:
         # Collect failure info
         unidiomatic_translator.save_failure_info(os.path.join(
             self.result_dir, "unidiomatic_failure_info.json"))
+        
         if result != TranslateResult.SUCCESS:
             self.llm.statistic(self.llm_stat)
+            unidiomatic_translator.print_result_summary("Unidiomatic")
             raise ValueError(
                 f"Failed to translate unidiomatic code: {result}")
         combine_result, _ = self.combiner.combine(
@@ -158,7 +161,7 @@ class Sactor:
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation(compile_commands_file=self.compile_commands_file)
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(compile_flags=self.flags_with_tests)
 
         translator = UnidiomaticTranslator(
             self.llm,
@@ -174,10 +177,13 @@ class Sactor:
             with_tests_file_c_parser=self.with_tests_file_c_parser
         )
         return translator
+    
+
+
 
     def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
-
+        final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
                 # get corresponding struct node in with_test_file
@@ -185,10 +191,12 @@ class Sactor:
                 with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
                     struct.name
                 )
+                if not translator.has_dependencies_all_translated(with_test_file_struct, lambda s: s.dependencies):
+                    continue
                 result = translator.translate_struct(with_test_file_struct)
+                translator.save_failure_info(translator.failure_info_path)
                 if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate struct {struct}")
-                    return result, translator
+                    final_result = result
 
         for function_pairs in self.function_order:
             for function in function_pairs:
@@ -197,17 +205,19 @@ class Sactor:
                 with_test_file_function = self.with_tests_file_c_parser.get_function_info(
                     function.name
                 )
-
+                if not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.struct_dependencies) \
+                    or not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.function_dependencies):
+                    continue
                 result = translator.translate_function(with_test_file_function)
+                translator.save_failure_info(translator.failure_info_path)
                 if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate function {function}")
-                    return result, translator
+                    final_result = result
 
-        return TranslateResult.SUCCESS, translator
+        return final_result, translator
 
     def _new_idiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation(self.compile_commands_file)
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(self.flags_with_tests)
 
         crown = Crown(self.build_dir)
         crown.analyze(self.c2rust_translation)
@@ -231,7 +241,7 @@ class Sactor:
 
     def _run_idiomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_idiomatic_translator()
-
+        final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
                 # get corresponding struct node in with_test_file
@@ -239,10 +249,12 @@ class Sactor:
                 with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
                     struct.name
                 )
+                if not translator.has_dependencies_all_translated(with_test_file_struct, lambda s: s.dependencies):
+                    continue
                 result = translator.translate_struct(with_test_file_struct)
+                translator.save_failure_info(translator.failure_info_path)
                 if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate struct {struct}")
-                    return result, translator
+                    final_result = result
 
         for function_pairs in self.function_order:
             for function in function_pairs:
@@ -251,10 +263,13 @@ class Sactor:
                 with_test_file_function = self.with_tests_file_c_parser.get_function_info(
                     function.name
                 )
-
+                if not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.struct_dependencies) \
+                    or not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.function_dependencies):
+                    continue
                 result = translator.translate_function(with_test_file_function)
-                if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate function {function}")
-                    return result, translator
+                translator.save_failure_info(translator.failure_info_path)
 
-        return TranslateResult.SUCCESS, translator
+                if result != TranslateResult.SUCCESS:
+                    final_result = result
+
+        return final_result, translator

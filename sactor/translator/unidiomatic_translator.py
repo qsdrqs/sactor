@@ -1,4 +1,4 @@
-import os
+import os, json
 from ctypes import c_buffer
 from typing import Optional, override
 
@@ -15,6 +15,8 @@ from sactor.verifier import VerifyResult
 from .translator import Translator
 from .translator_types import TranslateResult
 from ..combiner.rust_code import RustCode
+
+CONST_VAR_MAX_TRANSLATION_LEN = 1024
 
 class UnidiomaticTranslator(Translator):
     def __init__(
@@ -37,6 +39,12 @@ class UnidiomaticTranslator(Translator):
             config=config,
             result_path=result_path,
         )
+        self.failure_info_path = os.path.join(
+            self.result_path, "unidiomatic_failure_info.json")
+        if os.path.isfile(self.failure_info_path):
+            with open(self.failure_info_path, 'r') as f:
+                self.failure_info = json.load(f)
+
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_unidiomatic"
 
@@ -180,17 +188,61 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         error_translation=None,
         attempts=0,
     ) -> TranslateResult:
-
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
+        
+        def return_result(global_var_result, verification=True):
+            # check the global variable name, allow const global variable to have different name
+            if global_var.name not in global_var_result and not global_var.is_const:
+                if global_var_result.lower().find(global_var.name.lower()) != -1:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
+                else:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
+                    print(error_message)
+                    self.append_failure_info(
+                        global_var.name, "COMPILE_ERROR", error_message, global_var_result
+                    )
+                    return self._translate_global_vars_impl(
+                        global_var,
+                        verify_result=(
+                            VerifyResult.COMPILE_ERROR, error_message),
+                        error_translation=global_var_result,
+                        attempts=attempts+1
+                    )
+            print("Translated global variable:")
+            print(global_var_result)
+            if verification:
+                # TODO: may add verification here
+                result = self.verifier.try_compile_rust_code(global_var_result)
+                if result[0] != VerifyResult.SUCCESS:
+                    if result[0] == VerifyResult.COMPILE_ERROR:
+                        self.append_failure_info(
+                            global_var.name, "COMPILE_ERROR", result[1], global_var_result)
+                    return self._translate_global_vars_impl(
+                        global_var,
+                        verify_result=result,
+                        error_translation=global_var_result,
+                        attempts=attempts + 1
+                    )
+            global_var_result = rust_ast_parser.unidiomatic_types_cleanup(
+                global_var_result)
+            self.failure_info[global_var.name]['status'] = "success"
+            utils.save_code(global_var_save_path, global_var_result)
+            return TranslateResult.SUCCESS
+           
         if os.path.exists(global_var_save_path):
             print(f"Global variable {global_var.name} already translated")
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
+            # fallback
             print(
-                f"Error: Failed to translate global variable {global_var.name} after {self.max_attempts} attempts")
-            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+                f"Failed to translate global variable {global_var.name} after {self.max_attempts} attempts using LLM.",
+                "Translated it using c2rust"
+                )
+            result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
+            return_result(result, verification=False)
+
         print(
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
 
@@ -198,6 +250,10 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if global_var.is_const:
             code_of_global_var = self.c_parser.extract_global_var_definition_code(
                 global_var.name)
+            if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
+                result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
+                return_result(result, verification=False)
+
             prompt = f'''
 Translate the following C global variable to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
@@ -280,46 +336,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=result,
                 attempts=attempts+1
             )
+        return_result(global_var_result)
 
-        # check the global variable name, allow const global variable to have different name
-        if global_var.name not in global_var_result and not global_var.is_const:
-            if global_var_result.lower().find(global_var.name.lower()) != -1:
-                error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
-            else:
-                error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
-                print(error_message)
-                self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", error_message, global_var_result
-                )
-                return self._translate_global_vars_impl(
-                    global_var,
-                    verify_result=(
-                        VerifyResult.COMPILE_ERROR, error_message),
-                    error_translation=global_var_result,
-                    attempts=attempts+1
-                )
-
-        print("Translated global variable:")
-        print(global_var_result)
-
-        # TODO: may add verification here
-        result = self.verifier.try_compile_rust_code(global_var_result)
-        if result[0] != VerifyResult.SUCCESS:
-            if result[0] == VerifyResult.COMPILE_ERROR:
-                self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", result[1], global_var_result)
-            return self._translate_global_vars_impl(
-                global_var,
-                verify_result=result,
-                error_translation=global_var_result,
-                attempts=attempts + 1
-            )
-
-        global_var_result = rust_ast_parser.unidiomatic_types_cleanup(
-            global_var_result)
-
-        utils.save_code(global_var_save_path, global_var_result)
-        return TranslateResult.SUCCESS
 
     def _translate_struct_impl(
         self,
@@ -331,6 +349,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         # Translate all the dependencies of the struct/union
         struct_union_dependencies = struct_union.dependencies
+        self.init_failure_info("struct", struct_union.name)
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
 
@@ -342,6 +361,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 rust_s_u = rust_ast_parser.get_union_definition(
                     self.c2rust_translation, struct_union.name)
             case _:
+                self.append_failure_info(struct_union.name, "TYPE_TRANSLATION_ERROR", f"Error: Invalid data type {struct_union.data_type}", "")
                 raise ValueError(
                     f"Error: Invalid data type {struct_union.data_type}")
 
@@ -349,6 +369,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         rust_s_u = rust_ast_parser.add_derive_to_struct_union(
             rust_s_u, struct_union.name, "Debug")
 
+        self.failure_info[struct_union.name]['status'] = "success"
         # Save the translated struct/union
         utils.save_code(
             f'{self.translated_struct_path}/{struct_union.name}.rs', rust_s_u)
@@ -777,7 +798,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         function_result = rust_ast_parser.unidiomatic_function_cleanup(
             function_result)
-
+        self.failure_info[function.name]["status"] = "success"
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS
 
