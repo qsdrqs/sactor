@@ -16,7 +16,7 @@ from .translator import Translator
 from .translator_types import TranslateResult
 from ..combiner.rust_code import RustCode
 
-CONST_VAR_MAX_TRANSLATION_LEN = 1024
+CONST_VAR_MAX_TRANSLATION_LEN = 2048
 
 class UnidiomaticTranslator(Translator):
     def __init__(
@@ -107,7 +107,7 @@ Output the translated enum into this format (wrap with the following tags):
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
-Lastly, the enum is translated as:
+The last time, the enum is translated as:
 ```rust
 {error_translation}
 ```
@@ -241,7 +241,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 "Translated it using c2rust"
                 )
             result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
-            return_result(result, verification=False)
+            return return_result(result, verification=False)
 
         print(
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
@@ -252,11 +252,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 global_var.name)
             if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
                 result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
-                return_result(result, verification=False)
+                return return_result(result, verification=False)
 
             prompt = f'''
 Translate the following C global variable to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
+In the translation, keep the casing and spelling of the variable name **identical** to the source C code.
 The global variable is:
 ```c
 {code_of_global_var}
@@ -285,7 +286,7 @@ Output the translated global variable into this format (wrap with the following 
 '''
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
-Lastly, the global variable is translated as:
+The last time, the global variable is translated as:
 ```rust
 {error_translation}
 ```
@@ -336,7 +337,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=result,
                 attempts=attempts+1
             )
-        return_result(global_var_result)
+        return return_result(global_var_result)
 
 
     def _translate_struct_impl(
@@ -476,7 +477,7 @@ For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
         if len(code_of_structs) > 0:
             joint_code_of_structs = '\n'.join(code_of_structs.values())
             prompt += f'''
-The function uses the following structs/unions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function uses the following structs/unions, which are already translated as (you should **NOT** define them in your translation, as the system will automatically define them. But you can use these structs or unions):
 ```rust
 {joint_code_of_structs}
 ```
@@ -508,7 +509,7 @@ The function uses the following type aliases, which are defined as:
         if len(used_global_vars) > 0:
             joint_used_global_vars = '\n'.join(used_global_vars.values())
             prompt += f'''
-The function uses the following const global variables, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function uses the following const global variables, which are already translated as (You should **NOT** define the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation):
 ```rust
 {joint_used_global_vars}
 ```
@@ -528,7 +529,7 @@ The function uses some of the following stdio file descriptors: {joint_stdio}. W
 ```rust
 {used_stdio_code}
 ```
-You should **NOT** include them in your translation, as the system will automatically include them.
+You should **NOT** declare or define them in your translation, as the system will automatically define them. But you can use them in your translation.
 '''
 
         # TODO: check upper/lower case of the global variables
@@ -564,14 +565,19 @@ Which are already translated as:
 ```rust
 {joint_code_of_enum}
 ```
-Directly use the translated enums in your translation. You should **NOT** include them in your translation, as the system will automatically include them.
+Directly access the translated enums in your translation. You should **NOT** define or declare them in your translation, as the system will automatically define them.
 '''
 
         if len(function_depedency_signatures) > 0:
             joint_function_depedency_signatures = '\n'.join(
                 function_depedency_signatures)
             prompt += f'''
-The function uses the following functions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function calls the following functions, which are already translated and defined in Rust.
+Do **NOT** include the definition or declaration of the following functions in your translation.
+If you include them, the output will be considered **invalid**.
+But you can call the following functions in your translation.
+Only output the translation of the function I request.
+The called functions' signatures in Rust are the following:
 ```rust
 {joint_function_depedency_signatures}
 ```
@@ -593,7 +599,7 @@ Output the translated function into this format (wrap with the following tags):
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
-Lastly, the function is translated as:
+The last time, the function is translated as:
 ```rust
 {error_translation}
 ```
@@ -613,7 +619,7 @@ Remember, you should only provide the translation for the function and necessary
 
         elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             prompt += f'''
-Lastly, the function is translated as:
+The last time, the function is translated as:
 ```rust
 {error_translation}
 ```
@@ -625,7 +631,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
         elif verify_result[0] == VerifyResult.FEEDBACK:
             prompt += f'''
-Lastly, the function is translated as:
+The last time, the function is translated as:
 ```rust
 {error_translation}
 ```

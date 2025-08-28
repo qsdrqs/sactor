@@ -194,7 +194,6 @@ class Sactor:
                 if not translator.has_dependencies_all_translated(with_test_file_struct, lambda s: s.dependencies):
                     continue
                 result = translator.translate_struct(with_test_file_struct)
-                translator.save_failure_info(translator.failure_info_path)
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
@@ -209,7 +208,6 @@ class Sactor:
                     or not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.function_dependencies):
                     continue
                 result = translator.translate_function(with_test_file_function)
-                translator.save_failure_info(translator.failure_info_path)
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
@@ -252,7 +250,6 @@ class Sactor:
                 if not translator.has_dependencies_all_translated(with_test_file_struct, lambda s: s.dependencies):
                     continue
                 result = translator.translate_struct(with_test_file_struct)
-                translator.save_failure_info(translator.failure_info_path)
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
@@ -267,7 +264,6 @@ class Sactor:
                     or not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.function_dependencies):
                     continue
                 result = translator.translate_function(with_test_file_function)
-                translator.save_failure_info(translator.failure_info_path)
 
                 if result != TranslateResult.SUCCESS:
                     final_result = result
