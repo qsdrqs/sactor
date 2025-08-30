@@ -939,6 +939,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         data_type_code = all_dt_code | used_global_vars | code_of_enum
 
+        # process the function result
+        function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
+
         # Verify the translation
         result = self.verifier.verify_function(
             function,

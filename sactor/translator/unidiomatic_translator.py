@@ -728,6 +728,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts+1
             )
 
+        # process the function result
+        function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
+
         print("Translated function:")
         print(function_result)
 
