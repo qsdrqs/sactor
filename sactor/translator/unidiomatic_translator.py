@@ -496,6 +496,7 @@ The function uses the following type aliases, which are defined as:
 
         used_global_var_nodes = function.global_vars_dependencies
         used_global_vars = {}
+        used_global_vars_only_type_and_names = {}
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
@@ -504,14 +505,23 @@ The function uses the following type aliases, which are defined as:
                 return global_var_res
             with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
                 code_of_global_var = file.read()
+                # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
+                # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
+                # including the value will break the LLM.
+                # TODO: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
+                type_and_name = f"{code_of_global_var.rsplit("=")[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
+                used_global_vars_only_type_and_names[global_var.name] = type_and_name
 
         if len(used_global_vars) > 0:
-            joint_used_global_vars = '\n'.join(used_global_vars.values())
+            joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
             prompt += f'''
-The function uses the following const global variables, which are already translated as (You should **NOT** define the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation):
+The function uses the following const global variables, which are already translated. The global variables' types and names are provided below, but the values are omitted.
+You should **NOT** define the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation.
+The translated const global variables are:
+:
 ```rust
-{joint_used_global_vars}
+{joint_used_global_vars_only_type_and_names}
 ```
 '''
 
