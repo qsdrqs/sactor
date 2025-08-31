@@ -68,11 +68,13 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
     return removed_code
 
 
-def expand_all_macros(input_file, commands: list[list[str]] | None):
+def expand_all_macros(input_file, commands: list[list[str]] | None=None):
     """
     Return:
     - no_test_output_filepath: source file for the translator
     """
+    if not commands:
+        commands = []
     filename = os.path.basename(input_file)
     
     if commands:

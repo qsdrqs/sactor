@@ -12,18 +12,18 @@ use std::process;
 use std::ptr;
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
-pub struct Course {
-    pub courseName: *mut libc::c_char,
-    pub courseCode: libc::c_int,
-}
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
 pub struct Student {
     pub name: *mut libc::c_char,
     pub age: libc::c_int,
     pub enrolledCourse: *mut Course,
     pub grades: *mut libc::c_float,
     pub numGrades: libc::c_int,
+}
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct Course {
+    pub courseName: *mut libc::c_char,
+    pub courseCode: libc::c_int,
 }
 unsafe fn printUsage() {
     printf (b"Usage: ./program <student_name> <age> <course_name> <course_code> <grade1> [grade2] [grade3] ...\n\0" . as_ptr () as * const i8) ;
