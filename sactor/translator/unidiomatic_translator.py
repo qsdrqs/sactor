@@ -31,7 +31,6 @@ class UnidiomaticTranslator(Translator):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
-        with_tests_file_c_parser: CParser | None = None
     ) -> None:
         super().__init__(
             llm=llm,
@@ -64,7 +63,6 @@ class UnidiomaticTranslator(Translator):
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
         )
-        self.with_tests_file_c_parser = with_tests_file_c_parser
 
     @override
     def _translate_enum_impl(
@@ -442,7 +440,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     continue
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     result = self.translate_struct(
-                        self.with_tests_file_c_parser.get_struct_info(struct_name)
+                        self.c_parser.get_struct_info(struct_name)
                     )
                     if result != TranslateResult.SUCCESS:
                         raise RuntimeError(
@@ -781,15 +779,28 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         data_type_code = code_of_structs | used_global_vars | code_of_enum | {
             "stdio": used_stdio_code}
-
-        result = self.verifier.verify_function(
-            function,
-            function_code=function_result,
-            data_type_code=data_type_code,
-            function_dependency_signatures=function_depedency_signatures,
-            function_dependency_uses=function_dependency_uses,
-            has_prefix=prefix
-        )
+        # add error handling because here can raise exceptions
+        try:
+            result = self.verifier.verify_function(
+                function,
+                function_code=function_result,
+                data_type_code=data_type_code,
+                function_dependency_signatures=function_depedency_signatures,
+                function_dependency_uses=function_dependency_uses,
+                has_prefix=prefix
+            )
+        except Exception as e:
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", str(e), function_result
+            )
+            # TODO: assign a new error code instead of compile_error?
+            result = (VerifyResult.COMPILE_ERROR, str(e))
+            return self._translate_function_impl(
+                function,
+                result,
+                error_translation=function_result,
+                attempts=attempts+1
+            )
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 compile_error = result[1]

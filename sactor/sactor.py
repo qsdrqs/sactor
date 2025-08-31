@@ -30,14 +30,6 @@ class Sactor:
         # compile_commands_file: compile_commands.json
         compile_commands_file: str=""
     ):
-        """
-        all_compile_commands: all build commands, disregarding this verifier's customizations (but linker args will be added to the last command). e.g.,
-        `
-        gcc -DHAVE_CONFIG_H -I. -I..  -I../include -I../include  -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2 -MT test_bitwise-bitwise.o -MD -MP -MF .deps/test_bitwise-bitwise.Tpo -c -o test_bitwise-bitwise.o `test -f 'bitwise.c' || echo './'`bitwise.c
-        mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
-        /bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o  
-        `
-        """
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
@@ -47,7 +39,7 @@ class Sactor:
             self.all_compile_commands,
             self.input_file
         )
-        self.input_file_preprocessed, self.with_test_input_file_preprocessed = preprocess_source_code(input_file, self.processed_compile_commands)
+        self.input_file_preprocessed = preprocess_source_code(input_file, self.processed_compile_commands)
         self.test_cmd_path = test_cmd_path
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
@@ -79,12 +71,11 @@ class Sactor:
                 f"Missing requirements: {', '.join(missing_requirements)}")
 
         # Initialize Processors
-        flags_without_tests, flags_with_tests = utils.get_compile_flags_from_commands(self.processed_compile_commands)
-        self.flags_with_tests = flags_with_tests
-        include_flags = list(filter(lambda s: s.startswith("-I"), flags_without_tests))
+        compile_only_flags = utils.get_compile_flags_from_commands(self.processed_compile_commands)
+        self.compile_only_flags = compile_only_flags
+        include_flags = list(filter(lambda s: s.startswith("-I"), compile_only_flags))
         self.c_parser = CParser(self.input_file_preprocessed, extra_args=include_flags)
-        # after preprossessing, #ifdef is already handled, so we can use flag_without_tests
-        self.with_tests_file_c_parser = CParser(self.with_test_input_file_preprocessed, extra_args=include_flags)
+
         self.divider = Divider(self.c_parser)
 
         self.struct_order = self.divider.get_struct_order()
@@ -161,7 +152,7 @@ class Sactor:
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation(compile_flags=self.flags_with_tests)
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(compile_flags=self.compile_only_flags)
 
         translator = UnidiomaticTranslator(
             self.llm,
@@ -174,7 +165,6 @@ class Sactor:
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             processed_compile_commands=self.processed_compile_commands,
-            with_tests_file_c_parser=self.with_tests_file_c_parser
         )
         return translator
     
@@ -186,28 +176,18 @@ class Sactor:
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                # get corresponding struct node in with_test_file
-                # since we want to replace and test it in the with_test_file
-                with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
-                    struct.name
-                )
-                if not translator.has_dependencies_all_translated(with_test_file_struct, lambda s: s.dependencies):
+                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
                     continue
-                result = translator.translate_struct(with_test_file_struct)
+                result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                # get corresponding struct node in with_test_file
-                # since we want to replace and test it in the with_test_file
-                with_test_file_function = self.with_tests_file_c_parser.get_function_info(
-                    function.name
-                )
-                if not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.struct_dependencies) \
-                    or not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.function_dependencies):
+                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
+                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
                     continue
-                result = translator.translate_function(with_test_file_function)
+                result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
@@ -215,7 +195,7 @@ class Sactor:
 
     def _new_idiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation(self.flags_with_tests)
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(self.compile_only_flags)
 
         crown = Crown(self.build_dir)
         crown.analyze(self.c2rust_translation)
@@ -232,7 +212,6 @@ class Sactor:
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             processed_compile_commands=self.processed_compile_commands,
-            with_tests_file_c_parser=self.with_tests_file_c_parser
         )
 
         return translator
@@ -242,28 +221,18 @@ class Sactor:
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                # get corresponding struct node in with_test_file
-                # since we want to replace and test it in the with_test_file
-                with_test_file_struct = self.with_tests_file_c_parser.get_struct_info(
-                    struct.name
-                )
-                if not translator.has_dependencies_all_translated(with_test_file_struct, lambda s: s.dependencies):
+                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
                     continue
-                result = translator.translate_struct(with_test_file_struct)
+                result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                # get corresponding struct node in with_test_file
-                # since we want to replace and test it in the with_test_file
-                with_test_file_function = self.with_tests_file_c_parser.get_function_info(
-                    function.name
-                )
-                if not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.struct_dependencies) \
-                    or not translator.has_dependencies_all_translated(with_test_file_function, lambda s: s.function_dependencies):
+                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
+                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
                     continue
-                result = translator.translate_function(with_test_file_function)
+                result = translator.translate_function(function)
 
                 if result != TranslateResult.SUCCESS:
                     final_result = result

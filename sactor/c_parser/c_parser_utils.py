@@ -68,18 +68,17 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
     return removed_code
 
 
-def expand_all_macros(input_file, commands: list[list[str]]):
+def expand_all_macros(input_file, commands: list[list[str]] | None):
     """
     Return:
     - no_test_output_filepath: source file for the translator
-    - with_test_output_filepath: source file for the verifier
     """
     filename = os.path.basename(input_file)
     
     if commands:
-        flags_with_tests, flags_without_tests = utils.get_compile_flags_from_commands(commands)
+        compile_flags = utils.get_compile_flags_from_commands(commands)
     else:
-        flags_with_tests, flags_without_tests = [], []
+        compile_flags = []
     tmpdir = utils.get_temp_dir()
     os.makedirs(tmpdir, exist_ok=True)
 
@@ -197,22 +196,19 @@ def expand_all_macros(input_file, commands: list[list[str]]):
         return tmp_file_path
 
     # use `cpp -C -P` to expand all macros
-    # note, if commands is "", with_test_output is the same as no_test_output
-    with_test_output_filepath = get_expanded_code(tmpdir, filename, flags_with_tests, "has_test_expanded")
-    no_test_output_filepath = get_expanded_code(tmpdir, filename, flags_without_tests, "no_test_expanded")
+    output_filepath = get_expanded_code(tmpdir, filename, compile_flags, "expanded")
 
-    return no_test_output_filepath, with_test_output_filepath
+    return output_filepath
 
 
-def preprocess_source_code(input_file, commands: list[list[str]]):
+def preprocess_source_code(input_file, commands: list[list[str]]) -> str:
     # Expand all macros in the input file
-    no_test_expanded_file, with_test_expanded_file = expand_all_macros(input_file, commands)
+    expanded_file = expand_all_macros(input_file, commands)
     # Unfold all typedefs in the expanded file
-    compile_flags, _ = utils.get_compile_flags_from_commands(commands)
+    compile_flags = utils.get_compile_flags_from_commands(commands)
     include_flags = list(filter(lambda s: s.startswith("-I"), compile_flags))
-    no_test_unfolded_file = unfold_typedefs(no_test_expanded_file, include_flags)
-    with_test_unfolded_file = unfold_typedefs(with_test_expanded_file, include_flags)
-    return no_test_unfolded_file, with_test_unfolded_file
+    unfolded_file = unfold_typedefs(expanded_file, include_flags)
+    return unfolded_file
 
 
 def unfold_typedefs(input_file, compile_flags: list[str]=[]):

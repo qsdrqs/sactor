@@ -29,7 +29,6 @@ class IdiomaticTranslator(Translator):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
-        with_tests_file_c_parser: CParser | None = None
     ):
         super().__init__(
             llm=llm,
@@ -72,7 +71,6 @@ class IdiomaticTranslator(Translator):
             processed_compile_commands=processed_compile_commands,
         )
         self.crown_result = crown_result
-        self.with_tests_file_c_parser = with_tests_file_c_parser
 
     @override
     def _translate_enum_impl(
@@ -598,7 +596,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     self.translated_struct_path, struct_name + ".rs")
                 if not os.path.exists(struct_path):
                     result = self.translate_struct(
-                        self.with_tests_file_c_parser.get_struct_info(struct_name)
+                        self.c_parser.get_struct_info(struct_name)
                     )
                     if result != TranslateResult.SUCCESS:
                         raise RuntimeError(

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import json
-import os
+import os, shlex
 import subprocess
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -23,8 +23,8 @@ class Verifier(ABC):
         config: dict,
         build_path=None,
         no_feedback=False,
-        extra_compile_command=None,
-        executable_object=None,
+        extra_compile_command: str | None=None,
+        executable_object: str | None=None,
         processed_compile_commands: list[list[str]] = [],
     ):
         self.config = config
@@ -307,7 +307,6 @@ class Verifier(ABC):
 
         return "\n".join(lines)
 
-    # @retry(stop=stop_after_attempt(5))
     def _embed_test_rust(
         self,
         c_function: FunctionInfo,
@@ -371,8 +370,8 @@ extern "C" {{
         output_path = os.path.join(self.embed_test_c_dir, name)
         source_path = os.path.join(self.embed_test_c_dir, f'{name}.c')
 
-        executable_objects = self.executable_object.split() if self.executable_object else []
-        extra_compile_command = self.extra_compile_command.split() if self.extra_compile_command else []
+        executable_objects = shlex.split(self.executable_object) if self.executable_object else []
+        extra_compile_command = shlex.split(extra_compile_command) if self.extra_compile_command else []
         link_flags = [
             f'-L{self.embed_test_rust_dir}/target/debug',
             '-lm',
@@ -381,6 +380,9 @@ extern "C" {{
 
         if self.processed_compile_commands:
             commands = process_commands_to_compile(self.processed_compile_commands, output_path, source_path)
+            # assuming the last command is the linking command
+            # TODO: check if it is a linking command?
+            commands[-1].extend(executable_objects)
             commands[-1].extend(link_flags)
             for command in commands:
                 to_check = False

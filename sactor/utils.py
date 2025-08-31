@@ -248,6 +248,7 @@ def get_compiler_include_paths() -> list[str]:
     return search_include_paths
 
 def is_compile_command(l: List[str]) -> bool:
+    """Return True if it is a compile or link command. Otherwise, False"""
     if "gcc" in l or "clang" in l:
         return True
     return False
@@ -301,10 +302,6 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
     commands: compilation command for a C file. If it requires multiple commands sequentially, separate the commands by newlines.
     The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
     All gcc or libtool will be added -Og -g flags.
-    e.g., 
-commands : `gcc -DHAVE_CONFIG_H -I. -I..  -I../include -I../include  -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2 -MT test_bitwise-bitwise.o -MD -MP -MF .deps/test_bitwise-bitwise.Tpo -c -o test_bitwise-bitwise.o `test -f 'bitwise.c' || echo './'`bitwise.c
-mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
-/bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o  ` 
     '''
     compiler = get_compiler()
     tmpdir = os.path.join(get_temp_dir(), "c_compile")
@@ -365,24 +362,27 @@ def try_backup_file(file_path):
 
     os.rename(file_path, backup_path)
 
-def get_compile_flags_from_commands(processed_compile_commands: List[List[str]]) -> Tuple[list[str], list[str]]:
+def get_compile_flags_from_commands(processed_compile_commands: List[List[str]]) -> list[str]:
+        """To get only the compile flags, for the C source file. If they have specific linking flags, this function does not care."""
         processed_commands = copy.deepcopy(processed_compile_commands)
         cmd = []
-        for cmd in processed_commands:
-            if TO_TRANSLATE_C_FILE_MARKER in cmd:
+        # assume the first command mentioning the to-be-translated C source is the command containing the flags.
+        # TODO: This code assumes that the first such command is either a compile command or a compile-and-linking command. Add checks to test
+        #       if it is.
+        for cmd2 in processed_commands:
+            if TO_TRANSLATE_C_FILE_MARKER in cmd2:
+                cmd = cmd2
                 break
-
         processed_commands = cmd
         flags =  list(filter(lambda s: s.startswith("-"), processed_commands))
-        # generate C source code with code for tests, for validation
+        # flags for macro-expanding C source files with tests
         del_index = []
         for i, flag in enumerate(flags):
             if flag == "-o" or flag == '-c' or flag.startswith("-M"):
                 del_index.append(i)
         for i in del_index[::-1]:
             del flags[i]
-        flags_with_tests = copy.deepcopy(flags)
-        # C source code without code for tests, for translation
+        # flags for macro-expanding C source files without tests. We remove test flags if they are wrongly included by the input.
         del_index = []
         for i, flag in enumerate(flags):
             if re.search(r"-D[\w\d_]*?TEST", flag) :
@@ -390,5 +390,5 @@ def get_compile_flags_from_commands(processed_compile_commands: List[List[str]])
         for i in del_index[::-1]:
             del flags[i]
         flags_without_tests = flags
-        return flags_with_tests, flags_without_tests
+        return flags_without_tests
 

@@ -1,4 +1,4 @@
-import os
+import os, shlex
 import subprocess
 from typing import override, Optional
 
@@ -53,7 +53,7 @@ class E2EVerifier(Verifier):
                 raise ValueError(
                     "executable_object must be provided for library code")
 
-            executable_objects = self.executable_object.split()
+            executable_objects = shlex.split(self.executable_object)
             link_flags = [f'-L{self.build_attempt_path}/target/debug',
                 '-lbuild_attempt',
                 '-lm']
