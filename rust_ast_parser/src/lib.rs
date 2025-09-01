@@ -247,6 +247,133 @@ fn collect_paths(
     Ok(())
 }
 
+struct UseAliasExpander {
+    aliases: std::collections::HashMap<String, syn::Path>,
+}
+
+impl UseAliasExpander {
+    fn new() -> Self {
+        Self {
+            aliases: std::collections::HashMap::new(),
+        }
+    }
+
+    fn collect_aliases(&mut self, file: &syn::File) {
+        for item in &file.items {
+            if let syn::Item::Use(use_item) = item {
+                self.collect_use_tree_aliases(&use_item.tree, &mut Vec::new());
+            }
+        }
+    }
+
+    fn collect_use_tree_aliases(&mut self, tree: &syn::UseTree, current_path: &mut Vec<String>) {
+        match tree {
+            syn::UseTree::Path(path) => {
+                current_path.push(path.ident.to_string());
+                self.collect_use_tree_aliases(&path.tree, current_path);
+                current_path.pop();
+            }
+            syn::UseTree::Rename(rename) => {
+                // Handle self aliases specially
+                if rename.ident == "self" {
+                    // E.g. for `self as collections`, map `collections` to the current path
+                    let full_path = syn::Path {
+                        leading_colon: None,
+                        segments: current_path.iter().map(|s| {
+                            syn::PathSegment {
+                                ident: syn::Ident::new(s, proc_macro2::Span::call_site()),
+                                arguments: syn::PathArguments::None,
+                            }
+                        }).collect(),
+                    };
+                    self.aliases.insert(rename.rename.to_string(), full_path);
+                } else {
+                    current_path.push(rename.ident.to_string());
+
+                    // Create the full path
+                    let full_path = syn::Path {
+                        leading_colon: None,
+                        segments: current_path.iter().map(|s| {
+                            syn::PathSegment {
+                                ident: syn::Ident::new(s, proc_macro2::Span::call_site()),
+                                arguments: syn::PathArguments::None,
+                            }
+                        }).collect(),
+                    };
+
+                    // Store the alias mapping
+                    self.aliases.insert(rename.rename.to_string(), full_path);
+                    current_path.pop();
+                }
+            }
+            syn::UseTree::Group(group) => {
+                for tree in &group.items {
+                    self.collect_use_tree_aliases(tree, current_path);
+                }
+            }
+            _ => {} // Handle other cases as needed
+        }
+    }
+}
+
+impl syn::visit_mut::VisitMut for UseAliasExpander {
+    fn visit_path_mut(&mut self, path: &mut syn::Path) {
+        if let Some(first_segment) = path.segments.first() {
+            let first_ident = first_segment.ident.to_string();
+            if let Some(expanded_path) = self.aliases.get(&first_ident) {
+                // Create new segments starting with the expanded path
+                let mut new_segments = expanded_path.segments.clone();
+
+                // Preserve generic arguments from the original first segment
+                if !first_segment.arguments.is_empty() {
+                    if let Some(last_segment) = new_segments.last_mut() {
+                        last_segment.arguments = first_segment.arguments.clone();
+                    }
+                }
+
+                // If there are remaining segments after the alias, append them
+                if path.segments.len() > 1 {
+                    let remaining_segments: Vec<_> = path.segments.iter().skip(1).cloned().collect();
+                    new_segments.extend(remaining_segments);
+                }
+
+                path.segments = new_segments;
+            }
+        }
+
+        // Continue visiting nested paths
+        syn::visit_mut::visit_path_mut(self, path);
+    }
+
+    fn visit_use_tree_mut(&mut self, tree: &mut syn::UseTree) {
+        // Remove alias use statements and convert them to regular use statements
+        if let syn::UseTree::Rename(rename) = tree {
+            // Replace rename with regular name
+            *tree = syn::UseTree::Name(syn::UseName {
+                ident: rename.ident.clone(),
+            });
+        }
+
+        // Continue visiting
+        syn::visit_mut::visit_use_tree_mut(self, tree);
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn expand_use_aliases(code: &str) -> PyResult<String> {
+    let mut ast = parse_src(code)?;
+    let mut expander = UseAliasExpander::new();
+
+    // First pass: collect all aliases
+    expander.collect_aliases(&ast);
+
+    // Second pass: expand all usages
+    expander.visit_file_mut(&mut ast);
+
+    Ok(prettyplease::unparse(&ast))
+}
+
 #[gen_stub_pyfunction]
 #[pyfunction]
 fn get_standalone_uses_code_paths(code: &str) -> PyResult<Vec<Vec<String>>> {
@@ -635,6 +762,8 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(unidiomatic_function_cleanup, m)?)?;
     m.add_function(wrap_pyfunction!(unidiomatic_types_cleanup, m)?)?;
     m.add_function(wrap_pyfunction!(get_static_item_definition, m)?)?;
+    m.add_function(wrap_pyfunction!(expand_use_aliases, m)?)?;
+
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;
     Ok(())

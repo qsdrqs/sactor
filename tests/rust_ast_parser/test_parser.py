@@ -92,6 +92,127 @@ use a::g::*;
     }
     assert set_paths == expected_set_paths
 
+def test_expand_use_aliases():
+    code = '''
+use std::collections::HashMap as Map;
+use std::collections::BTreeMap as Tree;
+use std::vec::Vec as Vector;
+
+fn create_map() -> Map<String, i32> {
+    Map::new()
+}
+
+fn create_tree() -> Tree<String, i32> {
+    Tree::new()
+}
+
+fn create_vector() -> Vector<i32> {
+    Vector::new()
+}
+
+fn complex_usage() {
+    let m: Map<String, Tree<i32, Vector<u8>>> = Map::new();
+    let v = Vector::from([1, 2, 3]);
+}
+'''
+
+    expanded_code = rust_ast_parser.expand_use_aliases(code)
+    print("Original:")
+    print(code)
+    print("Expanded:")
+    print(expanded_code)
+
+    # Check that aliases are removed from use statements
+    assert 'as Map' not in expanded_code
+    assert 'as Tree' not in expanded_code
+    assert 'as Vector' not in expanded_code
+
+    # Check that aliases are expanded in code
+    assert 'std::collections::HashMap::new()' in expanded_code
+    assert 'std::collections::BTreeMap::new()' in expanded_code
+    assert 'std::vec::Vec::new()' in expanded_code
+
+    # Check that aliases are expanded in type annotations
+    assert 'std::collections::HashMap<String, i32>' in expanded_code
+    assert 'std::collections::BTreeMap<String, i32>' in expanded_code
+    assert 'std::vec::Vec<i32>' in expanded_code
+
+    # Check that complex nested types are handled (formatted across multiple lines)
+    # The type should be expanded correctly regardless of formatting
+    assert 'std::collections::HashMap<' in expanded_code
+    assert 'std::collections::BTreeMap<i32, std::vec::Vec<u8>>' in expanded_code
+    assert 'std::vec::Vec::from([1, 2, 3])' in expanded_code
+
+    # Verify that the expanded code can be parsed correctly by get_standalone_uses_code_paths
+    paths = rust_ast_parser.get_standalone_uses_code_paths(expanded_code)
+    expected_paths = {
+        ('std', 'collections', 'HashMap'),
+        ('std', 'collections', 'BTreeMap'),
+        ('std', 'vec', 'Vec'),
+    }
+    actual_paths = set(tuple(path) for path in paths)
+    assert actual_paths == expected_paths
+
+def test_expand_use_aliases_with_groups():
+    code = '''
+use std::collections::{HashMap as Map, BTreeMap as Tree};
+use std::{vec::Vec as Vector, string::String as Str};
+
+fn test() -> Map<Str, Vector<Tree<i32, i32>>> {
+    Map::new()
+}
+'''
+
+    expanded_code = rust_ast_parser.expand_use_aliases(code)
+    print("Group aliases expanded:")
+    print(expanded_code)
+
+    # Check that all aliases are expanded (formatted across multiple lines)
+    # The type should be expanded correctly regardless of formatting
+    assert 'std::collections::HashMap<' in expanded_code
+    assert 'std::string::String,' in expanded_code
+    assert 'std::vec::Vec<std::collections::BTreeMap<i32, i32>>' in expanded_code
+    assert 'std::collections::HashMap::new()' in expanded_code
+
+def test_expand_use_aliases_dummy():
+    code = '''
+use std::collections::HashMap;
+use std::vec::Vec;
+fn test() -> HashMap<String, Vec<i32>> {
+    HashMap::new()
+}
+'''
+    expanded_code = rust_ast_parser.expand_use_aliases(code)
+    assert expanded_code.strip() == code.strip(), 'Code without aliases should remain unchanged.'
+
+
+def test_expand_use_aliases_with_self():
+    code = '''
+use std::collections::{self as collections, HashMap as Map};
+use std::vec::{self as vec_mod, Vec};
+
+fn test() {
+    let map = Map::new();
+    let other_map = collections::BTreeMap::new();
+    let vec1 = Vec::new();
+    let vec2 = vec_mod::Vec::new();
+}
+'''
+
+    expanded_code = rust_ast_parser.expand_use_aliases(code)
+    print("Self aliases expanded:")
+    print(expanded_code)
+
+    # Check that self aliases are expanded
+    assert 'std::collections::BTreeMap::new()' in expanded_code
+    assert 'std::vec::Vec::new()' in expanded_code
+    assert 'std::collections::HashMap::new()' in expanded_code
+
+    # Check that 'as collections' and 'as vec_mod' are removed
+    assert 'as collections' not in expanded_code
+    assert 'as vec_mod' not in expanded_code
+    assert 'as Map' not in expanded_code
+
 def test_add_attribute_to_function(code):
     new_code = rust_ast_parser.add_attr_to_function(code, "add", "#[inline]")
     print(new_code)
