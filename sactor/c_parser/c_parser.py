@@ -342,11 +342,9 @@ class CParser:
                     if called_func_name in function_names:
                         called_functions.add(called_func_name)
                 # TODO: Optimize algorithm to be more efficient.
-                #       It seems when iterating all functions to calculate dependencies of 
-                #       each function, duplicate calculations will occur, because when below 
-                #       recursively calculates dependencies, it does not store the dependencies
-                #       for each function at the same time. Fix point algorithm should be more efficient.
-
+                #       It seems when traversing all functions to calculate dependencies of 
+                #       each function, duplicate calculations will occur. Store visited functions and 
+                #       do not visit them again.
             called_functions.update(
                 self._collect_function_dependencies(child, function_names))
         return called_functions
