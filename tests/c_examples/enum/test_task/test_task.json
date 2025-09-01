@@ -1,30 +1,30 @@
 [
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 0 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 0 --feed-as-args",
         "test_id": 0
     },
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 1 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 1 --feed-as-args",
         "test_id": 1
     },
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 2 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 2 --feed-as-args",
         "test_id": 2
     },
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 3 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 3 --feed-as-args",
         "test_id": 3
     },
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 4 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 4 --feed-as-args",
         "test_id": 4
     },
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 5 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 5 --feed-as-args",
         "test_id": 5
     },
     {
-        "command": "sactor run-tests --type bin /home/qsdrqs/.cache/sactor/test_task/test_samples.json %t 6 --feed-as-args",
+        "command": "sactor run-tests --type bin ./test_samples.json %t 6 --feed-as-args",
         "test_id": 6
     }
 ]
