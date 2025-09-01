@@ -2,6 +2,8 @@ import os
 import tempfile
 import textwrap
 import shutil
+import pytest
+import glob
 
 from sactor.c_parser import c_parser_utils
 from tests import utils as test_utils
@@ -73,86 +75,22 @@ def test_expand_macro():
     finally:
         shutil.rmtree(tmpdir)
 
-def test_unfold_typedefs():
-    original_file = "tests/c_parser/test_unfold_typedefs_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs_expected.c"
+cases = sorted(glob.glob("tests/c_parser/unfold_typedefs/*_original.c"))
 
+@pytest.mark.parametrize("original_file", cases)
+def test_unfold_typedefs(original_file):
+    expected_file = original_file.replace("_original.c", "_expected.c")
     tmpdir = tempfile.mkdtemp()
     try:
         test_file = os.path.join(tmpdir, "test.c")
         shutil.copy(original_file, test_file)
-
         out_path = c_parser_utils.unfold_typedefs(test_file);
         with open(out_path) as f:
             actual_content = f.read()
-
+            print(actual_content)
         with open(expected_file) as f:
             expected_content = f.read()
-
         assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
     finally:
         shutil.rmtree(tmpdir)
 
-def test_unfold_typedefs2():
-    original_file = "tests/c_parser/test_unfold_typedefs2_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs2_expected.c"
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        test_file = os.path.join(tmpdir, "test.c")
-        shutil.copy(original_file, test_file)
-
-        out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
-        assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
-    finally:
-        shutil.rmtree(tmpdir)
-
-def test_unfold_typedefs3():
-    original_file = "tests/c_parser/test_unfold_typedefs3_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs3_expected.c"
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        test_file = os.path.join(tmpdir, "test.c")
-        shutil.copy(original_file, test_file)
-
-        out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
-        assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
-    finally:
-        shutil.rmtree(tmpdir)
-
-def test_unfold_typedefs4():
-    original_file = "tests/c_parser/test_unfold_typedefs4_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs4_expected.c"
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        test_file = os.path.join(tmpdir, "test.c")
-        shutil.copy(original_file, test_file)
-
-        out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
-        assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
-    finally:
-        shutil.rmtree(tmpdir)

@@ -76,6 +76,7 @@ def expand_all_macros(input_file):
     lines = content.splitlines()
 
     # remove #ifdef __cplusplus
+    # FIXME: wrong
     start = -1
     for i, line in enumerate(lines):
         if line.strip().startswith('#ifdef __cplusplus'):
@@ -176,19 +177,25 @@ def unfold_typedefs(input_file):
             typedef_name = node.spelling
             struct_body = content[struct_start:struct_end]
 
-            # Handle anonymous struct/union typedef
-            if typedef_name and struct_child.spelling == typedef_name:
-                if struct_body.startswith("struct"):
-                    struct_text = f"struct {typedef_name}" + struct_body[6:] + ";"
-                elif struct_body.startswith("union"):
-                    struct_text = f"union {typedef_name}" + struct_body[5:] + ";"
+            is_union = (struct_child.kind == cindex.CursorKind.UNION_DECL)
+            kw = "union" if is_union else "struct"
+
+            brace_idx = struct_body.find("{")
+            if brace_idx != -1:
+                name_seg = struct_body[len(kw):brace_idx]
+                anonymous = name_seg.strip() == ""
+            else:
+                anonymous = True
+
+            if anonymous and typedef_name:
+                if brace_idx != -1:
+                    struct_text = f"{kw} {typedef_name} " + struct_body[brace_idx:] + ";"
                 else:
-                    struct_text = f"struct {typedef_name} {struct_body};"
+                    struct_text = f"{kw} {typedef_name} {{}};"
             else:
                 struct_text = struct_body + ";"
 
-            content = content[:start_offset] + \
-                struct_text + content[end_offset:]
+            content = content[:start_offset] + struct_text + content[end_offset:]
         elif enum_child:
             enum_start = enum_child.extent.start.offset
             enum_end = enum_child.extent.end.offset
