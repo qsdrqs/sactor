@@ -243,7 +243,7 @@ class Verifier(ABC):
         # This solution may trigger bugs if other linked object files have functions with the same name. 
         # The above code removing static in function dependencies may also trigger this bug.
         # TODO: rename the to-be-translated function to a unique name using the current `prefix` argument & mechanism; 
-        #       after translation, name the Rust translated function with the original name.
+        #       after translation, name the Rust translated function with the original name, and remove its `pub` attribute.
         source_code = c_parser_utils.remove_function_static_decorator(c_function.name, source_code)
         lines = source_code.split("\n")
 
