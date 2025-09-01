@@ -57,11 +57,6 @@ Follow these steps to build and run Sactor in a Docker container:
      ```bash
      cp -r tests/c_examples/atoi /tmp/sactor_atoi
      ```
-   - Update `test_task.json` paths:
-     ```bash
-     sed -i 's|.*/tests/c_examples/atoi|/tmp/sactor_atoi|g' \
-       /tmp/sactor_atoi/test_task/test_task.json
-     ```
 
 3. **Clean previous results**
 
