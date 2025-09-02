@@ -1,6 +1,6 @@
 from clang import cindex
 from clang.cindex import Cursor
-
+import os
 from sactor import utils
 
 from .enum_info import EnumInfo, EnumValueInfo
@@ -102,13 +102,19 @@ class FunctionInfo:
 
         return count
 
-    def get_declaration_node(self):
-        canonical = self.node.canonical
-
-        if canonical and canonical.kind == cindex.CursorKind.FUNCTION_DECL and not canonical.is_definition():
-            return canonical
-
-        return None
+    def get_declaration_nodes(self):
+        tu = self.node.translation_unit
+        declarations = []
+        for cursor in tu.cursor.walk_preorder():
+            if not cursor or not cursor.location.file:
+                continue
+            if not os.path.samefile(self.node.location.file.name, cursor.location.file.name):
+                continue
+            if cursor.kind == cindex.CursorKind.FUNCTION_DECL and cursor.spelling == self.name  \
+                and not cursor.is_definition():
+                declarations.append(cursor)
+        
+        return declarations
 
     def __hash__(self):
         return hash(self.name) + hash(self.location)

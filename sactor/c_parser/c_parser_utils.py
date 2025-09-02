@@ -45,27 +45,26 @@ def remove_function_static_decorator(function_name: str, source_code: str) -> st
 
     function = c_parser.get_function_info(function_name)
     node = function.node
-
     # handle declaration node
-    decl_node = function.get_declaration_node()
-    if decl_node is not None and not _is_empty(decl_node):
-        source_code = _remove_static_decorator_impl(decl_node, source_code)
-        # Need to parse the source code again to get the updated node
-        with open(os.path.join(tmpdir, "tmp.c"), "w") as f:
-            f.write(source_code)
+    decl_nodes = function.get_declaration_nodes()
+    for decl_node in decl_nodes:
+        if decl_node is not None and not _is_empty(decl_node):
+            source_code = _remove_static_decorator_impl(decl_node, source_code)
+            # Need to parse the source code again to get the updated node
+            with open(os.path.join(tmpdir, "tmp.c"), "w") as f:
+                f.write(source_code)
 
-        c_parser = CParser(os.path.join(tmpdir, "tmp.c"), omit_error=True)
-        node = c_parser.get_function_info(function_name).node
+            c_parser = CParser(os.path.join(tmpdir, "tmp.c"), omit_error=True)
+            node = c_parser.get_function_info(function_name).node
+            if node is None:
+                raise ValueError("Node is None")
 
-    if node is None:
-        raise ValueError("Node is None")
-
-    removed_code = _remove_static_decorator_impl(node, source_code)
+    source_code = _remove_static_decorator_impl(node, source_code)
 
     # remove the tmp.c
     os.remove(os.path.join(tmpdir, "tmp.c"))
 
-    return removed_code
+    return source_code
 
 
 def expand_all_macros(input_file, commands: list[list[str]] | None=None):

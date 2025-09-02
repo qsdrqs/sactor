@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import json
+import json, tempfile
 import os, shlex
 import subprocess
 from abc import ABC, abstractmethod
@@ -246,7 +246,13 @@ class Verifier(ABC):
         #       after translation, name the Rust translated function with the original name, and remove its `pub` attribute.
         source_code = c_parser_utils.remove_function_static_decorator(c_function.name, source_code)
         lines = source_code.split("\n")
+        tmpdir = utils.get_temp_dir()
+        with open(os.path.join(tmpdir, "tmp.c"), "w") as f:
+            f.write(source_code)
 
+        c_parser = CParser(os.path.join(tmpdir, "tmp.c"), omit_error=True)
+        c_function = c_parser.get_function_info(c_function.name)
+        node = c_function.node
         # remove the function body
         call_stmt = ""
         if prefix:
