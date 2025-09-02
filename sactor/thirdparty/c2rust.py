@@ -1,7 +1,7 @@
-import os
+import os, json, glob
 import shutil
 import subprocess
-from typing import override
+from typing import override, List
 
 from sactor import utils
 
@@ -23,7 +23,7 @@ class C2Rust(ThirdParty):
 
         return result
 
-    def get_c2rust_translation(self):
+    def get_c2rust_translation(self, compile_flags: list[str] =[]):
         # check c2rust executable
         if not shutil.which("c2rust"):
             raise OSError("c2rust executable not found")
@@ -43,7 +43,7 @@ class C2Rust(ThirdParty):
         search_include_paths = [
             f'-I{path}' for path in search_include_paths]
         cmd = ['c2rust', 'transpile', tmp_filename,
-               '--', *search_include_paths]
+            '--', *search_include_paths, *compile_flags]
         print(cmd)
         # add C_INCLUDE_PATH to the environment if needed
         result = subprocess.run(
@@ -56,7 +56,6 @@ class C2Rust(ThirdParty):
             if os.path.exists(tmp_filename_rs):
                 os.remove(tmp_filename_rs)
             raise RuntimeError("c2rust transpile command failed")
-
         # this is the translated Rust code
         assert os.path.exists(tmp_filename_rs)
 

@@ -24,6 +24,7 @@ class ProgramCombiner(Combiner):
         is_executable: bool,
         extra_compile_command=None,
         executable_object=None,
+        processed_compile_commands: list[list[str]] = [],
     ):
         self.config = config
         self.c_parser = c_parser
@@ -39,6 +40,7 @@ class ProgramCombiner(Combiner):
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
             is_executable=is_executable,
+            processed_compile_commands=processed_compile_commands,
         )
         self.is_executable = is_executable
         self.build_path = build_path

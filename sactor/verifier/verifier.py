@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
-import json
-import os
+import json, tempfile
+import os, shlex
 import subprocess
 from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import rust_ast_parser, utils
-from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils
+from sactor.utils import is_compile_command, process_commands_to_compile
+
+from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils, CParser
 from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
@@ -20,8 +22,9 @@ class Verifier(ABC):
         config: dict,
         build_path=None,
         no_feedback=False,
-        extra_compile_command=None,
-        executable_object=None,
+        extra_compile_command: str | None=None,
+        executable_object: str | None=None,
+        processed_compile_commands: list[list[str]] = [],
     ):
         self.config = config
         if build_path:
@@ -38,6 +41,7 @@ class Verifier(ABC):
         self.no_feedback = no_feedback
         self.extra_compile_command = extra_compile_command
         self.executable_object = executable_object
+        self.processed_compile_commands = processed_compile_commands
 
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
@@ -233,9 +237,21 @@ class Verifier(ABC):
 
             source_code = c_parser_utils.remove_function_static_decorator(
                 function_dependency.name, source_code)
-
+        # If the to-be-translated function is static, then it cannot be linked to the Rust definition.
+        # So we remove the static attribute.
+        # This solution may trigger bugs if other linked object files have functions with the same name. 
+        # The above code removing static in function dependencies may also trigger this bug.
+        # TODO: rename the to-be-translated function to a unique name using the current `prefix` argument & mechanism; 
+        #       after translation, name the Rust translated function with the original name, and remove its `pub` attribute.
+        source_code = c_parser_utils.remove_function_static_decorator(c_function.name, source_code)
         lines = source_code.split("\n")
+        tmpdir = utils.get_temp_dir()
+        with open(os.path.join(tmpdir, "tmp.c"), "w") as f:
+            f.write(source_code)
 
+        c_parser = CParser(os.path.join(tmpdir, "tmp.c"), omit_error=True)
+        c_function = c_parser.get_function_info(c_function.name)
+        node = c_function.node
         # remove the function body
         call_stmt = ""
         if prefix:
@@ -313,7 +329,6 @@ class Verifier(ABC):
     ) -> tuple[VerifyResult, Optional[str]]:
         name = c_function.name
         filename = c_function.node.location.file.name
-
         rust_code = rust_ast_parser.expose_function_to_c(rust_code, name)
 
         parsed_rust_code = RustCode(rust_code)
@@ -366,29 +381,45 @@ extern "C" {{
         output_path = os.path.join(self.embed_test_c_dir, name)
         source_path = os.path.join(self.embed_test_c_dir, f'{name}.c')
 
-        executable_objects = self.executable_object.split() if self.executable_object else []
-        extra_compile_command = self.extra_compile_command.split() if self.extra_compile_command else []
+        executable_objects = shlex.split(self.executable_object) if self.executable_object else []
+        extra_compile_command = shlex.split(extra_compile_command) if self.extra_compile_command else []
         link_flags = [
             f'-L{self.embed_test_rust_dir}/target/debug',
             '-lm',
             f'-l{name}',
         ]
 
-        c_compile_cmd = [
-            compiler,
-            '-o', output_path,
-            source_path,
-            *executable_objects,
-            *link_flags,
-            *extra_compile_command,
-        ]
+        if self.processed_compile_commands:
+            commands = process_commands_to_compile(self.processed_compile_commands, output_path, source_path)
+            # assuming the last command is the linking command
+            # TODO: check if it is a linking command?
+            commands[-1].extend(executable_objects)
+            commands[-1].extend(link_flags)
+            for command in commands:
+                to_check = False
+                if is_compile_command(command):
+                    to_check = True
+                res = subprocess.run(command)
+                if to_check and res.returncode != 0:
+                    raise RuntimeError(
+                        f"Error: Failed to compile C code for function {name}")              
 
-        # compile C code
-        print(c_compile_cmd)
-        res = subprocess.run(c_compile_cmd)
-        if res.returncode != 0:
-            raise RuntimeError(
-                f"Error: Failed to compile C code for function {name}")
+        else:
+            c_compile_cmd = [
+                compiler,
+                '-o', output_path,
+                source_path,
+                *executable_objects,
+                *link_flags,
+                *extra_compile_command,
+            ]
+
+            # compile C code
+            print(c_compile_cmd)
+            res = subprocess.run(c_compile_cmd)
+            if res.returncode != 0:
+                raise RuntimeError(
+                    f"Error: Failed to compile C code for function {name}")
         # run tests
         result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
         if result[0] != VerifyResult.SUCCESS:

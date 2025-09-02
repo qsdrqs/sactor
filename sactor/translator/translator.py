@@ -1,4 +1,4 @@
-import json
+import json, subprocess
 import os
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -14,18 +14,22 @@ from .translator_types import TranslateResult
 class Translator(ABC):
     def __init__(self, llm: LLM, c_parser: CParser, config, result_path=None):
         self.llm = llm
+        self.config = config
         self.max_attempts = config['general']['max_translation_attempts']
         self.c_parser = c_parser
         self.failure_info = {}
-
+        self.failure_info_path = "" #FIXME: can not be empty
         if result_path:
             self.result_path = result_path
         else:
             self.result_path = os.path.join(
                 utils.find_project_root(), 'result')
+        
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
-        return self._translate_struct_impl(struct_union)
+        res = self._translate_struct_impl(struct_union)
+        self.save_failure_info(self.failure_info_path)
+        return res
 
     @abstractmethod
     def _translate_enum_impl(
@@ -61,7 +65,9 @@ class Translator(ABC):
         pass
 
     def translate_function(self, function: FunctionInfo) -> TranslateResult:
-        return self._translate_function_impl(function)
+        res = self._translate_function_impl(function)
+        self.save_failure_info(self.failure_info_path)
+        return res
 
     @abstractmethod
     def _translate_function_impl(
@@ -80,12 +86,14 @@ class Translator(ABC):
             "message": error_message,
             "translation": error_translation
         })
+        self.failure_info[item]['status'] = "failure"
 
     def init_failure_info(self, type, item):
         if item not in self.failure_info:
             self.failure_info[item] = {
                 "type": type,
-                "errors": []
+                "errors": [],
+                "status": "untranslated"
             }
 
     def save_failure_info(self, path):
@@ -96,3 +104,19 @@ class Translator(ABC):
         utils.try_backup_file(path)
         with open(path, 'w') as f:
             json.dump(self.failure_info, f, indent=4)
+
+    def has_dependencies_all_translated(self, cursor, dependencies_mapping):
+        for dep in dependencies_mapping(cursor):
+            result = subprocess.run(["find", self.result_path, "-name", f'{dep.name}.rs'], capture_output=True, text=True)
+            if len(result.stdout.strip()) == 0:
+                return False
+        return True
+
+    def print_result_summary(self, title: str):
+        def count_success(ctype: str) -> int:
+            v = sum([1 if v['type'] == ctype and v['status'] == 'success' else 0 for v in self.failure_info.values() ])
+            return v
+
+        print(f"{title} translation result summary:")
+        print(f"Functions: successfully translated {count_success("function")} out of {len(self.c_parser.get_functions())} in total")
+        print(f"Structs or Unions: successfully translated {count_success("struct")} out of {len(self.c_parser.get_structs())} in total")

@@ -1,4 +1,4 @@
-import os
+import os, json
 from ctypes import c_buffer
 from typing import Optional, override
 
@@ -16,6 +16,8 @@ from .translator import Translator
 from .translator_types import TranslateResult
 from ..combiner.rust_code import RustCode
 
+CONST_VAR_MAX_TRANSLATION_LEN = 2048
+
 class UnidiomaticTranslator(Translator):
     def __init__(
         self,
@@ -28,6 +30,7 @@ class UnidiomaticTranslator(Translator):
         result_path=None,
         extra_compile_command=None,
         executable_object=None,
+        processed_compile_commands: list[list[str]] = [],
     ) -> None:
         super().__init__(
             llm=llm,
@@ -35,6 +38,12 @@ class UnidiomaticTranslator(Translator):
             config=config,
             result_path=result_path,
         )
+        self.failure_info_path = os.path.join(
+            self.result_path, "unidiomatic_failure_info.json")
+        if os.path.isfile(self.failure_info_path):
+            with open(self.failure_info_path, 'r') as f:
+                self.failure_info = json.load(f)
+
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_unidiomatic"
 
@@ -52,6 +61,7 @@ class UnidiomaticTranslator(Translator):
             build_path=build_path,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            processed_compile_commands=processed_compile_commands,
         )
 
     @override
@@ -95,7 +105,7 @@ Output the translated enum into this format (wrap with the following tags):
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
-Lastly, the enum is translated as:
+The last time, the enum is translated as:
 ```rust
 {error_translation}
 ```
@@ -176,17 +186,61 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         error_translation=None,
         attempts=0,
     ) -> TranslateResult:
-
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
+        
+        def return_result(global_var_result, verification=True):
+            # check the global variable name, allow const global variable to have different name
+            if global_var.name not in global_var_result and not global_var.is_const:
+                if global_var_result.lower().find(global_var.name.lower()) != -1:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
+                else:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
+                    print(error_message)
+                    self.append_failure_info(
+                        global_var.name, "COMPILE_ERROR", error_message, global_var_result
+                    )
+                    return self._translate_global_vars_impl(
+                        global_var,
+                        verify_result=(
+                            VerifyResult.COMPILE_ERROR, error_message),
+                        error_translation=global_var_result,
+                        attempts=attempts+1
+                    )
+            print("Translated global variable:")
+            print(global_var_result)
+            if verification:
+                # TODO: may add verification here
+                result = self.verifier.try_compile_rust_code(global_var_result)
+                if result[0] != VerifyResult.SUCCESS:
+                    if result[0] == VerifyResult.COMPILE_ERROR:
+                        self.append_failure_info(
+                            global_var.name, "COMPILE_ERROR", result[1], global_var_result)
+                    return self._translate_global_vars_impl(
+                        global_var,
+                        verify_result=result,
+                        error_translation=global_var_result,
+                        attempts=attempts + 1
+                    )
+            global_var_result = rust_ast_parser.unidiomatic_types_cleanup(
+                global_var_result)
+            self.failure_info[global_var.name]['status'] = "success"
+            utils.save_code(global_var_save_path, global_var_result)
+            return TranslateResult.SUCCESS
+           
         if os.path.exists(global_var_save_path):
             print(f"Global variable {global_var.name} already translated")
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
+            # fallback
             print(
-                f"Error: Failed to translate global variable {global_var.name} after {self.max_attempts} attempts")
-            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+                f"Failed to translate global variable {global_var.name} after {self.max_attempts} attempts using LLM.",
+                "Translated it using c2rust"
+                )
+            result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
+            return return_result(result, verification=False)
+
         print(
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
 
@@ -194,9 +248,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if global_var.is_const:
             code_of_global_var = self.c_parser.extract_global_var_definition_code(
                 global_var.name)
+            if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
+                result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
+                return return_result(result, verification=False)
+
             prompt = f'''
 Translate the following C global variable to Rust. Try to keep the **equivalence** as much as possible.
 `libc` will be included as the **only** dependency you can use. To keep the equivalence, you can use `unsafe` if you want.
+In the translation, keep the casing and spelling of the variable name **identical** to the source C code.
 The global variable is:
 ```c
 {code_of_global_var}
@@ -225,7 +284,7 @@ Output the translated global variable into this format (wrap with the following 
 '''
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
-Lastly, the global variable is translated as:
+The last time, the global variable is translated as:
 ```rust
 {error_translation}
 ```
@@ -276,46 +335,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=result,
                 attempts=attempts+1
             )
+        return return_result(global_var_result)
 
-        # check the global variable name, allow const global variable to have different name
-        if global_var.name not in global_var_result and not global_var.is_const:
-            if global_var_result.lower().find(global_var.name.lower()) != -1:
-                error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
-            else:
-                error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
-                print(error_message)
-                self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", error_message, global_var_result
-                )
-                return self._translate_global_vars_impl(
-                    global_var,
-                    verify_result=(
-                        VerifyResult.COMPILE_ERROR, error_message),
-                    error_translation=global_var_result,
-                    attempts=attempts+1
-                )
-
-        print("Translated global variable:")
-        print(global_var_result)
-
-        # TODO: may add verification here
-        result = self.verifier.try_compile_rust_code(global_var_result)
-        if result[0] != VerifyResult.SUCCESS:
-            if result[0] == VerifyResult.COMPILE_ERROR:
-                self.append_failure_info(
-                    global_var.name, "COMPILE_ERROR", result[1], global_var_result)
-            return self._translate_global_vars_impl(
-                global_var,
-                verify_result=result,
-                error_translation=global_var_result,
-                attempts=attempts + 1
-            )
-
-        global_var_result = rust_ast_parser.unidiomatic_types_cleanup(
-            global_var_result)
-
-        utils.save_code(global_var_save_path, global_var_result)
-        return TranslateResult.SUCCESS
 
     def _translate_struct_impl(
         self,
@@ -327,6 +348,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         # Translate all the dependencies of the struct/union
         struct_union_dependencies = struct_union.dependencies
+        self.init_failure_info("struct", struct_union.name)
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
 
@@ -338,6 +360,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 rust_s_u = rust_ast_parser.get_union_definition(
                     self.c2rust_translation, struct_union.name)
             case _:
+                self.append_failure_info(struct_union.name, "TYPE_TRANSLATION_ERROR", f"Error: Invalid data type {struct_union.data_type}", "")
                 raise ValueError(
                     f"Error: Invalid data type {struct_union.data_type}")
 
@@ -345,6 +368,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         rust_s_u = rust_ast_parser.add_derive_to_struct_union(
             rust_s_u, struct_union.name, "Debug")
 
+        self.failure_info[struct_union.name]['status'] = "success"
         # Save the translated struct/union
         utils.save_code(
             f'{self.translated_struct_path}/{struct_union.name}.rs', rust_s_u)
@@ -415,8 +439,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 if struct_name in visited_structs:
                     continue
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
+                    result = self.translate_struct(
+                        self.c_parser.get_struct_info(struct_name)
+                    )
+                    if result != TranslateResult.SUCCESS:
+                        raise RuntimeError(
+                            f"Error: Struct {struct_name} translation failed.")
+                if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
-                        f"Error: Struct {struct_name} is not translated yet")
+                            f"Error: Struct {struct_name} translation failed.")
                 with open(f"{self.translated_struct_path}/{struct_name}.rs", "r") as file:
                     code_of_struct = file.read()
                     code_of_structs[struct_name] = code_of_struct
@@ -444,7 +475,7 @@ For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
         if len(code_of_structs) > 0:
             joint_code_of_structs = '\n'.join(code_of_structs.values())
             prompt += f'''
-The function uses the following structs/unions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function uses the following structs/unions, which are already translated as (you should **NOT** define them in your translation, as the system will automatically define them. But you can use these structs or unions):
 ```rust
 {joint_code_of_structs}
 ```
@@ -463,6 +494,7 @@ The function uses the following type aliases, which are defined as:
 
         used_global_var_nodes = function.global_vars_dependencies
         used_global_vars = {}
+        used_global_vars_only_type_and_names = {}
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
@@ -471,14 +503,23 @@ The function uses the following type aliases, which are defined as:
                 return global_var_res
             with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
                 code_of_global_var = file.read()
+                # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
+                # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
+                # including the value will break the LLM.
+                # FIXME: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
+                type_and_name = f"{code_of_global_var.rsplit("=")[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
+                used_global_vars_only_type_and_names[global_var.name] = type_and_name
 
         if len(used_global_vars) > 0:
-            joint_used_global_vars = '\n'.join(used_global_vars.values())
+            joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
             prompt += f'''
-The function uses the following const global variables, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function uses the following const global variables, which are already translated. The global variables' types and names are provided below, but the values are omitted.
+You should **NOT** define the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation.
+The translated const global variables are:
+:
 ```rust
-{joint_used_global_vars}
+{joint_used_global_vars_only_type_and_names}
 ```
 '''
 
@@ -496,7 +537,7 @@ The function uses some of the following stdio file descriptors: {joint_stdio}. W
 ```rust
 {used_stdio_code}
 ```
-You should **NOT** include them in your translation, as the system will automatically include them.
+You should **NOT** declare or define them in your translation, as the system will automatically define them. But you can use them in your translation.
 '''
 
         # TODO: check upper/lower case of the global variables
@@ -532,14 +573,19 @@ Which are already translated as:
 ```rust
 {joint_code_of_enum}
 ```
-Directly use the translated enums in your translation. You should **NOT** include them in your translation, as the system will automatically include them.
+Directly access the translated enums in your translation. You should **NOT** define or declare them in your translation, as the system will automatically define them.
 '''
 
         if len(function_depedency_signatures) > 0:
             joint_function_depedency_signatures = '\n'.join(
                 function_depedency_signatures)
             prompt += f'''
-The function uses the following functions, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function calls the following functions, which are already translated and defined in Rust.
+Do **NOT** include the definition or declaration of the following functions in your translation.
+If you include them, the output will be considered **invalid**.
+But you can call the following functions in your translation.
+Only output the translation of the function I request.
+The called functions' signatures in Rust are the following:
 ```rust
 {joint_function_depedency_signatures}
 ```
@@ -561,7 +607,7 @@ Output the translated function into this format (wrap with the following tags):
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
-Lastly, the function is translated as:
+The last time, the function is translated as:
 ```rust
 {error_translation}
 ```
@@ -581,7 +627,7 @@ Remember, you should only provide the translation for the function and necessary
 
         elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
             prompt += f'''
-Lastly, the function is translated as:
+The last time, the function is translated as:
 ```rust
 {error_translation}
 ```
@@ -593,7 +639,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
 '''
         elif verify_result[0] == VerifyResult.FEEDBACK:
             prompt += f'''
-Lastly, the function is translated as:
+The last time, the function is translated as:
 ```rust
 {error_translation}
 ```
@@ -736,15 +782,29 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         data_type_code = code_of_structs | used_global_vars | code_of_enum | {
             "stdio": used_stdio_code}
-
-        result = self.verifier.verify_function(
-            function,
-            function_code=function_result,
-            data_type_code=data_type_code,
-            function_dependency_signatures=function_depedency_signatures,
-            function_dependency_uses=function_dependency_uses,
-            has_prefix=prefix
-        )
+        # add error handling because here can raise exceptions
+        try:
+            result = self.verifier.verify_function(
+                function,
+                function_code=function_result,
+                data_type_code=data_type_code,
+                function_dependency_signatures=function_depedency_signatures,
+                function_dependency_uses=function_dependency_uses,
+                has_prefix=prefix
+            )
+        except Exception as e:
+            # FIXME: What is the situation for this?
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", str(e), function_result
+            )
+            # TODO: assign a new error code instead of compile_error?
+            result = (VerifyResult.COMPILE_ERROR, str(e))
+            return self._translate_function_impl(
+                function,
+                result,
+                error_translation=function_result,
+                attempts=attempts+1
+            )
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 compile_error = result[1]
@@ -769,7 +829,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         function_result = rust_ast_parser.unidiomatic_function_cleanup(
             function_result)
-
+        self.failure_info[function.name]["status"] = "success"
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS
 

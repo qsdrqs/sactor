@@ -1,4 +1,4 @@
-import os
+import os, json
 from typing import Optional, override
 
 import sactor.translator as translator
@@ -28,6 +28,7 @@ class IdiomaticTranslator(Translator):
         result_path=None,
         extra_compile_command=None,
         executable_object=None,
+        processed_compile_commands: list[list[str]] = [],
     ):
         super().__init__(
             llm=llm,
@@ -35,6 +36,12 @@ class IdiomaticTranslator(Translator):
             config=config,
             result_path=result_path,
         )
+        self.failure_info_path = os.path.join(
+            self.result_path, "idiomatic_failure_info.json")
+        if os.path.isfile(self.failure_info_path):
+            with open(self.failure_info_path, 'r') as f:
+                self.failure_info = json.load(f)
+
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_idiomatic"
         self.base_name = base_name
@@ -61,6 +68,7 @@ class IdiomaticTranslator(Translator):
             unidiomatic_result_path=self.unidiomatic_result_path,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            processed_compile_commands=processed_compile_commands,
         )
         self.crown_result = crown_result
 
@@ -317,7 +325,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=global_var_result,
                 attempts=attempts + 1
             )
-
+        self.failure_info[global_var.name]['status'] = "success"
         utils.save_code(global_var_save_path, global_var_result)
         return TranslateResult.SUCCESS
 

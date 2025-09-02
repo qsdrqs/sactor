@@ -6,7 +6,6 @@ from sactor.c_parser import FunctionInfo, StructInfo
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 from sactor.data_types import DataType
 from sactor.llm import LLM
-
 from .verifier import Verifier
 from .verifier_types import VerifyResult
 
@@ -23,6 +22,7 @@ class IdiomaticVerifier(Verifier):
         result_path=None,
         unidiomatic_result_path=None,
         executable_object=None,
+        processed_compile_commands: list[list[str]] = [],
     ):
         super().__init__(
             test_cmd_path,
@@ -31,6 +31,7 @@ class IdiomaticVerifier(Verifier):
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            processed_compile_commands=processed_compile_commands,
         )
         self.function_test_harness_dir = os.path.join(
             self.build_path, "function_test_harness")

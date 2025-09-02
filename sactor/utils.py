@@ -1,8 +1,9 @@
-import os
+import os, copy
 import shutil
 import tempfile
 import subprocess
-
+from typing import List, Tuple
+import re, shlex
 import tomli as toml
 from clang.cindex import Cursor, SourceLocation, SourceRange
 
@@ -10,6 +11,7 @@ from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 
+TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
 
 def create_rust_proj(rust_code, proj_name, path, is_lib: bool, proc_macro=False):
     if os.path.exists(path):
@@ -245,28 +247,89 @@ def get_compiler_include_paths() -> list[str]:
 
     return search_include_paths
 
+def is_compile_command(l: List[str]) -> bool:
+    """Return True if it is a compile or link command. Otherwise, False"""
+    if "gcc" in l or "clang" in l:
+        return True
+    return False
 
-def compile_c_code(file_path, is_library=False) -> str:
+def process_commands_to_list(commands: str, to_translate_file: str) -> List[List[str]]:
+    # parse into list of list of str
+    commands = list(map(lambda s: shlex.split(s), filter(lambda s: len(s) > 0, commands.splitlines())))
+    # add -Og -g flags to all compiler commands 
+    for command in commands:
+        if is_compile_command(command):
+            for i, item in enumerate(command[:]):
+                if item.endswith(".c") and os.path.samefile(item, to_translate_file):
+                    command[i] = TO_TRANSLATE_C_FILE_MARKER
+            # The last -O flag overrides all previous -O flags, so don't need to care previous ones
+            command.extend(("-Og", "-g"))
+
+    return commands
+
+
+def process_commands_to_compile(commands: List[List[str]], executable_path: str, source_path: str | list[str]) -> List[List[str]]:
+    commands = copy.deepcopy(commands)
+    for i, command in enumerate(commands[:]):
+        if is_compile_command(command):
+            for j, item in enumerate(command[:]):
+                if item == TO_TRANSLATE_C_FILE_MARKER:
+                        command[j] = source_path
+            if isinstance(source_path, list):
+                flatten_command = []
+                for item in command:
+                    if isinstance(item, list):
+                        flatten_command.extend(item)
+                    else:
+                        flatten_command.append(item)
+                commands[i] = flatten_command
+            
+    # The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
+    if commands and is_compile_command(commands[-1]):
+        try:
+            i = commands[-1].index("-o")
+        except ValueError:
+            commands[-1].extend(("-o", executable_path))
+        else:
+            commands[-1][i + 1] = executable_path
+    return commands
+
+
+def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) -> str:
     '''
     Compile a C file to a executable file, return the path to the executable
-    '''
 
+    commands: compilation command for a C file. If it requires multiple commands sequentially, separate the commands by newlines.
+    The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
+    All gcc or libtool will be added -Og -g flags.
+    '''
     compiler = get_compiler()
     tmpdir = os.path.join(get_temp_dir(), "c_compile")
     os.makedirs(tmpdir, exist_ok=True)
     executable_path = os.path.join(
         tmpdir, os.path.basename(file_path) + ".out")
-
-    cmd = [
-        compiler,
-        file_path,
-        '-o',
-        executable_path,
-        '-ftrapv',  # enable overflow checking
-    ]
-    if is_library:
-        cmd.append('-c')  # compile to object file instead of executable
-    subprocess.run(cmd, check=True)  # raise exception if failed
+    
+    commands = process_commands_to_compile(commands, executable_path, file_path)
+    if commands:
+        for command in commands:
+            to_check = False
+            if is_compile_command(command):
+                to_check = True
+                command.append("-ftrapv")
+                if is_library:
+                    command.append("-c")
+            _result = subprocess.run(command, check=to_check)
+    else:        
+        cmd = [
+            compiler,
+            file_path,
+            '-o',
+            executable_path,
+            '-ftrapv',  # enable overflow checking
+        ]
+        if is_library:
+            cmd.append('-c')  # compile to object file instead of executable
+        subprocess.run(cmd, check=True)  # raise exception if failed
 
     return executable_path
 
@@ -357,4 +420,34 @@ def scan_ws_semicolon_bytes(data: bytes, pos: int) -> int:
     if pos < n and data[pos:pos+1] == b';':
         pos += 1
     return pos
+
+def get_compile_flags_from_commands(processed_compile_commands: List[List[str]]) -> list[str]:
+        """To get only the compile flags, for the C source file. If they have specific linking flags, this function does not care."""
+        processed_commands = copy.deepcopy(processed_compile_commands)
+        cmd = []
+        # assume the first command mentioning the to-be-translated C source is the command containing the flags.
+        # TODO: This code assumes that the first such command is either a compile command or a compile-and-linking command. Add checks to test
+        #       if it is.
+        for cmd2 in processed_commands:
+            if TO_TRANSLATE_C_FILE_MARKER in cmd2:
+                cmd = cmd2
+                break
+        processed_commands = cmd
+        flags =  list(filter(lambda s: s.startswith("-"), processed_commands))
+        # flags for macro-expanding C source files with tests
+        del_index = []
+        for i, flag in enumerate(flags):
+            if flag == "-o" or flag == '-c' or flag.startswith("-M"):
+                del_index.append(i)
+        for i in del_index[::-1]:
+            del flags[i]
+        # flags for macro-expanding C source files without tests. We remove test flags if they are wrongly included by the input.
+        del_index = []
+        for i, flag in enumerate(flags):
+            if re.search(r"-D[\w\d_]*?TEST", flag) :
+                del_index.append(i)
+        for i in del_index[::-1]:
+            del flags[i]
+        flags_without_tests = flags
+        return flags_without_tests
 

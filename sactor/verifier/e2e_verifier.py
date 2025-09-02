@@ -1,4 +1,4 @@
-import os
+import os, shlex
 import subprocess
 from typing import override, Optional
 
@@ -18,6 +18,8 @@ class E2EVerifier(Verifier):
         extra_compile_command=None,
         is_executable=True,
         executable_object=None,
+        processed_compile_commands: list[list[str]] = [],
+
     ):
         super().__init__(
             test_cmd_path,
@@ -26,6 +28,7 @@ class E2EVerifier(Verifier):
             no_feedback=no_feedback,
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
+            processed_compile_commands=processed_compile_commands,
         )
         self.is_executable = is_executable
 
@@ -49,25 +52,25 @@ class E2EVerifier(Verifier):
                 raise ValueError(
                     "executable_object must be provided for library code")
 
-            executable_objects = self.executable_object.split()
-
+            executable_objects = shlex.split(self.executable_object)
+            link_flags = [f'-L{self.build_attempt_path}/target/debug',
+                '-lbuild_attempt',
+                '-lm']
             program_combiner_path = os.path.join(
                 self.build_path, "program_combiner")
             os.makedirs(program_combiner_path, exist_ok=True)
             compiler = utils.get_compiler()
-
+            
             # make sure executable_objects in front of -l
             c_compile_cmd = [
                 compiler,
                 '-o',
                 os.path.join(program_combiner_path, "combined"),
                 *executable_objects,
-                f'-L{self.build_attempt_path}/target/debug',
-                '-lbuild_attempt',
-                '-lm'
+                *link_flags
             ]
             if self.extra_compile_command:
-                c_compile_cmd.extend(self.extra_compile_command.split())
+                c_compile_cmd.extend(self.extra_compile_command)
 
             print(c_compile_cmd)
             res = subprocess.run(c_compile_cmd)

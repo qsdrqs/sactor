@@ -1,4 +1,4 @@
-import os
+import os, shlex
 
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
@@ -26,11 +26,20 @@ class Sactor:
         llm_stat=None,
         extra_compile_command=None,
         executable_object=None,
+        all_compile_commands: str="",
+        # compile_commands_file: compile_commands.json
+        compile_commands_file: str=""
     ):
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
-        self.input_file_preprocessed = preprocess_source_code(input_file)
+        
+        self.all_compile_commands = all_compile_commands
+        self.processed_compile_commands = utils.process_commands_to_list(
+            self.all_compile_commands,
+            self.input_file
+        )
+        self.input_file_preprocessed = preprocess_source_code(input_file, self.processed_compile_commands)
         self.test_cmd_path = test_cmd_path
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
@@ -47,6 +56,8 @@ class Sactor:
         self.extra_compile_command = extra_compile_command
         self.is_executable = is_executable
         self.executable_object = executable_object
+            
+        self.compile_commands_file = compile_commands_file
         if not is_executable and executable_object is None:
             raise ValueError(
                 "executable_object must be provided for library translation")
@@ -60,7 +71,11 @@ class Sactor:
                 f"Missing requirements: {', '.join(missing_requirements)}")
 
         # Initialize Processors
-        self.c_parser = CParser(self.input_file_preprocessed)
+        compile_only_flags = utils.get_compile_flags_from_commands(self.processed_compile_commands)
+        self.compile_only_flags = compile_only_flags
+        include_flags = list(filter(lambda s: s.startswith("-I"), compile_only_flags))
+        self.c_parser = CParser(self.input_file_preprocessed, extra_args=include_flags)
+
         self.divider = Divider(self.c_parser)
 
         self.struct_order = self.divider.get_struct_order()
@@ -77,8 +92,7 @@ class Sactor:
 
         print("Struct order: ", self.struct_order)
         print("Function order: ", self.function_order)
-
-        self.c2rust = C2Rust(self.input_file)
+        self.c2rust = C2Rust(self.input_file_preprocessed)
         self.combiner = ProgramCombiner(
             self.config,
             c_parser=self.c_parser,
@@ -87,6 +101,7 @@ class Sactor:
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             is_executable=self.is_executable,
+            processed_compile_commands=self.processed_compile_commands
         )
 
         # Initialize LLM
@@ -99,8 +114,10 @@ class Sactor:
         # Collect failure info
         unidiomatic_translator.save_failure_info(os.path.join(
             self.result_dir, "unidiomatic_failure_info.json"))
+        
         if result != TranslateResult.SUCCESS:
             self.llm.statistic(self.llm_stat)
+            unidiomatic_translator.print_result_summary("Unidiomatic")
             raise ValueError(
                 f"Failed to translate unidiomatic code: {result}")
         combine_result, _ = self.combiner.combine(
@@ -135,7 +152,7 @@ class Sactor:
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation()
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(compile_flags=self.compile_only_flags)
 
         translator = UnidiomaticTranslator(
             self.llm,
@@ -147,32 +164,38 @@ class Sactor:
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
+            processed_compile_commands=self.processed_compile_commands,
         )
         return translator
+    
+
+
 
     def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
-
+        final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
+                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
+                    continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate struct {struct}")
-                    return result, translator
+                    final_result = result
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                # TODO: support multiple functions for each translation
+                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
+                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
+                    continue
                 result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate function {function}")
-                    return result, translator
+                    final_result = result
 
-        return TranslateResult.SUCCESS, translator
+        return final_result, translator
 
     def _new_idiomatic_translator(self):
         if self.c2rust_translation is None:
-            self.c2rust_translation = self.c2rust.get_c2rust_translation()
+            self.c2rust_translation = self.c2rust.get_c2rust_translation(self.compile_only_flags)
 
         crown = Crown(self.build_dir)
         crown.analyze(self.c2rust_translation)
@@ -188,27 +211,30 @@ class Sactor:
             result_path=self.result_dir,
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
+            processed_compile_commands=self.processed_compile_commands,
         )
 
         return translator
 
     def _run_idiomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_idiomatic_translator()
-
+        final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                # TODO: support multiple structs for each translation
+                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
+                    continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate struct {struct}")
-                    return result, translator
+                    final_result = result
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                # TODO: support multiple functions for each translation
+                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
+                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
+                    continue
                 result = translator.translate_function(function)
-                if result != TranslateResult.SUCCESS:
-                    print(f"Failed to translate function {function}")
-                    return result, translator
 
-        return TranslateResult.SUCCESS, translator
+                if result != TranslateResult.SUCCESS:
+                    final_result = result
+
+        return final_result, translator

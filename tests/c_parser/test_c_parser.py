@@ -98,9 +98,9 @@ def test_function_get_declaration():
     c_parser = CParser(file_path)
 
     foo = c_parser.get_function_info('foo')
-    foo_declaration_node = foo.get_declaration_node()
-    assert foo_declaration_node is not None
-
+    foo_declaration_node = foo.get_declaration_nodes()
+    assert len(foo_declaration_node) > 0
+    foo_declaration_node = foo_declaration_node[0]
     foo_start_line = foo.node.extent.start.line
     foo_declaration_start_line = foo_declaration_node.extent.start.line
     print(
@@ -108,8 +108,8 @@ def test_function_get_declaration():
     assert foo_declaration_start_line < foo_start_line
 
     main = c_parser.get_function_info('main')
-    main_declaration_node = main.get_declaration_node()
-    assert main_declaration_node is None
+    main_declaration_node = main.get_declaration_nodes()
+    assert len(main_declaration_node) == 0
 
 
 def test_global_var():

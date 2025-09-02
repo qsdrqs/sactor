@@ -130,6 +130,30 @@ fn get_struct_definition(source_code: &str, struct_name: &str) -> PyResult<Strin
 
 #[gen_stub_pyfunction]
 #[pyfunction]
+fn get_static_item_definition(source_code: &str, item_name: &str) -> PyResult<String> {
+    let ast = parse_src(source_code)?;
+
+    for item in ast.items.iter() {
+        if let syn::Item::Static(s) = item {
+            if s.ident == item_name {
+                let file = syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![syn::Item::Static(s.clone())],
+                };
+                return Ok(prettyplease::unparse(&file));
+            }
+        }
+    }
+
+    Err(pyo3::exceptions::PyValueError::new_err(format!(
+        "Static item '{}' not found",
+        item_name
+    )))
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
 fn get_union_definition(source_code: &str, union_name: &str) -> PyResult<String> {
     let ast = parse_src(source_code)?;
 
@@ -737,6 +761,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_derive_to_struct_union, m)?)?;
     m.add_function(wrap_pyfunction!(unidiomatic_function_cleanup, m)?)?;
     m.add_function(wrap_pyfunction!(unidiomatic_types_cleanup, m)?)?;
+    m.add_function(wrap_pyfunction!(get_static_item_definition, m)?)?;
     m.add_function(wrap_pyfunction!(expand_use_aliases, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]

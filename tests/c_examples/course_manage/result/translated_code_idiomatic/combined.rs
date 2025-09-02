@@ -1,14 +1,14 @@
 #[derive(Clone, Debug)]
-pub struct Course {
-    pub courseName: String,
-    pub courseCode: i32,
-}
-#[derive(Clone, Debug)]
 pub struct Student {
     pub name: Option<String>,
     pub age: i32,
     pub enrolledCourse: Option<Box<Course>>,
     pub grades: Vec<f32>,
+}
+#[derive(Clone, Debug)]
+pub struct Course {
+    pub courseName: String,
+    pub courseCode: i32,
 }
 fn printUsage() {
     println ! ("Usage: ./program <student_name> <age> <course_name> <course_code> <grade1> [grade2] [grade3] ...");

@@ -25,7 +25,6 @@ class CParser:
         args.extend([f"-I{path}" for path in self.compiler_include_paths])
         self.translation_unit = index.parse(
             self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
-
         # check diagnostics
         if not omit_error and len(self.translation_unit.diagnostics) > 0:
             for diag in self.translation_unit.diagnostics:
@@ -46,7 +45,8 @@ class CParser:
 
         self._extract_functions()
         self._update_functions()
-
+        # only structs used by functions are preserved. Otherwise c2rust does not have corresponding translation
+        self._structs_unions = self._get_all_used_structs()
     @staticmethod
     def is_func_type(t: cindex.Type) -> bool:
         try:
@@ -59,7 +59,8 @@ class CParser:
 
     def get_code(self):
         with open(self.filename, "r") as file:
-            return file.read()
+            code = file.read()
+            return code
 
     def get_struct_info(self, struct_name):
         """
@@ -93,6 +94,7 @@ class CParser:
 
     def get_global_vars(self) -> list[GlobalVarInfo]:
         return list(self._global_vars.values())
+    
 
     def get_enum_info(self, enum_name):
         """
@@ -113,7 +115,7 @@ class CParser:
         self._process_typedef_nodes(
             self.translation_unit.cursor, typedef_nodes=typedef_nodes)
         return typedef_nodes
-
+    
     def _extract_type_alias(self):
         """
         Extracts type aliases (typedefs) from the C file.
@@ -238,6 +240,19 @@ class CParser:
         for child in node.get_children():
             self._collect_structs_and_unions(child)
 
+    def _get_all_used_structs(self) -> dict[str, StructInfo]:
+        used = {}
+        for item in self.get_functions():
+            for item2 in item.struct_dependencies:
+                used[item2.name] = item2
+        for item in used.values():
+            for item2 in item.dependencies:
+                used[item2.name] = item2
+        # TODO: global variable struct and enum dependencies
+        # struct's enum dependencies
+        # enum's struct dependencies
+        return used        
+
     def _extract_function_info(self, node):
         """
         Recursively extracts function information from the AST.
@@ -306,10 +321,17 @@ class CParser:
         excluding standard library functions.
         """
         called_functions = set()
+        if not node:
+            return called_functions
+        #debug
+        # print("_collect_function", node.displayname, flush=True)
         for child in node.get_children():
             if child.kind == cindex.CursorKind.CALL_EXPR:
+                # print("child.kind:", child.displayname, flush=True)
                 called_func_cursor = child.referenced
+
                 if called_func_cursor:
+                    # print("called func cursor:", called_func_cursor.displayname, flush=True)
                     # Exclude functions declared in system headers
                     if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
                         called_functions.add(called_func_cursor.spelling)
@@ -318,6 +340,10 @@ class CParser:
                     called_func_name = child.spelling or child.displayname
                     if called_func_name in function_names:
                         called_functions.add(called_func_name)
+                # TODO: Optimize algorithm to be more efficient.
+                #       It seems when traversing all functions to calculate dependencies of 
+                #       each function, duplicate calculations will occur. Store visited functions and 
+                #       do not visit them again.
             called_functions.update(
                 self._collect_function_dependencies(child, function_names))
         return called_functions
