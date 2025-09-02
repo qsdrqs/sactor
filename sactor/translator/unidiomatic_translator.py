@@ -506,7 +506,7 @@ The function uses the following type aliases, which are defined as:
                 # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
                 # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
                 # including the value will break the LLM.
-                # TODO: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
+                # FIXME: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
                 type_and_name = f"{code_of_global_var.rsplit("=")[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
                 used_global_vars_only_type_and_names[global_var.name] = type_and_name
@@ -793,6 +793,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 has_prefix=prefix
             )
         except Exception as e:
+            # FIXME: What is the situation for this?
             self.append_failure_info(
                 function.name, "COMPILE_ERROR", str(e), function_result
             )

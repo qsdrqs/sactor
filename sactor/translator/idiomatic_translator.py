@@ -204,7 +204,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
-            
             print(
                 f"Error: Failed to translate global variable {global_var.name} after {self.max_attempts} attempts")
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
@@ -595,16 +594,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 struct_path = os.path.join(
                     self.translated_struct_path, struct_name + ".rs")
                 if not os.path.exists(struct_path):
-                    result = self.translate_struct(
-                        self.c_parser.get_struct_info(struct_name)
-                    )
-                    if result != TranslateResult.SUCCESS:
-                        raise RuntimeError(
-                            f"Error: Struct {struct_name} translation failed.")
-                if not os.path.exists(struct_path):
                     raise RuntimeError(
-                            f"Error: Struct {struct_name} translation failed.")
-
+                        f"Error: Struct {struct_name} is not translated yet")
                 with open(struct_path, "r") as file:
                     code_of_structs[struct_name] = file.read()
                     visited_structs.add(struct_name)

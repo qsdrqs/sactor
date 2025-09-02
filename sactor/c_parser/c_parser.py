@@ -1,7 +1,6 @@
 from clang import cindex
 
 from sactor import utils
-import re
 
 from .enum_info import EnumInfo, EnumValueInfo
 from .function_info import FunctionInfo

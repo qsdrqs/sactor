@@ -1,6 +1,6 @@
 import os
 import re
-import shutil, shlex
+import shutil
 import subprocess
 
 from clang import cindex

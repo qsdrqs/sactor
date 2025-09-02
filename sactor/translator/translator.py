@@ -18,7 +18,7 @@ class Translator(ABC):
         self.max_attempts = config['general']['max_translation_attempts']
         self.c_parser = c_parser
         self.failure_info = {}
-        self.failure_info_path = ""
+        self.failure_info_path = "" #FIXME: can not be empty
         if result_path:
             self.result_path = result_path
         else:

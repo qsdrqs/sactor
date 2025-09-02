@@ -25,8 +25,6 @@ class ProgramCombiner(Combiner):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
-
-
     ):
         self.config = config
         self.c_parser = c_parser
