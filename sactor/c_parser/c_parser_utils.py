@@ -143,8 +143,8 @@ def unfold_typedefs(input_file):
     c_parser = CParser(input_file, omit_error=True)
     type_aliases = c_parser._type_alias
 
-    with open(input_file, 'r') as f:
-        content = f.read()
+    text_str, data_bytes, b2s, s2b = utils.load_text_with_mappings(input_file)
+    content = text_str
 
     # Remove/replace typedef declarations using libclang
     typedef_nodes = c_parser.get_typedef_nodes()
@@ -163,17 +163,17 @@ def unfold_typedefs(input_file):
                 enum_child = child
                 break
 
-        start_offset = node.extent.start.offset
-        end_offset = node.extent.end.offset
-
-        while end_offset < len(content) and content[end_offset] in ' \t\n':
-            end_offset += 1
-        if end_offset < len(content) and content[end_offset] == ';':
-            end_offset += 1
+        _start_b = node.extent.start.offset
+        _end_b = node.extent.end.offset
+        _end_b = utils.scan_ws_semicolon_bytes(data_bytes, _end_b) # For removing trailing semicolon and whitespace
+        start_offset = utils.byte_to_str_index(b2s, _start_b)
+        end_offset = utils.byte_to_str_index(b2s, _end_b)
 
         if struct_child:
-            struct_start = struct_child.extent.start.offset
-            struct_end = struct_child.extent.end.offset
+            _struct_start_b = struct_child.extent.start.offset
+            _struct_end_b = struct_child.extent.end.offset
+            struct_start = utils.byte_to_str_index(b2s, _struct_start_b)
+            struct_end = utils.byte_to_str_index(b2s, _struct_end_b)
             typedef_name = node.spelling
             struct_body = content[struct_start:struct_end]
 
@@ -197,8 +197,10 @@ def unfold_typedefs(input_file):
 
             content = content[:start_offset] + struct_text + content[end_offset:]
         elif enum_child:
-            enum_start = enum_child.extent.start.offset
-            enum_end = enum_child.extent.end.offset
+            _enum_start_b = enum_child.extent.start.offset
+            _enum_end_b = enum_child.extent.end.offset
+            enum_start = utils.byte_to_str_index(b2s, _enum_start_b)
+            enum_end = utils.byte_to_str_index(b2s, _enum_end_b)
             typedef_name = node.spelling
 
             # Handle anonymous enum typedef
@@ -223,6 +225,8 @@ def unfold_typedefs(input_file):
         tmp_file_path = os.path.join(tmp_dir, 'temp_unfolded.c')
         with open(tmp_file_path, 'w') as tmp_file:
             tmp_file.write(content)
+        txt2, b2, b2s2, s2b2 = utils.load_text_with_mappings(tmp_file_path)
+        content = txt2
 
         try:
             # Re-parse the modified content
@@ -247,8 +251,10 @@ def unfold_typedefs(input_file):
                 if (token.kind == cindex.TokenKind.IDENTIFIER and
                         token.spelling in type_aliases):
 
-                    start_offset = token.extent.start.offset
-                    end_offset = token.extent.end.offset
+                    _tok_start_b = token.extent.start.offset
+                    _tok_end_b = token.extent.end.offset
+                    start_offset = utils.byte_to_str_index(b2s2, _tok_start_b)
+                    end_offset = utils.byte_to_str_index(b2s2, _tok_end_b)
 
                     # Make sure the token text actually matches
                     if (start_offset < len(content) and

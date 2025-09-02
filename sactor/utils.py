@@ -298,3 +298,63 @@ def try_backup_file(file_path):
         number += 1
 
     os.rename(file_path, backup_path)
+
+
+################################
+# Utils for c parser
+################################
+def load_text_with_mappings(path: str, encoding: str = 'utf-8'):
+    """
+    Read a text file as both bytes and string and build offset mappings.
+
+    Returns a tuple (text_str, data_bytes, b2s, s2b) where:
+    - text_str: the file decoded as a Python string using the given encoding
+    - data_bytes: the raw file content in bytes
+    - b2s: list mapping byte offset -> string index (codepoint index)
+    - s2b: list mapping string index -> byte offset
+    """
+    with open(path, 'rb') as f:
+        data_bytes = f.read()
+    text_str = data_bytes.decode(encoding, errors='strict')
+    b_len = len(data_bytes)
+    s_len = len(text_str)
+    b2s = [0] * (b_len + 1)
+    s2b = [0] * (s_len + 1)
+    byte_pos = 0
+    for i, ch in enumerate(text_str):
+        s2b[i] = byte_pos
+        bl = len(ch.encode(encoding))
+        for k in range(bl):
+            if byte_pos + k <= b_len:
+                b2s[byte_pos + k] = i
+        byte_pos += bl
+    s2b[s_len] = b_len
+    b2s[b_len] = s_len
+    return text_str, data_bytes, b2s, s2b
+
+
+def byte_to_str_index(b2s: list[int], b_off: int) -> int:
+    """
+    Convert a byte offset (from libclang extents) to a Python string index
+    using a precomputed byte->string mapping.
+    """
+    if b_off < 0:
+        return 0
+    if b_off >= len(b2s):
+        return b2s[-1]
+    return b2s[b_off]
+
+
+def scan_ws_semicolon_bytes(data: bytes, pos: int) -> int:
+    """
+    From a byte position, skip ASCII whitespace and one optional semicolon.
+
+    Returns the new byte position after skipping.
+    """
+    n = len(data)
+    while pos < n and data[pos:pos+1] in (b' ', b'\t', b'\n', b'\r'):
+        pos += 1
+    if pos < n and data[pos:pos+1] == b';':
+        pos += 1
+    return pos
+
