@@ -6,6 +6,7 @@ from sactor.test_runner import ExecutableTestRunner
 from sactor.test_runner import TestRunnerResult as Result
 from sactor.verifier import UnidiomaticVerifier, VerifyResult
 from sactor import utils
+from sactor.utils import read_file
 from tests.test_generator.test_test_generator import (
     c_file_executable_arguments, c_file_executable_scanf)
 from tests.utils import config
@@ -13,8 +14,8 @@ from tests.utils import config
 
 def test_test_runner(c_file_executable_arguments):
     test_samples_path = 'tests/c_examples/add/test_task/test_samples.json'
-    with open(test_samples_path, 'r') as file:
-        test_samples_output = json.load(file)
+    test_samples_content = read_file(test_samples_path)
+    test_samples_output = json.loads(test_samples_content)
 
     len_test_samples_output = len(test_samples_output)
     runner = ExecutableTestRunner(
@@ -29,8 +30,8 @@ def test_test_runner(c_file_executable_arguments):
 
 def test_test_runner2(c_file_executable_scanf):
     test_samples_path = 'tests/c_examples/add_scanf/test_task/test_samples.json'
-    with open(test_samples_path, 'r') as file:
-        test_samples_output = json.load(file)
+    test_samples_content = read_file(test_samples_path)
+    test_samples_output = json.loads(test_samples_content)
 
     len_test_samples_output = len(test_samples_output)
     runner = ExecutableTestRunner(
@@ -49,8 +50,8 @@ def test_test_runner_e2e(c_file_executable_arguments, config):
     abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        with open(test_task, 'r') as f:
-            test_task = f.read().replace('${PLACE_HOLDER}', abs_test_samples_dir)
+        test_task_content = read_file(test_task)
+        test_task = test_task_content.replace('${PLACE_HOLDER}', abs_test_samples_dir)
         with open(f'{tmpdirname}/test_task.json', 'w') as f:
             f.write(test_task)
 
@@ -64,8 +65,8 @@ def test_test_runner_e2e_2(c_file_executable_scanf, config):
     abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        with open(test_task, 'r') as f:
-            test_task = f.read().replace('${PLACE_HOLDER}', abs_test_samples_dir)
+        test_task_content = read_file(test_task)
+        test_task = test_task_content.replace('${PLACE_HOLDER}', abs_test_samples_dir)
         with open(f'{tmpdirname}/test_task.json', 'w') as f:
             f.write(test_task)
 

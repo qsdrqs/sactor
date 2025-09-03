@@ -6,13 +6,13 @@ import pytest
 import glob
 
 from sactor.c_parser import c_parser_utils
+from sactor.utils import read_file
 from tests import utils as test_utils
 
 
 def test_function_get_declaration():
     file_path = 'tests/verifier/mutation_test.c'
-    with open(file_path, 'r') as f:
-        source_code = f.read()
+    source_code = read_file(file_path)
     output = c_parser_utils.remove_function_static_decorator(
         'add', source_code)
     print(output)
@@ -60,8 +60,7 @@ def test_expand_macro():
             f.write(c_code)
 
         out_path = c_parser_utils.expand_all_macros(test_file)
-        with open(out_path) as f:
-            content = f.read()
+        content = read_file(out_path)
 
         # Assertions
         assert "#include <stdio.h>" in content, "Should restore includes"
@@ -85,11 +84,9 @@ def test_unfold_typedefs(original_file):
         test_file = os.path.join(tmpdir, "test.c")
         shutil.copy(original_file, test_file)
         out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-            print(actual_content)
-        with open(expected_file) as f:
-            expected_content = f.read()
+        actual_content = read_file(out_path)
+        print(actual_content)
+        expected_content = read_file(expected_file)
         assert actual_content == expected_content, "The unfolded code does not match the expected code."
     finally:
         shutil.rmtree(tmpdir)

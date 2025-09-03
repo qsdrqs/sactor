@@ -7,7 +7,7 @@ from clang import cindex
 from clang.cindex import Cursor, Index, TranslationUnit
 
 from sactor import utils
-from sactor.utils import get_temp_dir
+from sactor.utils import get_temp_dir, read_file, read_file_lines
 
 from .c_parser import CParser
 
@@ -112,30 +112,30 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
             if not bool(cindex.conf.lib.clang_Location_isInSystemHeader(header_location)):
                 # print(header.name , "include source location:", loc.file.name)
                 non_system_includes[loc.line] = header.name
+
         new_lines = []
         # exclude system includes (includes in compiler include paths)
         for path in compiler_include_paths:
             non_system_includes = {k: v for k, v in non_system_includes.items() if not v.startswith(path)}
         if non_system_includes:
-            with open(tmp_file_path, 'r') as f:
-                for i, line in enumerate(f, start=1):
-                    if i in non_system_includes:
-                        header_file = non_system_includes[i]
-                        try:
-                            with open(header_file, "r") as hf:
-                                header_content = hf.read()
-                            # Paste raw contents, but don’t recursively expand
-                            new_lines.append(f"/* Begin expanded {header_file} */\n")
-                            new_lines.append(header_content)
-                            if not header_content.endswith("\n"):
-                                new_lines.append("\n")
-                            new_lines.append(f"/* End expanded {header_file} */\n")
-                        except Exception as e:
-                            print(f"Warning: could not read {header_file}: {e}")
-                            new_lines.append(line)  # fallback
-                    else:
-                        # Keep system includes and other code unchanged
-                        new_lines.append(line)
+            lines = read_file_lines(tmp_file_path)
+            for i, line in enumerate(lines, start=1):
+                if i in non_system_includes:
+                    header_file = non_system_includes[i]
+                    try:
+                        header_content = read_file(header_file)
+                        # Paste raw contents, but don't recursively expand
+                        new_lines.append(f"/* Begin expanded {header_file} */\n")
+                        new_lines.append(header_content)
+                        if not header_content.endswith("\n"):
+                            new_lines.append("\n")
+                        new_lines.append(f"/* End expanded {header_file} */\n")
+                    except Exception as e:
+                        print(f"Warning: could not read {header_file}: {e}")
+                        new_lines.append(line)  # fallback
+                else:
+                    # Keep system includes and other code unchanged
+                    new_lines.append(line)
             with open(tmp_file_path, 'w') as f:
                 f.writelines(new_lines)
 
@@ -149,17 +149,18 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
         file_content_after = utils.read_file(tmp_file_path)
         if file_content_before.strip() == file_content_after.strip():
             break
+
     # remove all remaining headers, to be added after preprocessing
     includes_lines = {}
     new_lines = []
-    with open(tmp_file_path, "r") as f:
-        for line in f:
-            if re.search(r"# *include", line):
-                remove_marker = f"/* sactor remove marker: {len(includes_lines)} */\n"
-                new_lines.append(remove_marker)
-                includes_lines[remove_marker] = line
-            else:
-                new_lines.append(line)
+    lines = read_file_lines(tmp_file_path)
+    for line in lines:
+        if re.search(r"# *include", line):
+            remove_marker = f"/* sactor remove marker: {len(includes_lines)} */\n"
+            new_lines.append(remove_marker)
+            includes_lines[remove_marker] = line
+        else:
+            new_lines.append(line)
     with open(tmp_file_path, "w") as f:
         f.writelines(new_lines)
 

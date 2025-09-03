@@ -6,6 +6,7 @@ import tempfile
 from types import SimpleNamespace
 
 from sactor import rust_ast_parser
+from sactor.utils import read_file
 from sactor.c_parser import CParser
 from sactor.combiner.partial_combiner import PartialCombiner
 from sactor.verifier import UnidiomaticVerifier, Verifier, VerifyResult
@@ -38,13 +39,10 @@ def rust_code():
     functions = {}
     structs = {}
 
-    with open(struct_path1, "r") as f:
-        structs["Course"] = f.read()
-    with open(struct_path2, "r") as f:
-        structs["Student"] = f.read()
+    structs["Course"] = read_file(struct_path1)
+    structs["Student"] = read_file(struct_path2)
 
-    with open(func_path, "r") as f:
-        functions["updateStudentInfo"] = f.read()
+    functions["updateStudentInfo"] = read_file(func_path)
 
     combiner = PartialCombiner(functions, structs)
     _, combined_code = combiner.combine()

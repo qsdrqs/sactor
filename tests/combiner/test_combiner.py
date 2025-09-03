@@ -3,6 +3,7 @@ import shutil
 import tempfile
 
 from sactor import utils
+from sactor.utils import read_file
 from sactor.c_parser import CParser
 from sactor.combiner import ProgramCombiner
 from sactor.combiner import merge_uses
@@ -72,15 +73,11 @@ def test_combine(config):
         combiner_result, _ = combiner.combine(result_path)
         assert combiner_result == CombineResult.SUCCESS
         assert os.path.exists(os.path.join(result_path, 'combined.rs'))
-        with open(os.path.join(result_path, 'combined.rs'), 'r') as f:
-            combined_code = f.read()
-        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/combined.rs', 'r') as f:
-            expected_code = f.read()
+        combined_code = read_file(os.path.join(result_path, 'combined.rs'))
+        expected_code = read_file('tests/c_examples/course_manage/result/translated_code_unidiomatic/combined.rs')
 
-        with open(os.path.join(result_path, 'clippy_stat.json'), 'r') as f:
-            stat = f.read()
-        with open('tests/c_examples/course_manage/result/translated_code_unidiomatic/clippy_stat.json', 'r') as f:
-            expected_stat = f.read()
+        stat = read_file(os.path.join(result_path, 'clippy_stat.json'))
+        expected_stat = read_file('tests/c_examples/course_manage/result/translated_code_unidiomatic/clippy_stat.json')
 
         assert utils.normalize_string(
             stat) == utils.normalize_string(expected_stat)
@@ -112,15 +109,11 @@ def test_combine_idiomatic(config):
         combiner_result, _ = combiner.combine(result_path)
         assert combiner_result == CombineResult.SUCCESS
         assert os.path.exists(os.path.join(result_path, 'combined.rs'))
-        with open(os.path.join(result_path, 'combined.rs'), 'r') as f:
-            combined_code = f.read()
-        with open('tests/c_examples/course_manage/result/translated_code_idiomatic/combined.rs', 'r') as f:
-            expected_code = f.read()
+        combined_code = read_file(os.path.join(result_path, 'combined.rs'))
+        expected_code = read_file('tests/c_examples/course_manage/result/translated_code_idiomatic/combined.rs')
 
-        with open(os.path.join(result_path, 'clippy_stat.json'), 'r') as f:
-            stat = f.read()
-        with open('tests/c_examples/course_manage/result/translated_code_idiomatic/clippy_stat.json', 'r') as f:
-            expected_stat = f.read()
+        stat = read_file(os.path.join(result_path, 'clippy_stat.json'))
+        expected_stat = read_file('tests/c_examples/course_manage/result/translated_code_idiomatic/clippy_stat.json')
 
         assert utils.normalize_string(
             stat) == utils.normalize_string(expected_stat)

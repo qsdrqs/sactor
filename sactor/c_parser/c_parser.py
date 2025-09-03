@@ -1,6 +1,7 @@
 from clang import cindex
 
 from sactor import utils
+from sactor.utils import read_file, read_file_lines
 
 from .enum_info import EnumInfo, EnumValueInfo
 from .function_info import FunctionInfo
@@ -58,9 +59,8 @@ class CParser:
             return False
 
     def get_code(self):
-        with open(self.filename, "r") as file:
-            code = file.read()
-            return code
+        code = read_file(self.filename)
+        return code
 
     def get_struct_info(self, struct_name):
         """
@@ -442,11 +442,10 @@ class CParser:
         if not function_node.is_definition():
             function_node = function_node.get_definition()
 
-        with open(self.filename, "r") as file:
-            lines = file.readlines()
-            start_line = function_node.extent.start.line - 1
-            end_line = function_node.extent.end.line
-            return "".join(lines[start_line:end_line])
+        lines = read_file_lines(self.filename)
+        start_line = function_node.extent.start.line - 1
+        end_line = function_node.extent.end.line
+        return "".join(lines[start_line:end_line])
 
     def extract_struct_union_definition_code(self, struct_union_name):
         """
@@ -460,11 +459,10 @@ class CParser:
         if not struct_union_node.is_definition():
             struct_union_node = struct_union_node.get_definition()
 
-        with open(self.filename, "r") as file:
-            lines = file.readlines()
-            start_line = struct_union_node.extent.start.line - 1
-            end_line = struct_union_node.extent.end.line
-            return "".join(lines[start_line:end_line])
+        lines = read_file_lines(self.filename)
+        start_line = struct_union_node.extent.start.line - 1
+        end_line = struct_union_node.extent.end.line
+        return "".join(lines[start_line:end_line])
 
     def extract_enum_definition_code(self, enum_name):
         """
@@ -477,11 +475,10 @@ class CParser:
         if not enum_node.is_definition():
             enum_node = enum_node.get_definition()
 
-        with open(self.filename, "r") as file:
-            lines = file.readlines()
-            start_line = enum_node.extent.start.line - 1
-            end_line = enum_node.extent.end.line
-            return "".join(lines[start_line:end_line])
+        lines = read_file_lines(self.filename)
+        start_line = enum_node.extent.start.line - 1
+        end_line = enum_node.extent.end.line
+        return "".join(lines[start_line:end_line])
 
     def extract_global_var_definition_code(self, global_var_name):
         """
@@ -492,11 +489,10 @@ class CParser:
         global_var = self.get_global_var_info(global_var_name)
         global_var_node = global_var.node
 
-        with open(self.filename, "r") as file:
-            lines = file.readlines()
-            start_line = global_var_node.extent.start.line - 1
-            end_line = global_var_node.extent.end.line
-            return "".join(lines[start_line:end_line])
+        lines = read_file_lines(self.filename)
+        start_line = global_var_node.extent.start.line - 1
+        end_line = global_var_node.extent.end.line
+        return "".join(lines[start_line:end_line])
 
     def _is_in_system_header(self, node):
         """

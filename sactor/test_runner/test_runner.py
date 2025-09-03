@@ -3,14 +3,15 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import utils
+from sactor.utils import read_file
 
 from .test_runner_types import TestRunnerResult
 
 
 class TestRunner(ABC):
     def __init__(self, test_samples_path: str, target, config_path=None):
-        with open(test_samples_path, 'r') as file:
-            self.test_samples_output: list[dict] = json.load(file)
+        content = read_file(test_samples_path)
+        self.test_samples_output: list[dict] = json.loads(content)
 
         self.config = utils.try_load_config(config_path)
         self.timeout_seconds = self.config['test_runner']['timeout_seconds']

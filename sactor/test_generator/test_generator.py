@@ -4,6 +4,7 @@ import shutil
 from abc import ABC, abstractmethod
 
 from sactor import utils
+from sactor.utils import read_file
 from sactor.c_parser import CParser
 from sactor.llm import llm_factory
 from .test_generator_types import TestGeneratorResult
@@ -22,8 +23,7 @@ class TestGenerator(ABC):
         self.test_samples = set(test_samples)
         self.file_path = file_path
         if input_document:
-            with open(input_document, 'r') as f:
-                self.input_document = f.read()
+            self.input_document = read_file(input_document)
         else:
             self.input_document = None
         self.test_samples_output = []
@@ -49,8 +49,8 @@ class TestGenerator(ABC):
 
         # parse the test_samples path
         if test_samples_path:
-            with open(test_samples_path, 'r') as f:
-                test_samples = json.load(f)
+            content = read_file(test_samples_path)
+            test_samples = json.loads(content)
             for sample in test_samples:
                 self.test_samples.add(sample['input']) # only append the input, ignore the output
 

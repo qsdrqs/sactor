@@ -422,37 +422,43 @@ def scan_ws_semicolon_bytes(data: bytes, pos: int) -> int:
     return pos
 
 def get_compile_flags_from_commands(processed_compile_commands: List[List[str]]) -> list[str]:
-        """To get only the compile flags, for the C source file. If they have specific linking flags, this function does not care."""
-        processed_commands = copy.deepcopy(processed_compile_commands)
-        cmd = []
-        # assume the first command mentioning the to-be-translated C source is the command containing the flags.
-        # TODO: This code assumes that the first such command is either a compile command or a compile-and-linking command. Add checks to test
-        #       if it is.
-        for cmd2 in processed_commands:
-            if TO_TRANSLATE_C_FILE_MARKER in cmd2:
-                cmd = cmd2
-                break
-        processed_commands = cmd
-        flags =  list(filter(lambda s: s.startswith("-"), processed_commands))
-        # flags for macro-expanding C source files with tests
-        del_index = []
-        for i, flag in enumerate(flags):
-            if flag == "-o" or flag == '-c' or flag.startswith("-M"):
-                del_index.append(i)
-        for i in del_index[::-1]:
-            del flags[i]
-        # flags for macro-expanding C source files without tests. We remove test flags if they are wrongly included by the input.
-        del_index = []
-        for i, flag in enumerate(flags):
-            if re.search(r"-D[\w\d_]*?TEST", flag) :
-                del_index.append(i)
-        for i in del_index[::-1]:
-            del flags[i]
-        flags_without_tests = flags
-        return flags_without_tests
+    """To get only the compile flags, for the C source file. If they have specific linking flags, this function does not care."""
+    processed_commands = copy.deepcopy(processed_compile_commands)
+    cmd = []
+    # assume the first command mentioning the to-be-translated C source is the command containing the flags.
+    # TODO: This code assumes that the first such command is either a compile command or a compile-and-linking command. Add checks to test
+    #       if it is.
+    for cmd2 in processed_commands:
+        if TO_TRANSLATE_C_FILE_MARKER in cmd2:
+            cmd = cmd2
+            break
+    processed_commands = cmd
+    flags =  list(filter(lambda s: s.startswith("-"), processed_commands))
+    # flags for macro-expanding C source files with tests
+    del_index = []
+    for i, flag in enumerate(flags):
+        if flag == "-o" or flag == '-c' or flag.startswith("-M"):
+            del_index.append(i)
+    for i in del_index[::-1]:
+        del flags[i]
+    # flags for macro-expanding C source files without tests. We remove test flags if they are wrongly included by the input.
+    del_index = []
+    for i, flag in enumerate(flags):
+        if re.search(r"-D[\w\d_]*?TEST", flag) :
+            del_index.append(i)
+    for i in del_index[::-1]:
+        del flags[i]
+    flags_without_tests = flags
+    return flags_without_tests
 
 def read_file(path: str) -> str:
     if not os.path.exists(path):
         raise FileNotFoundError(f"Could not find file {path}")
     with open(path, "r") as f:
         return f.read()
+
+def read_file_lines(path: str) -> List[str]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Could not find file {path}")
+    with open(path, "r") as f:
+        return f.readlines()

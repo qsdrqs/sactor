@@ -4,6 +4,7 @@ from typing import Optional, override
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
+from sactor.utils import read_file
 from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
 from sactor.llm import LLM
@@ -39,8 +40,8 @@ class IdiomaticTranslator(Translator):
         self.failure_info_path = os.path.join(
             self.result_path, "idiomatic_failure_info.json")
         if os.path.isfile(self.failure_info_path):
-            with open(self.failure_info_path, 'r') as f:
-                self.failure_info = json.load(f)
+            content = read_file(self.failure_info_path)
+            self.failure_info = json.loads(content)
 
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_idiomatic"
@@ -97,8 +98,7 @@ class IdiomaticTranslator(Translator):
         if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
             raise RuntimeError(
                 f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet")
-        with open(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs", "r") as file:
-            code_of_enum = file.read()
+        code_of_enum = read_file(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs")
         prompt = f'''
 Translate the following unidiomatic Rust enum to idiomatic Rust. Try to avoid using raw pointers in the translation of the enum.
 The enum is:
@@ -216,8 +216,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
                 raise RuntimeError(
                     f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet")
-            with open(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs", "r") as file:
-                code_of_global_var = file.read()
+            code_of_global_var = read_file(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs")
             prompt = f'''
 Translate the following unidiomatic Rust const global variable to idiomatic Rust. Try to avoid using raw pointers in the translation of the global variable.
 The global variable is:
@@ -362,8 +361,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             raise RuntimeError(
                 f"Error: Struct {struct_union.name} is not translated into unidiomatic Rust yet")
 
-        with open(struct_path, "r") as file:
-            unidiomatic_struct_code = file.read()
+        unidiomatic_struct_code = read_file(struct_path)
 
         # Get results from crown
         crown_output = self.crown_result.query(
@@ -379,8 +377,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             if not os.path.exists(struct_path):
                 raise RuntimeError(
                     f"Error: Dependency {dependency_name} of struct {struct_union.name} is not translated yet")
-            with open(struct_path, "r") as file:
-                dependencies_code[dependency_name] = file.read()
+            dependencies_code[dependency_name] = read_file(struct_path)
         joined_dependencies_code = '\n'.join(dependencies_code.values())
 
         # Translate the struct
@@ -596,9 +593,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 if not os.path.exists(struct_path):
                     raise RuntimeError(
                         f"Error: Struct {struct_name} is not translated yet")
-                with open(struct_path, "r") as file:
-                    code_of_structs[struct_name] = file.read()
-                    visited_structs.add(struct_name)
+                code_of_structs[struct_name] = read_file(struct_path)
+                visited_structs.add(struct_name)
 
         # Get used global variables
         used_global_var_nodes = function.global_vars_dependencies
@@ -629,9 +625,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 raise RuntimeError(
                     f"Error: Dependency {f} of function {function.name} is not translated yet")
             # get the translated function signatures
-            with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
-                code = file.read()
-                function_signatures = rust_ast_parser.get_func_signatures(code)
+            code = read_file(f"{self.translated_function_path}/{f}.rs")
+            function_signatures = rust_ast_parser.get_func_signatures(code)
                 if f in translator.RESERVED_KEYWORDS:
                     f = f + "_"
                 function_depedency_signatures.append(
@@ -645,8 +640,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             raise RuntimeError(
                 f"Error: Function {function.name} is not translated into unidiomatic Rust yet")
 
-        with open(unidiomatic_function_path, "r") as file:
-            unidiomatic_function_code = file.read()
+        unidiomatic_function_code = read_file(unidiomatic_function_path)
 
         undiomantic_function_signatures = rust_ast_parser.get_func_signatures(
             unidiomatic_function_code)
@@ -933,17 +927,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         all_dt_code = {}
         for struct in all_structs:
-            with open(f"{self.translated_struct_path}/{struct}.rs", "r") as file:
-                all_dt_code[struct] = file.read()
+            all_dt_code[struct] = read_file(f"{self.translated_struct_path}/{struct}.rs")
 
         for g_var in all_global_vars:
-            with open(f"{self.translated_global_var_path}/{g_var}.rs", "r") as file:
-                all_dt_code[g_var] = file.read()
+            all_dt_code[g_var] = read_file(f"{self.translated_global_var_path}/{g_var}.rs")
 
         all_dependency_functions_code = {}
         for f in all_dependency_functions:
-            with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
-                all_dependency_functions_code[f] = file.read()
+            all_dependency_functions_code[f] = read_file(f"{self.translated_function_path}/{f}.rs")
 
         data_type_code = all_dt_code | used_global_vars | code_of_enum
 

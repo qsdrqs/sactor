@@ -4,6 +4,7 @@ import tempfile
 import pytest
 
 from sactor import utils
+from sactor.utils import read_file
 from sactor.test_generator import ExecutableTestGenerator
 from tests.ollama_llm import ollama_llm
 from tests.utils import c_file_executable
@@ -20,8 +21,7 @@ def test_samples():
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
     # if llm_instance is not None and original is not None:
     #     return original(llm_instance, prompt, model)
-    with open('tests/test_generator/mocks/mock_test_generator_result', 'r') as f:
-        return f.read()
+    return read_file('tests/test_generator/mocks/mock_test_generator_result')
 
 
 @pytest.fixture
@@ -78,15 +78,11 @@ def test_generate_tests(llm, test_samples, c_file_executable_arguments):
     with tempfile.TemporaryDirectory() as tmpdirname:
         generator.create_test_task(
             f'{tmpdirname}/test_task.json', f'{tmpdirname}/test_samples.json')
-        with open(f'{tmpdirname}/test_task.json', 'r') as f:
-            test_task = f.read()
-        with open(f'{tmpdirname}/test_samples.json', 'r') as f:
-            test_samples = f.read()
+        test_task = read_file(f'{tmpdirname}/test_task.json')
+        test_samples = read_file(f'{tmpdirname}/test_samples.json')
 
-    with open('tests/c_examples/add/test_task/test_task.json', 'r') as f:
-        assert test_task == f.read().replace('${PLACE_HOLDER}', tmpdirname)
-    with open('tests/c_examples/add/test_task/test_samples.json', 'r') as f:
-        assert check_test_samples_output(f.read(), test_samples)
+    assert test_task == read_file('tests/c_examples/add/test_task/test_task.json').replace('${PLACE_HOLDER}', tmpdirname)
+    assert check_test_samples_output(read_file('tests/c_examples/add/test_task/test_samples.json'), test_samples)
 
 
 def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
@@ -106,12 +102,8 @@ def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
     with tempfile.TemporaryDirectory() as tmpdirname:
         generator.create_test_task(
             f'{tmpdirname}/test_task.json', f'{tmpdirname}/test_samples.json')
-        with open(f'{tmpdirname}/test_task.json', 'r') as f:
-            test_task = f.read()
-        with open(f'{tmpdirname}/test_samples.json', 'r') as f:
-            test_samples = f.read()
+        test_task = read_file(f'{tmpdirname}/test_task.json')
+        test_samples = read_file(f'{tmpdirname}/test_samples.json')
 
-    with open('tests/c_examples/add_scanf/test_task/test_task.json', 'r') as f:
-        assert test_task == f.read().replace('${PLACE_HOLDER}', tmpdirname)
-    with open('tests/c_examples/add_scanf/test_task/test_samples.json', 'r') as f:
-        assert check_test_samples_output(f.read(), test_samples)
+    assert test_task == read_file('tests/c_examples/add_scanf/test_task/test_task.json').replace('${PLACE_HOLDER}', tmpdirname)
+    assert check_test_samples_output(read_file('tests/c_examples/add_scanf/test_task/test_samples.json'), test_samples)

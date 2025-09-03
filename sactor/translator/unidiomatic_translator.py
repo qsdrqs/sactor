@@ -5,6 +5,7 @@ from typing import Optional, override
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
+from sactor.utils import read_file
 from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
 from sactor.combiner import RustCode
@@ -41,8 +42,8 @@ class UnidiomaticTranslator(Translator):
         self.failure_info_path = os.path.join(
             self.result_path, "unidiomatic_failure_info.json")
         if os.path.isfile(self.failure_info_path):
-            with open(self.failure_info_path, 'r') as f:
-                self.failure_info = json.load(f)
+            content = read_file(self.failure_info_path)
+            self.failure_info = json.loads(content)
 
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_unidiomatic"
@@ -413,10 +414,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 raise RuntimeError(
                     f"Error: Dependency {f} of function {function.name} is not translated yet")
             # get the translated function signatures
-            with open(f"{self.translated_function_path}/{f}.rs", "r") as file:
-                code = file.read()
-                function_signatures = rust_ast_parser.get_func_signatures(code)
-                function_use = RustCode(code).used_code_list
+            code = read_file(f"{self.translated_function_path}/{f}.rs")
+            function_signatures = rust_ast_parser.get_func_signatures(code)
+            function_use = RustCode(code).used_code_list
                 all_uses += function_use
                 if f in translator.RESERVED_KEYWORDS:
                     f = f + "_"
@@ -448,10 +448,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
                             f"Error: Struct {struct_name} translation failed.")
-                with open(f"{self.translated_struct_path}/{struct_name}.rs", "r") as file:
-                    code_of_struct = file.read()
-                    code_of_structs[struct_name] = code_of_struct
-                    visited_structs.add(struct_name)
+                code_of_struct = read_file(f"{self.translated_struct_path}/{struct_name}.rs")
+                code_of_structs[struct_name] = code_of_struct
+                visited_structs.add(struct_name)
 
         code_of_function = self.c_parser.extract_function_code(function.name)
         prompt = f'''
