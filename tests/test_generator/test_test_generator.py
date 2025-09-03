@@ -81,7 +81,7 @@ def test_generate_tests(llm, test_samples, c_file_executable_arguments):
         test_task = read_file(f'{tmpdirname}/test_task.json')
         test_samples = read_file(f'{tmpdirname}/test_samples.json')
 
-    assert test_task == read_file('tests/c_examples/add/test_task/test_task.json').replace('${PLACE_HOLDER}', tmpdirname)
+    assert test_task.replace(tmpdirname, '.') == read_file('tests/c_examples/add/test_task/test_task.json')
     assert check_test_samples_output(read_file('tests/c_examples/add/test_task/test_samples.json'), test_samples)
 
 
@@ -105,5 +105,5 @@ def test_generate_tests2(llm, test_samples, c_file_executable_scanf):
         test_task = read_file(f'{tmpdirname}/test_task.json')
         test_samples = read_file(f'{tmpdirname}/test_samples.json')
 
-    assert test_task == read_file('tests/c_examples/add_scanf/test_task/test_task.json').replace('${PLACE_HOLDER}', tmpdirname)
+    assert test_task.replace(tmpdirname, '.') == read_file('tests/c_examples/add_scanf/test_task/test_task.json')
     assert check_test_samples_output(read_file('tests/c_examples/add_scanf/test_task/test_samples.json'), test_samples)

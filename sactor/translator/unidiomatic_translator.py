@@ -189,7 +189,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
-        
+
         def return_result(global_var_result, verification=True):
             # check the global variable name, allow const global variable to have different name
             if global_var.name not in global_var_result and not global_var.is_const:
@@ -228,7 +228,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             self.failure_info[global_var.name]['status'] = "success"
             utils.save_code(global_var_save_path, global_var_result)
             return TranslateResult.SUCCESS
-           
+
         if os.path.exists(global_var_save_path):
             print(f"Global variable {global_var.name} already translated")
             return TranslateResult.SUCCESS
@@ -414,15 +414,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 raise RuntimeError(
                     f"Error: Dependency {f} of function {function.name} is not translated yet")
             # get the translated function signatures
-            code = read_file(f"{self.translated_function_path}/{f}.rs")
+            code = utils.read_file(f"{self.translated_function_path}/{f}.rs")
             function_signatures = rust_ast_parser.get_func_signatures(code)
             function_use = RustCode(code).used_code_list
-                all_uses += function_use
-                if f in translator.RESERVED_KEYWORDS:
-                    f = f + "_"
-                    prefix_ref = True
-                function_depedency_signatures.append(
-                    function_signatures[f] + ';')  # add a semicolon to the end
+            all_uses += function_use
+            if f in translator.RESERVED_KEYWORDS:
+                f = f + "_"
+                prefix_ref = True
+            function_depedency_signatures.append(
+                function_signatures[f] + ';')  # add a semicolon to the end
 
         function_dependency_uses = all_uses
 
@@ -448,7 +448,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 if not os.path.exists(f"{self.translated_struct_path}/{struct_name}.rs"):
                     raise RuntimeError(
                             f"Error: Struct {struct_name} translation failed.")
-                code_of_struct = read_file(f"{self.translated_struct_path}/{struct_name}.rs")
+                code_of_struct = utils.read_file(f"{self.translated_struct_path}/{struct_name}.rs")
                 code_of_structs[struct_name] = code_of_struct
                 visited_structs.add(struct_name)
 

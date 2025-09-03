@@ -47,13 +47,13 @@ def test_test_runner2(c_file_executable_scanf):
 def test_test_runner_e2e(c_file_executable_arguments, config):
     test_samples_path = 'tests/c_examples/add/test_task/test_samples.json'
     test_task = 'tests/c_examples/add/test_task/test_task.json'
-    abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        test_task_content = read_file(test_task)
-        test_task = test_task_content.replace('${PLACE_HOLDER}', abs_test_samples_dir)
+        test_task = read_file(test_task)
         with open(f'{tmpdirname}/test_task.json', 'w') as f:
             f.write(test_task)
+        with open(f'{tmpdirname}/test_samples.json', 'w') as f:
+            f.write(read_file(test_samples_path))
 
         verifier = UnidiomaticVerifier(f'{tmpdirname}/test_task.json', config=config)
         result = verifier._run_tests(c_file_executable_arguments[0])
@@ -62,13 +62,13 @@ def test_test_runner_e2e(c_file_executable_arguments, config):
 def test_test_runner_e2e_2(c_file_executable_scanf, config):
     test_samples_path = 'tests/c_examples/add_scanf/test_task/test_samples.json'
     test_task = 'tests/c_examples/add_scanf/test_task/test_task.json'
-    abs_test_samples_dir = os.path.abspath(os.path.dirname(test_samples_path))
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        test_task_content = read_file(test_task)
-        test_task = test_task_content.replace('${PLACE_HOLDER}', abs_test_samples_dir)
+        test_task = read_file(test_task)
         with open(f'{tmpdirname}/test_task.json', 'w') as f:
             f.write(test_task)
+        with open(f'{tmpdirname}/test_samples.json', 'w') as f:
+            f.write(read_file(test_samples_path))
 
         verifier = UnidiomaticVerifier(f'{tmpdirname}/test_task.json', config=config)
         result = verifier._run_tests(c_file_executable_scanf[0])

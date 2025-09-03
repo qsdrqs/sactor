@@ -627,10 +627,10 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             # get the translated function signatures
             code = read_file(f"{self.translated_function_path}/{f}.rs")
             function_signatures = rust_ast_parser.get_func_signatures(code)
-                if f in translator.RESERVED_KEYWORDS:
-                    f = f + "_"
-                function_depedency_signatures.append(
-                    function_signatures[f] + ';')  # add a semicolon to the end
+            if f in translator.RESERVED_KEYWORDS:
+                f = f + "_"
+            function_depedency_signatures.append(
+                function_signatures[f] + ';')  # add a semicolon to the end
 
         # Translate the function
         # Get the unidiomatic translation code
