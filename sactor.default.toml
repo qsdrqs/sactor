@@ -1,5 +1,4 @@
 [general]
-llm = "AzureOpenAI" # you only need to configure the llm you want to use
 max_translation_attempts = 6
 max_verifier_harness_attempts = 6
 timeout_seconds = 60 # timeout for the execution of generated code
@@ -7,54 +6,60 @@ system_message = '''
 You are an expert in translating code from C to Rust. You will take all information from the user as reference, and will output the translated code into the format that the user wants.
 '''
 encoding = "o200k_base" # Encoding for the `tiktoken` library, default for GPT-4o model
+model = "gpt-4o" # Default model to use
 
-[AzureOpenAI]
-api_key = "your-api-key"
-endpoint = "https://your-endpoint.openai.azure.com/"
-api_version = "2024-12-26" # change this to your own API version
-model = "gpt-4o" # change this to your own model
-max_tokens = 8192 # maximum number of tokens to generate for each request
-# temperature = 1 # Uncomment this line if you want to set a temperature
+# LiteLLM Router Configuration - follows litellm config format
+# Supports all providers that litellm supports: OpenAI, Anthropic, Google, Azure, AWS Bedrock,
+# Cohere, DeepSeek, Groq, Ollama, vLLM, and 100+ other providers
+[litellm]
+[litellm.router_settings]
+routing_strategy = "simple-shuffle"
+num_retries = 2
+timeout = 600
 
-[OpenAI]
-api_key = "your-api-key"
-model = "gpt-4o" # change this to your own model
-max_tokens = 8192 # maximum number of tokens to generate for each request
-# temperature = 1 # Uncomment this line if you want to set a temperature
-# organization = "your-organization" # uncomment this line if you are using an organization
-# project_id = "your-project-id" # uncomment this line if you are using a project id
-# base_url = "https://api.openai.com/v1" # uncomment this line if you are using a custom base url
+# Example: OpenAI configuration
+[[litellm.model_list]]
+model_name = "gpt-4o"
+[litellm.model_list.litellm_params]
+model = "openai/gpt-4o-2024-08-06"
+api_key = "os.environ/OPENAI_API_KEY"
+# rpm = 500  # Optional: requests per minute limit
 
-[DeepSeek]
-base_url = "https://api.deepseek.com"
-api_key = "your-api-key"
-model = "deeepseek-reasoner" # change this to your own model
-max_tokens = 8192 # maximum number of tokens to generate for each request
-# temperature = 1 # Uncomment this line if you want to set a temperature
-# organization = "your-organization" # uncomment this line if you are using an organization
-# project_id = "your-project-id" # uncomment this line if you are using a project id
+# Example: Azure OpenAI configuration
+[[litellm.model_list]]
+model_name = "azure-gpt-4o"
+[litellm.model_list.litellm_params]
+model = "azure/your-deployment-name"
+api_key = "os.environ/AZURE_API_KEY"
+api_base = "os.environ/AZURE_API_BASE"
+api_version = "2024-12-01-preview"
+# rpm = 900  # Optional: requests per minute limit
 
-[Anthropic]
-api_key = "your-api-key"
-model = "claude-3-5-sonnet-latest" # change this to your own model
-max_tokens = 8192 # maximum number of tokens to generate for each request
-# temperature  = 1 # Uncomment this line if you want to set a temperature
+# Example: Anthropic Claude configuration
+[[litellm.model_list]]
+model_name = "claude-3-5-sonnet-20241022"
+[litellm.model_list.litellm_params]
+model = "anthropic/claude-3-5-sonnet-20241022"
+api_key = "os.environ/ANTHROPIC_API_KEY"
 
-[Google]
-api_key = "your-api-key"
-model = 'gemini-2.0-flash-exp' # change this to your own model
-max_tokens = 8192 # maximum number of tokens to generate for each request
-# temperature = 1 # Uncomment this line if you want to set a temperature
+# Example: Google Gemini configuration
+[[litellm.model_list]]
+model_name = "gemini-2.0-flash"
+[litellm.model_list.litellm_params]
+model = "gemini/gemini-2.0-flash-exp"
+api_key = "os.environ/GEMINI_API_KEY"
+# rpm = 400  # Optional: requests per minute limit
 
-[Ollama]
-host = "http://127.0.0.1:11434"
-model = "llama3.3"
-max_tokens = 16384 # maximum number of tokens for each request
-# temperature = 0.8 # Uncomment this line if you want to set a temperature
+# Example: Ollama configuration (local)
+[[litellm.model_list]]
+model_name = "llama3.3"
+[litellm.model_list.litellm_params]
+model = "ollama/llama3.3"
+api_base = "http://localhost:11434"
+# rpm = 100  # Optional: requests per minute limit
 
-[Ollama.headers]
-# Add any headers you want to send with the request
-# Authorization = "Bearer your-token"
+# Add more models following the same pattern
+# For complete list of supported providers and formats, see: https://docs.litellm.ai/docs/providers
 
 [test_generator]
 max_attempts = 6

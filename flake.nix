@@ -22,6 +22,9 @@
               pkgs.zlib
               pkgs.uv
               pkgs.valgrind
+              (pkgs.python3. withPackages (ps: with ps; [
+                tokenizers
+              ]))
             ];
             # shellHook = with pkgs; ''
             #   export LD_LIBRARY_PATH="${lib.makeLibraryPath buildInputs}:$LD_LIBRARY_PATH"
