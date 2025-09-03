@@ -256,7 +256,7 @@ def is_compile_command(l: List[str]) -> bool:
 def process_commands_to_list(commands: str, to_translate_file: str) -> List[List[str]]:
     # parse into list of list of str
     commands = list(map(lambda s: shlex.split(s), filter(lambda s: len(s) > 0, commands.splitlines())))
-    # add -Og -g flags to all compiler commands 
+    # add -Og -g flags to all compiler commands
     for command in commands:
         if is_compile_command(command):
             for i, item in enumerate(command[:]):
@@ -283,7 +283,7 @@ def process_commands_to_compile(commands: List[List[str]], executable_path: str,
                     else:
                         flatten_command.append(item)
                 commands[i] = flatten_command
-            
+
     # The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
     if commands and is_compile_command(commands[-1]):
         try:
@@ -308,7 +308,7 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
     os.makedirs(tmpdir, exist_ok=True)
     executable_path = os.path.join(
         tmpdir, os.path.basename(file_path) + ".out")
-    
+
     commands = process_commands_to_compile(commands, executable_path, file_path)
     if commands:
         for command in commands:
@@ -319,7 +319,7 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
                 if is_library:
                     command.append("-c")
             _result = subprocess.run(command, check=to_check)
-    else:        
+    else:
         cmd = [
             compiler,
             file_path,
@@ -451,3 +451,8 @@ def get_compile_flags_from_commands(processed_compile_commands: List[List[str]])
         flags_without_tests = flags
         return flags_without_tests
 
+def read_file(path: str) -> str:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Could not find file {path}")
+    with open(path, "r") as f:
+        return f.read()

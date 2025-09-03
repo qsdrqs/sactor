@@ -75,7 +75,7 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
     if not commands:
         commands = []
     filename = os.path.basename(input_file)
-    
+
     if commands:
         compile_flags = utils.get_compile_flags_from_commands(commands)
     else:
@@ -83,11 +83,6 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
     tmpdir = utils.get_temp_dir()
     os.makedirs(tmpdir, exist_ok=True)
 
-    def get_file_hash(filepath: str) -> str:
-        result = subprocess.run(["sha256sum", filepath], capture_output=True, text=True)
-        sha256 = result.stdout.split()[0].strip()
-        return sha256
-    
     def expand_custom_headers(tmp_file_path: str, flags: list):
         """
         This will only expand the custom header non-recursively.
@@ -107,7 +102,7 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
             if not header or not loc:
                 continue
             if not os.path.samefile(loc.file.name, tmp_file_path):
-                continue 
+                continue
             header_location = cindex.SourceLocation.from_position(
                 translation_unit,
                 header,
@@ -118,7 +113,9 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
                 # print(header.name , "include source location:", loc.file.name)
                 non_system_includes[loc.line] = header.name
         new_lines = []
-        non_system_includes = {k: v for k, v in non_system_includes.items() if not v.startswith('/usr/lib/')}
+        # exclude system includes (includes in compiler include paths)
+        for path in compiler_include_paths:
+            non_system_includes = {k: v for k, v in non_system_includes.items() if not v.startswith(path)}
         if non_system_includes:
             with open(tmp_file_path, 'r') as f:
                 for i, line in enumerate(f, start=1):
@@ -141,65 +138,54 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
                         new_lines.append(line)
             with open(tmp_file_path, 'w') as f:
                 f.writelines(new_lines)
-        
-    def remove_includes(filepath: str) -> dict:
-        includes = {}
-        new_lines = []
-        with open(filepath, "r") as f:
-            for line in f:
-                if re.search(r"# *include", line):
-                    remove_marker = f"/* sactor remove marker: {len(includes)} */\n"
-                    new_lines.append(remove_marker)
-                    includes[remove_marker] = line
-                else:
-                    new_lines.append(line)
-        with open(filepath, "w") as f:
-            f.writelines(new_lines)
-        return includes
 
+    tmp_file_path = os.path.join(tmpdir, f"expanded_{filename}")
+    shutil.copy(input_file, tmp_file_path)
 
-    def get_expanded_code(tmpdir: str, filename: str, flags: list[str], output_filename_prefix: str="expanded") -> str:
+    # For #include, keep system headers, expand custom headers.
+    while True:
+        file_content_before = utils.read_file(tmp_file_path)
+        expand_custom_headers(tmp_file_path, compile_flags)
+        file_content_after = utils.read_file(tmp_file_path)
+        if file_content_before.strip() == file_content_after.strip():
+            break
+    # remove all remaining headers, to be added after preprocessing
+    includes_lines = {}
+    new_lines = []
+    with open(tmp_file_path, "r") as f:
+        for line in f:
+            if re.search(r"# *include", line):
+                remove_marker = f"/* sactor remove marker: {len(includes_lines)} */\n"
+                new_lines.append(remove_marker)
+                includes_lines[remove_marker] = line
+            else:
+                new_lines.append(line)
+    with open(tmp_file_path, "w") as f:
+        f.writelines(new_lines)
 
-        tmp_file_path = os.path.join(tmpdir, f"{output_filename_prefix}_{filename}")
-        shutil.copy(input_file, tmp_file_path)
+    # expand macros
+    # #ifdef __cplusplus will be automatically removed if there is no __cplusplus flag
+    result = subprocess.run(
+        ['cpp', '-C', '-P', '-xc', '-std=c99', tmp_file_path, *compile_flags],
+        capture_output=True,
+        text=True,
+        check=True
+    )
 
-        # For #include, keep system headers, expand custom headers.
-        while True:
-            hash_before = get_file_hash(tmp_file_path)
-            expand_custom_headers(tmp_file_path, flags)
-            hash_after = get_file_hash(tmp_file_path)
-            if hash_before == hash_after:
-                break
-        # remove all remaining headers, to be added after preprocessing
-        includes_lines = remove_includes(tmp_file_path)
+    # add removed headers
+    content = result.stdout.splitlines(keepends=True)
+    for i, line in enumerate(content[:]):
+        if line in includes_lines:
+            content[i] = includes_lines[line]
 
-        # expand macros
-        # #ifdef __cplusplus will be automatically removed if there is no __cplusplus flag
-        result = subprocess.run(
-            ['cpp', '-C', '-P', '-xc', '-std=c99', tmp_file_path, *flags],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+    with open(tmp_file_path, 'w') as f:
+        f.writelines(content)
 
-        # add removed headers
-        content = result.stdout.splitlines(keepends=True)
-        for i, line in enumerate(content[:]):
-            if line in includes_lines:
-                content[i] = includes_lines[line]
+    # check if it can compile, if not, will raise an error
+    # assume it is a library, compatible with the executable
+    utils.compile_c_code(tmp_file_path, commands=commands, is_library=True)
 
-        with open(tmp_file_path, 'w') as f:
-            f.writelines(content)
-
-        # check if it can compile, if not, will raise an error
-        # assume it is a library, compatible with the executable
-        utils.compile_c_code(tmp_file_path, commands=commands, is_library=True)
-        return tmp_file_path
-
-    # use `cpp -C -P` to expand all macros
-    output_filepath = get_expanded_code(tmpdir, filename, compile_flags, "expanded")
-
-    return output_filepath
+    return tmp_file_path
 
 
 def preprocess_source_code(input_file, commands: list[list[str]]) -> str:
