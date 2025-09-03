@@ -18,13 +18,13 @@ class Translator(ABC):
         self.max_attempts = config['general']['max_translation_attempts']
         self.c_parser = c_parser
         self.failure_info = {}
-        self.failure_info_path = "" #FIXME: can not be empty
         if result_path:
             self.result_path = result_path
         else:
             self.result_path = os.path.join(
                 utils.find_project_root(), 'result')
-        
+        self.failure_info_path = os.path.join(
+            self.result_path, "general_failure_info.json")
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         res = self._translate_struct_impl(struct_union)

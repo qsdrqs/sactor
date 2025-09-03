@@ -258,3 +258,39 @@ def test_unidiomatic_function_cleanup():
     print(new_code)
     assert new_code.find('extern "C"') == -1
     assert new_code.find('extern crate libc') == -1
+
+def test_get_value_type_name():
+    # Test static variables
+    code = '''
+static A: &str = "=2";
+static mut B: i32 = 42;
+static C: [u8; 3] = [1, 2, 3];
+const PI: f64 = 3.14159;
+const MAX_SIZE: usize = 100;
+'''
+    # Test basic static variable
+    result = rust_ast_parser.get_value_type_name(code, "A")
+    assert result == "static A: &str ;"
+
+    # Test mutable static variable
+    result = rust_ast_parser.get_value_type_name(code, "B")
+    assert result == "static mut B: i32 ;"
+
+    # Test array static variable
+    result = rust_ast_parser.get_value_type_name(code, "C")
+    assert result == "static C: [u8; 3] ;"
+
+    # Test const variable
+    result = rust_ast_parser.get_value_type_name(code, "PI")
+    assert result == "const PI: f64 ;"
+
+    # Test const variable with complex type
+    result = rust_ast_parser.get_value_type_name(code, "MAX_SIZE")
+    assert result == "const MAX_SIZE: usize ;"
+
+    # Test non-existent variable
+    try:
+        rust_ast_parser.get_value_type_name(code, "D")
+        assert False, "Should have raised an exception"
+    except Exception as e:
+        assert "Item 'D' not found" in str(e)

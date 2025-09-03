@@ -500,15 +500,19 @@ The function uses the following type aliases, which are defined as:
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res
-            with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
-                code_of_global_var = file.read()
-                # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
-                # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
-                # including the value will break the LLM.
-                # FIXME: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
-                type_and_name = f"{code_of_global_var.rsplit("=")[0]};"
-                used_global_vars[global_var.name] = code_of_global_var
-                used_global_vars_only_type_and_names[global_var.name] = type_and_name
+            code_of_global_var = read_file(os.path.join(self.translated_global_var_path, global_var.name + ".rs"))
+            # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
+            # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
+            # including the value will break the LLM.
+            # Use Rust parser to properly extract type and name, avoiding issues with values containing special characters
+            try:
+                type_and_name = rust_ast_parser.get_value_type_name(code_of_global_var, global_var.name)
+            except Exception as e:
+                # Fallback to old method if parsing fails
+                print(f"Failed to parse global variable {global_var.name} with Rust parser: {e}. Using fallback method.")
+                type_and_name = f"{code_of_global_var.rsplit('=')[0]};"
+            used_global_vars[global_var.name] = code_of_global_var
+            used_global_vars_only_type_and_names[global_var.name] = type_and_name
 
         if len(used_global_vars) > 0:
             joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
@@ -557,8 +561,7 @@ You should **NOT** declare or define them in your translation, as the system wil
 
             for enum_def in enum_definitions:
                 self._translate_enum_impl(enum_def)
-                with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
-                    code_of_enum[enum_def] = file.read()
+                code_of_enum[enum_def] = read_file(os.path.join(self.translated_enum_path, enum_def.name + ".rs"))
 
             joint_used_enums = '\n'.join(used_enum_names)
             joint_code_of_enum = '\n'.join(code_of_enum.values())
@@ -782,28 +785,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         data_type_code = code_of_structs | used_global_vars | code_of_enum | {
             "stdio": used_stdio_code}
         # add error handling because here can raise exceptions
-        try:
-            result = self.verifier.verify_function(
-                function,
-                function_code=function_result,
-                data_type_code=data_type_code,
-                function_dependency_signatures=function_depedency_signatures,
-                function_dependency_uses=function_dependency_uses,
-                has_prefix=prefix
-            )
-        except Exception as e:
-            # FIXME: What is the situation for this?
-            self.append_failure_info(
-                function.name, "COMPILE_ERROR", str(e), function_result
-            )
-            # TODO: assign a new error code instead of compile_error?
-            result = (VerifyResult.COMPILE_ERROR, str(e))
-            return self._translate_function_impl(
-                function,
-                result,
-                error_translation=function_result,
-                attempts=attempts+1
-            )
+        result = self.verifier.verify_function(
+            function,
+            function_code=function_result,
+            data_type_code=data_type_code,
+            function_dependency_signatures=function_depedency_signatures,
+            function_dependency_uses=function_dependency_uses,
+            has_prefix=prefix
+        )
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 compile_error = result[1]
