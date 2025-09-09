@@ -2,11 +2,14 @@ import json
 import tempfile
 
 import pytest
+from functools import partial
+from unittest.mock import patch
 
 from sactor import utils
 from sactor.utils import read_file
 from sactor.test_generator import ExecutableTestGenerator
-from tests.ollama_llm import ollama_llm
+from sactor.llm import LLM, llm_factory
+from tests.mock_llm import llm_with_mock
 from tests.utils import c_file_executable
 
 
@@ -26,7 +29,8 @@ def mock_query_impl(prompt, model, original=None, llm_instance=None):
 
 @pytest.fixture
 def llm():
-    yield from ollama_llm(mock_query_impl)
+    # Use shared helper to create a patched LLM
+    yield from llm_with_mock(mock_query_impl)
 
 
 @pytest.fixture

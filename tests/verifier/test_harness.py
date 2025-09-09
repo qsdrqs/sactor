@@ -1,21 +1,31 @@
 import pytest
+from functools import partial
+from unittest.mock import patch
 
 from sactor.c_parser import CParser
 from sactor.utils import read_file
+from sactor import utils
 from sactor.verifier import IdiomaticVerifier, VerifyResult
-from tests.azure_llm import azure_llm, general_mock_query_impl
+from sactor.llm import LLM, llm_factory
 from tests.utils import config
+from tests.mock_llm import llm_with_mock
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
     if prompt.find('There are two structs: Student and CStudent') != -1:
         return read_file('tests/verifier/mock_results/mock_student_harness')
     if prompt.find('There are two structs: Course and CCourse') != -1:
         return read_file('tests/verifier/mock_results/mock_course_harness')
-    return mock_query_impl(original, llm_instance, prompt, model)
+    return general_mock_query_impl(prompt, model, original, llm_instance)
+
+def general_mock_query_impl(prompt, model, original=None, llm_instance=None):
+    if llm_instance is not None and original is not None:
+        return original(llm_instance, prompt, model)
+
 
 @pytest.fixture
 def llm():
-    yield from azure_llm(mock_query_impl)
+    # Use shared helper to create a patched LLM
+    yield from llm_with_mock(mock_query_impl)
 
 
 def test_struct_harness(llm, config):

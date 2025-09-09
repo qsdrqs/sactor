@@ -27,10 +27,9 @@ def test_merge_configs():
 def test_load_config():
     mock_config_path = "tests/utils/sactor.mock.toml"
     config = utils.try_load_config(mock_config_path)
-    assert config['general']['llm'] == "AzureOpenAI"
     assert config['general']['max_translation_attempts'] == 3
-    assert config['AzureOpenAI']['api_key'] == "your-api-key"
-    assert config['OpenAI']['api_key'] == 'mock-api-key'
+    assert config['general']['model'] == 'gpt-4o'
+    assert 'litellm' in config and 'model_list' in config['litellm']
 
 def test_rename_signature():
     signature = "fn foo(a: i32, b: i32) -> i32;"
