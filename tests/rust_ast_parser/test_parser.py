@@ -3,6 +3,35 @@ import pytest
 from sactor import rust_ast_parser
 
 
+def _traits_base(raw: str, normalized: str) -> dict:
+    return {
+        "raw": raw,
+        "normalized": normalized,
+        "path_ident": None,
+        "is_reference": False,
+        "is_mut_reference": False,
+        "is_slice": False,
+        "slice_elem": None,
+        "is_str": False,
+        "is_string": False,
+        "is_option": False,
+        "option_inner": None,
+        "reference_inner": None,
+        "is_pointer": False,
+        "pointer_is_mut": False,
+        "pointer_depth": 0,
+        "pointer_inner": None,
+        "is_box": False,
+        "box_inner": None,
+    }
+
+
+def _traits(raw: str, normalized: str, **updates: dict) -> dict:
+    base = _traits_base(raw, normalized)
+    base.update(updates)
+    return base
+
+
 @pytest.fixture
 def code():
     file_path = 'tests/rust_ast_parser/test.rs'
@@ -19,6 +48,135 @@ def test_get_func_signatures(code):
 def test_get_struct_definition(code):
     struct_definition = rust_ast_parser.get_struct_definition(code, "Foo")
     assert struct_definition == '#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n'
+
+
+def test_get_struct_field_types(code):
+    expected = {
+        "a": "i32",
+        "b": "i32",
+        "self_ptr": "* const Foo",
+    }
+    assert rust_ast_parser.get_struct_field_types(code, "Foo") == expected
+    assert rust_ast_parser.get_struct_field_types(code) == expected
+
+
+def test_parse_type_traits_option_mut_slice():
+    traits = rust_ast_parser.parse_type_traits("Option<&mut [u8]>")
+
+    slice_traits = _traits("[u8]", "[u8]", is_slice=True, slice_elem="u8")
+    mut_slice_reference = _traits(
+        "& mut [u8]",
+        "&mut[u8]",
+        is_reference=True,
+        is_mut_reference=True,
+        is_slice=True,
+        slice_elem="u8",
+        reference_inner=slice_traits,
+    )
+
+    expected = _traits(
+        "Option < & mut [u8] >",
+        "Option<&mut[u8]>",
+        path_ident="Option",
+        is_option=True,
+        is_slice=True,
+        slice_elem="u8",
+        option_inner=mut_slice_reference,
+    )
+
+    assert traits == expected
+
+
+def test_parse_function_signature_full_traits():
+    signature = (
+        "fn process(a: &mut i32, data: Option<&[u8]>, handle: *mut *const u8) "
+        "-> Option<Box<Vec<u8>>>"
+    )
+    result = rust_ast_parser.parse_function_signature(signature)
+
+    i32_traits = _traits("i32", "i32", path_ident="i32")
+    param_a_traits = _traits(
+        "& mut i32",
+        "&muti32",
+        is_reference=True,
+        is_mut_reference=True,
+        reference_inner=i32_traits,
+    )
+
+    slice_traits = _traits("[u8]", "[u8]", is_slice=True, slice_elem="u8")
+    slice_ref_traits = _traits(
+        "& [u8]",
+        "&[u8]",
+        is_reference=True,
+        is_slice=True,
+        slice_elem="u8",
+        reference_inner=slice_traits,
+    )
+    option_data_traits = _traits(
+        "Option < & [u8] >",
+        "Option<&[u8]>",
+        path_ident="Option",
+        is_option=True,
+        is_slice=True,
+        slice_elem="u8",
+        option_inner=slice_ref_traits,
+    )
+
+    u8_traits = _traits("u8", "u8", path_ident="u8")
+    const_ptr_traits = _traits(
+        "* const u8",
+        "*constu8",
+        is_pointer=True,
+        pointer_is_mut=False,
+        pointer_depth=1,
+        pointer_inner=u8_traits,
+    )
+    handle_traits = _traits(
+        "* mut * const u8",
+        "*mut*constu8",
+        is_pointer=True,
+        pointer_is_mut=True,
+        pointer_depth=2,
+        pointer_inner=const_ptr_traits,
+    )
+
+    vec_traits = _traits("Vec < u8 >", "Vec<u8>", path_ident="Vec")
+    box_traits = _traits(
+        "Box < Vec < u8 > >",
+        "Box<Vec<u8>>",
+        path_ident="Box",
+        is_box=True,
+        box_inner=vec_traits,
+    )
+    return_traits = _traits(
+        "Option < Box < Vec < u8 > > >",
+        "Option<Box<Vec<u8>>>",
+        path_ident="Option",
+        is_option=True,
+        is_box=True,
+        option_inner=box_traits,
+        box_inner=vec_traits,
+    )
+
+    expected = {
+        "name": "process",
+        "params": [
+            {"name": "a", "type": "& mut i32", "traits": param_a_traits},
+            {
+                "name": "data",
+                "type": "Option < & [u8] >",
+                "traits": option_data_traits,
+            },
+            {
+                "name": "handle",
+                "type": "* mut * const u8",
+                "traits": handle_traits,
+            },
+        ],
+        "return": return_traits,
+    }
+
+    assert result == expected
 
 
 def test_expose_function_to_c(code):

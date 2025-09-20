@@ -236,9 +236,9 @@ class Verifier(ABC):
                 function_dependency.name, source_code)
         # If the to-be-translated function is static, then it cannot be linked to the Rust definition.
         # So we remove the static attribute.
-        # This solution may trigger bugs if other linked object files have functions with the same name. 
+        # This solution may trigger bugs if other linked object files have functions with the same name.
         # The above code removing static in function dependencies may also trigger this bug.
-        # TODO: rename the to-be-translated function to a unique name using the current `prefix` argument & mechanism; 
+        # TODO: rename the to-be-translated function to a unique name using the current `prefix` argument & mechanism;
         #       after translation, name the Rust translated function with the original name, and remove its `pub` attribute.
         source_code = c_parser_utils.remove_function_static_decorator(c_function.name, source_code)
         lines = source_code.split("\n")
@@ -399,7 +399,7 @@ extern "C" {{
                 res = subprocess.run(command)
                 if to_check and res.returncode != 0:
                     raise RuntimeError(
-                        f"Error: Failed to compile C code for function {name}")              
+                        f"Error: Failed to compile C code for function {name}")
 
         else:
             c_compile_cmd = [

@@ -116,6 +116,20 @@ def save_code(path, code):
         print("Cannot format the code")  # allow to continue
 
 
+def format_rust_snippet(code: str) -> str:
+    """Return the rustfmt-formatted version of `code` when possible."""
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "snippet.rs")
+            save_code(path, code)
+            with open(path, "r") as f:
+                return f.read().rstrip()
+    except Exception:
+        pass
+    return code
+
+
 def print_red(s):
     print("\033[91m {}\033[00m".format(s))
 

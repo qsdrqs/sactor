@@ -14,6 +14,7 @@ dependencies = [
     "maturin>=1.7.8",
     "ollama>=0.4.5",
     "openai>=1.58.1",
+    "jsonschema>=4.23.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
     "tiktoken>=0.8.0",

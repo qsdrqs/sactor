@@ -33,7 +33,7 @@ class Sactor:
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
-        
+
         self.all_compile_commands = all_compile_commands
         self.processed_compile_commands = utils.process_commands_to_list(
             self.all_compile_commands,
@@ -56,7 +56,7 @@ class Sactor:
         self.extra_compile_command = extra_compile_command
         self.is_executable = is_executable
         self.executable_object = executable_object
-            
+
         self.compile_commands_file = compile_commands_file
         if not is_executable and executable_object is None:
             raise ValueError(
@@ -114,7 +114,7 @@ class Sactor:
         # Collect failure info
         unidiomatic_translator.save_failure_info(os.path.join(
             self.result_dir, "unidiomatic_failure_info.json"))
-        
+
         if result != TranslateResult.SUCCESS:
             self.llm.statistic(self.llm_stat)
             unidiomatic_translator.print_result_summary("Unidiomatic")
@@ -167,7 +167,7 @@ class Sactor:
             processed_compile_commands=self.processed_compile_commands,
         )
         return translator
-    
+
 
 
 

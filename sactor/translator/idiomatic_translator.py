@@ -1,15 +1,20 @@
-import os, json
+import json
+import os
+import shutil
 from typing import Optional, override
 
 import sactor.translator as translator
 import sactor.verifier as verifier
 from sactor import rust_ast_parser, utils
-from sactor.utils import read_file
 from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
 from sactor.llm import LLM
 from sactor.thirdparty import Crown, CrownType
+from sactor.utils import read_file
 from sactor.verifier import VerifyResult
+from sactor.verifier.spec.spec_types import (extract_spec_block, save_spec,
+                                             validate_basic_function_spec,
+                                             validate_basic_struct_spec)
 
 from .translator import Translator
 from .translator_types import TranslateResult
@@ -73,6 +78,92 @@ class IdiomaticTranslator(Translator):
         )
         self.crown_result = crown_result
 
+        self.specs_base_path = os.path.join(
+            self.result_path, base_name, "specs")
+        self.function_specs_path = os.path.join(
+            self.specs_base_path, "functions")
+        self._function_name_map_path = os.path.join(
+            self.specs_base_path, "function_name_map.json"
+        )
+        self._function_name_map_cache: Optional[dict[str, str]] = None
+        self._spec_schema_text: Optional[str] = None
+
+    def _get_spec_schema_text(self) -> str:
+        """Return the cached JSON schema text for SPEC generation."""
+        if self._spec_schema_text is None:
+            project_root = utils.find_project_root()
+            schema_path = os.path.join(
+                project_root, "sactor", "verifier", "spec", "schema.json"
+            )
+            self._spec_schema_text = read_file(schema_path)
+        return self._spec_schema_text
+
+    def _load_function_name_map(self) -> dict[str, str]:
+        if self._function_name_map_cache is None:
+            mapping: dict[str, str] = {}
+            if os.path.exists(self._function_name_map_path):
+                try:
+                    with open(self._function_name_map_path, "r") as _mf:
+                        mapping = json.load(_mf)
+                    if not isinstance(mapping, dict):
+                        mapping = {}
+                except Exception:
+                    mapping = {}
+            self._function_name_map_cache = mapping
+        return self._function_name_map_cache
+
+    def _get_spec_idiomatic_name(self, function_name: str) -> Optional[str]:
+        spec_path = os.path.join(
+            self.function_specs_path, f"{function_name}.json"
+        )
+        if not os.path.exists(spec_path):
+            return None
+        try:
+            with open(spec_path, "r") as _sf:
+                spec_obj = json.load(_sf)
+            candidate = spec_obj.get("idiomatic_name")
+            if isinstance(candidate, str):
+                candidate = candidate.strip()
+                if candidate:
+                    return candidate
+        except Exception:
+            return None
+        return None
+
+    def _resolve_dependency_decl_name(
+        self,
+        original_name: str,
+        function_signatures: dict[str, str],
+    ) -> Optional[str]:
+        candidates: list[str] = []
+        spec_candidate = self._get_spec_idiomatic_name(original_name)
+        if spec_candidate:
+            candidates.append(spec_candidate)
+        mapping_candidate = self._load_function_name_map().get(original_name)
+        if isinstance(mapping_candidate, str):
+            mapping_candidate = mapping_candidate.strip()
+            if mapping_candidate:
+                candidates.append(mapping_candidate)
+        if original_name in translator.RESERVED_KEYWORDS:
+            candidates.append(original_name + "_")
+        candidates.append(original_name)
+
+        seen: set[str] = set()
+        ordered_candidates: list[str] = []
+        for cand in candidates:
+            if cand and cand not in seen:
+                ordered_candidates.append(cand)
+                seen.add(cand)
+
+        for cand in ordered_candidates:
+            if cand in function_signatures:
+                return cand
+
+        if len(function_signatures) == 1:
+            return next(iter(function_signatures.keys()))
+
+        return None
+
     @override
     def _translate_enum_impl(
         self,
@@ -98,7 +189,8 @@ class IdiomaticTranslator(Translator):
         if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
             raise RuntimeError(
                 f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet")
-        code_of_enum = read_file(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs")
+        code_of_enum = read_file(
+            f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs")
         prompt = f'''
 Translate the following unidiomatic Rust enum to idiomatic Rust. Try to avoid using raw pointers in the translation of the enum.
 The enum is:
@@ -216,7 +308,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
                 raise RuntimeError(
                     f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet")
-            code_of_global_var = read_file(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs")
+            code_of_global_var = read_file(
+                f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs")
             prompt = f'''
 Translate the following unidiomatic Rust const global variable to idiomatic Rust. Try to avoid using raw pointers in the translation of the global variable.
 The global variable is:
@@ -383,6 +476,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Translate the struct
         prompt = f'''
 Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
+If the struct is designed as a cloneable struct, try to add/implement the `Clone` trait for the struct.
 ```rust
 {unidiomatic_struct_code}
 ```
@@ -427,7 +521,10 @@ The struct uses the following type aliases, which are defined as:
 {joint_used_type_aliases}
 ```
 '''
-        # define output format
+        # Attach JSON Schema for SPEC reference
+        _schema_text = self._get_spec_schema_text()
+
+        # define output format with SPEC
         prompt += f'''
 Output the translated struct into this format (wrap with the following tags):
 ----STRUCT----
@@ -435,6 +532,123 @@ Output the translated struct into this format (wrap with the following tags):
 // Your translated struct here
 ```
 ----END STRUCT----
+
+Also output a minimal JSON spec that maps the unidiomatic Rust layout to the idiomatic Rust struct.
+Full JSON Schema for the SPEC (do not output the schema; output only an instance that conforms to it):
+```json
+{_schema_text}
+```
+Format:
+----SPEC----
+```json
+{{
+  "struct_name": "{struct_union.name}",
+  "fields": [
+    {{
+      "u_field": {{
+        "name": "...",
+        "type": "...",
+        "shape": "scalar" | {{"ptr": {{"kind": "slice|cstring|ref", "len_from": "?", "len_const": 1}}}}
+      }},
+      "i_field": {{
+        "name": "...",
+        "type": "..."
+      }}
+    }}
+  ]
+}}
+```
+----END SPEC----
+Few-shot examples (each includes unidiomatic Rust, idiomatic Rust, and the SPEC):
+Example S1 (scalar + cstring + slice):
+Unidiomatic Rust:
+```rust
+#[repr(C)]
+pub struct A {{
+    pub num: u32,
+    pub name: *const libc::c_char,
+    pub data: *const u8,
+    pub data_len: usize,
+}}
+```
+Idiomatic Rust:
+```rust
+pub struct A {{
+    pub num: u32,
+    pub name: String,
+    pub data: Vec<u8>,
+}}
+```
+----SPEC----
+```json
+{{
+  "struct_name": "A",
+  "fields": [
+    {{ "u_field": {{"name": "num",  "type": "u32",             "shape": "scalar" }},
+       "i_field": {{"name": "num",  "type": "u32"}} }},
+    {{ "u_field": {{"name": "name", "type": "*const c_char",    "shape": {{ "ptr": {{ "kind": "cstring" }} }} }},
+       "i_field": {{"name": "name", "type": "String"}} }},
+    {{ "u_field": {{"name": "data", "type": "*const u8",       "shape": {{ "ptr": {{ "kind": "slice", "len_from": "data_len" }} }} }},
+       "i_field": {{"name": "data", "type": "Vec<u8>"}} }},
+    {{ "u_field": {{"name": "data_len", "type": "usize",       "shape": "scalar" }},
+       "i_field": {{"name": "data.len", "type": "usize"}} }}
+  ]
+}}
+```
+----END SPEC----
+
+Example S2 (nested dot-path + ref):
+Unidiomatic Rust:
+```rust
+#[repr(C)]
+pub struct Inner {{ pub x: i32, pub name: *const libc::c_char }}
+#[repr(C)]
+pub struct Outer {{ pub id: u32, pub inn: Inner, pub pval: *const u32 }}
+```
+Idiomatic Rust:
+```rust
+pub struct Inner {{ pub x: i32, pub name: String }}
+pub struct Outer {{ pub id: u32, pub inner: Inner, pub val: u32 }}
+```
+----SPEC----
+```json
+{{
+  "struct_name": "Outer",
+  "fields": [
+    {{ "u_field": {{"name": "id",       "type": "u32",            "shape": "scalar" }},
+       "i_field": {{"name": "id",       "type": "u32" }} }},
+    {{ "u_field": {{"name": "inn.x",     "type": "i32",            "shape": "scalar" }},
+       "i_field": {{"name": "inner.x",  "type": "i32" }} }},
+    {{ "u_field": {{"name": "inn.name",  "type": "*const c_char",   "shape": {{ "ptr": {{ "kind": "cstring" }} }} }},
+       "i_field": {{"name": "inner.name","type": "String" }} }},
+    {{ "u_field": {{"name": "pval",     "type": "*const u32",      "shape": {{ "ptr": {{ "kind": "ref" }} }} }},
+       "i_field": {{"name": "val",      "type": "u32" }} }}
+  ]
+}}
+```
+----END SPEC----
+
+Example S3 (nullable cstring maps to Option):
+Unidiomatic Rust:
+```rust
+#[repr(C)]
+pub struct S {{ pub name: *const libc::c_char }}
+```
+Idiomatic Rust:
+```rust
+pub struct S {{ pub name: Option<String> }}
+```
+----SPEC----
+```json
+{{
+  "struct_name": "S",
+  "fields": [
+    {{ "u_field": {{"name": "name", "type": "*const c_char", "shape": {{ "ptr": {{ "kind": "cstring", "null": "nullable" }} }} }},
+       "i_field": {{"name": "name", "type": "Option<String>" }} }}
+  ]
+}}
+```
+----END SPEC----
 '''
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
@@ -473,9 +687,10 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
 
-        result = self.llm.query(prompt)
+        # Query LLM and keep the raw output for SPEC extraction later
+        llm_raw = self.llm.query(prompt)
         try:
-            llm_result = utils.parse_llm_result(result, "struct")
+            llm_result = utils.parse_llm_result(llm_raw, "struct")
         except:
             error_message = f'''
 Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
@@ -487,12 +702,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                struct_union.name, "COMPILE_ERROR", error_message, result
+                struct_union.name, "COMPILE_ERROR", error_message, llm_raw
             )
             return self._translate_struct_impl(
                 struct_union,
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=result,
+                error_translation=llm_raw,
                 attempts=attempts+1
             )
         struct_result = llm_result["struct"]
@@ -505,22 +720,94 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             error_message = f"Error: Failed to add Debug trait to the struct: {e}, please check if the struct has a correct syntax"
             print(error_message)
             self.append_failure_info(
-                struct_union.name, "COMPILE_ERROR", error_message, result
+                struct_union.name, "COMPILE_ERROR", error_message, llm_raw
             )
             return self._translate_struct_impl(
                 struct_union,
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=result,
+                error_translation=llm_raw,
                 attempts=attempts+1
             )
 
-        # TODO: temporary solution, may need to add verification here
+        # Stage SPEC output before verification so harness generation can pick it up after success
+        spec_tmp_dir: Optional[str] = None
+        spec_tmp_path: Optional[str] = None
+        raw_struct_spec: Optional[str] = None
+        final_spec_base = os.path.join(self.result_path, self.base_name)
+        final_spec_path = os.path.join(
+            final_spec_base, "specs", "structs", f"{struct_union.name}.json"
+        )
+        spec_pre_saved = False
+        spec_valid = False
+        try:
+            raw_struct_spec = extract_spec_block(llm_raw)
+            if raw_struct_spec:
+                spec_obj = json.loads(raw_struct_spec)
+                ok, msg = validate_basic_struct_spec(
+                    spec_obj, struct_union.name)
+                if ok:
+                    spec_tmp_dir = utils.get_temp_dir()
+                    tmp_stage_base = os.path.join(spec_tmp_dir, "spec_stage")
+                    save_spec(tmp_stage_base, "struct",
+                              struct_union.name, raw_struct_spec)
+                    spec_tmp_path = os.path.join(
+                        tmp_stage_base,
+                        "specs",
+                        "structs",
+                        f"{struct_union.name}.json",
+                    )
+                    try:
+                        save_spec(
+                            final_spec_base,
+                            "struct",
+                            struct_union.name,
+                            raw_struct_spec,
+                        )
+                        spec_pre_saved = True
+                        spec_valid = True
+                    except Exception as e:
+                        print(f"Struct spec pre-save failed: {e}")
+                else:
+                    print(f"Struct spec validation failed: {msg}")
+                    spec_valid = False
+            else:
+                print(
+                    f"Struct {struct_union.name}: SPEC block not found in LLM output")
+                spec_valid = False
+        except Exception as e:
+            print(f"Struct spec staging skipped: {e}")
+
+        if not spec_valid:
+            if spec_tmp_dir:
+                shutil.rmtree(spec_tmp_dir, ignore_errors=True)
+            error_message = "Struct SPEC missing or invalid; retrying translation"
+            print(error_message)
+            self.append_failure_info(
+                struct_union.name,
+                "COMPILE_ERROR",
+                error_message,
+                llm_raw,
+            )
+            return self._translate_struct_impl(
+                struct_union,
+                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=llm_raw,
+                attempts=attempts + 1,
+            )
+
         result = self.verifier.verify_struct(
             struct_union,
             struct_result,
             dependencies_code
         )
         if result[0] == VerifyResult.COMPILE_ERROR:
+            if spec_tmp_dir:
+                shutil.rmtree(spec_tmp_dir, ignore_errors=True)
+            if spec_pre_saved and os.path.exists(final_spec_path):
+                try:
+                    os.remove(final_spec_path)
+                except OSError:
+                    pass
             self.append_failure_info(
                 struct_union.name, "COMPILE_ERROR", result[1], struct_result)
             return self._translate_struct_impl(
@@ -530,6 +817,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts + 1
             )
         elif result[0] == VerifyResult.TEST_ERROR:
+            if spec_tmp_dir:
+                shutil.rmtree(spec_tmp_dir, ignore_errors=True)
+            if spec_pre_saved and os.path.exists(final_spec_path):
+                try:
+                    os.remove(final_spec_path)
+                except OSError:
+                    pass
             self.append_failure_info(
                 struct_union.name, "TEST_ERROR", result[1], struct_result)
             return self._translate_struct_impl(
@@ -539,6 +833,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts + 1
             )
         elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
+            if spec_tmp_dir:
+                shutil.rmtree(spec_tmp_dir, ignore_errors=True)
+            if spec_pre_saved and os.path.exists(final_spec_path):
+                try:
+                    os.remove(final_spec_path)
+                except OSError:
+                    pass
             self.append_failure_info(
                 struct_union.name, "TEST_ERROR", result[1], struct_result)
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
@@ -546,6 +847,21 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         elif result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {result[0]} not implemented')
+
+        if not spec_pre_saved and spec_tmp_path and raw_struct_spec:
+            try:
+                save_spec(final_spec_base, "struct",
+                          struct_union.name, raw_struct_spec)
+                spec_pre_saved = True
+            except Exception as e:
+                print(f"Struct spec final save failed: {e}")
+        if not spec_pre_saved and os.path.exists(final_spec_path):
+            try:
+                os.remove(final_spec_path)
+            except OSError:
+                pass
+        if spec_tmp_dir:
+            shutil.rmtree(spec_tmp_dir, ignore_errors=True)
 
         # Save the results
         utils.save_code(struct_save_path, struct_result)
@@ -627,10 +943,17 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             # get the translated function signatures
             code = read_file(f"{self.translated_function_path}/{f}.rs")
             function_signatures = rust_ast_parser.get_func_signatures(code)
-            if f in translator.RESERVED_KEYWORDS:
-                f = f + "_"
+            resolved_name = self._resolve_dependency_decl_name(
+                f, function_signatures
+            )
+            if resolved_name is None:
+                available = ', '.join(function_signatures.keys())
+                raise RuntimeError(
+                    f"Error: Unable to determine idiomatic name for dependency {f} when translating {function.name}. Available declarations: [{available}]"
+                )
             function_depedency_signatures.append(
-                function_signatures[f] + ';')  # add a semicolon to the end
+                # add a semicolon to the end
+                function_signatures[resolved_name] + ';')
 
         # Translate the function
         # Get the unidiomatic translation code
@@ -749,13 +1072,112 @@ This function uses the following functions, which are already translated as (you
 ```
 '''
 
-        prompt += f'''
+        allow_spec = function.name != "main"
+
+        prompt += '''
 Output the translated function into this format (wrap with the following tags):
 ----FUNCTION----
 ```rust
 // Your translated function here
 ```
 ----END FUNCTION----
+'''
+
+        if allow_spec:
+            _schema_text = self._get_spec_schema_text()
+
+            prompt += f'''
+
+Also output a minimal JSON spec that maps the unidiomatic Rust layout to the idiomatic Rust for the function arguments and return value.
+Full JSON Schema for the SPEC (do not output the schema; output only an instance that conforms to it):
+```json
+{_schema_text}
+```
+----SPEC----
+```json
+{{
+  "function_name": "{function.name}",
+  "fields": [
+    {{
+      "u_field": {{
+        "name": "...",
+        "type": "...",
+        "shape": "scalar" | {{"ptr": {{"kind": "slice|cstring|ref", "len_from": "?", "len_const": 1}}}}
+      }},
+      "i_field": {{
+        "name": "...",
+        "type": "..."
+      }}
+    }}
+  ]
+}}
+```
+----END SPEC----
+Few-shot examples (each with unidiomatic Rust signature, idiomatic Rust signature, and the SPEC):
+Example F1 (slice arg):
+Unidiomatic Rust:
+```rust
+pub unsafe extern "C" fn sum(xs: *const i32, n: usize) -> i32;
+```
+Idiomatic Rust:
+```rust
+pub fn sum(xs: &[i32]) -> i32;
+```
+----SPEC----
+```json
+{{
+  "function_name": "sum",
+  "fields": [
+    {{ "u_field": {{"name": "xs", "type": "*const i32", "shape": {{ "ptr": {{ "kind": "slice", "len_from": "n" }} }} }},
+       "i_field": {{"name": "xs", "type": "&[i32]" }} }},
+    {{ "u_field": {{"name": "n",  "type": "usize",      "shape": "scalar" }},
+       "i_field": {{"name": "xs.len", "type": "usize" }} }}
+  ]
+}}
+```
+----END SPEC----
+
+Example F2 (ref out):
+Unidiomatic Rust:
+```rust
+pub unsafe extern "C" fn get_value(out_value: *mut i32);
+```
+Idiomatic Rust:
+```rust
+pub fn get_value() -> i32;
+```
+----SPEC----
+```json
+{{
+  "function_name": "get_value",
+  "fields": [
+    {{ "u_field": {{"name": "out_value", "type": "*mut i32", "shape": {{ "ptr": {{ "kind": "ref" }} }} }},
+       "i_field": {{"name": "ret", "type": "i32" }} }}
+  ]
+}}
+```
+----END SPEC----
+
+Example F3 (nullable cstring maps to Option):
+Unidiomatic Rust:
+```rust
+pub unsafe extern "C" fn set_name(name: *const libc::c_char);
+```
+Idiomatic Rust:
+```rust
+pub fn set_name(name: Option<&str>);
+```
+----SPEC----
+```json
+{{
+  "function_name": "set_name",
+  "fields": [
+    {{ "u_field": {{"name": "name", "type": "*const c_char", "shape": {{ "ptr": {{ "kind": "cstring", "null": "nullable" }} }} }},
+       "i_field": {{"name": "name", "type": "Option<&str>" }} }}
+  ]
+}}
+```
+----END SPEC----
 '''
 
         feed_to_verify = (VerifyResult.SUCCESS, None)
@@ -810,9 +1232,10 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
 
-        result = self.llm.query(prompt)
+        # Query LLM and keep the raw output for SPEC extraction later
+        llm_raw = self.llm.query(prompt)
         try:
-            llm_result = utils.parse_llm_result(result, "function")
+            llm_result = utils.parse_llm_result(llm_raw, "function")
         except:
             error_message = f'''
 Error: Failed to parse the result from LLM, result is not wrapped by the tags as instructed. Remember the tag:
@@ -824,12 +1247,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 '''
             print(error_message)
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message, result
+                function.name, "COMPILE_ERROR", error_message, llm_raw
             )
             return self._translate_function_impl(
                 function,
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=result,
+                error_translation=llm_raw,
                 attempts=attempts+1
             )
         try:
@@ -837,7 +1260,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         except KeyError:
             error_message = f"Error: Output does not wrapped in the correct format!"
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message, result
+                function.name, "COMPILE_ERROR", error_message, llm_raw
             )
             return self._translate_function_impl(
                 function,
@@ -853,7 +1276,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             error_message = f"Error: Syntax error in the translated code: {e}"
             print(error_message)
             self.append_failure_info(
-                function.name, "COMPILE_ERROR", error_message, result
+                function.name, "COMPILE_ERROR", error_message, llm_raw
             )
             # retry the translation
             return self._translate_function_impl(
@@ -864,7 +1287,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts+1
             )
 
-        # detect whether there are too many functions which many causing multi-definition problem after combining
+        # detect whether there are too many functions which may cause multi-definition problems after combining
         if len(function_result_sigs) > 1:
             error_message = f"Error: {len(function_result_sigs)} functions are generated, expect **only one** function. If you need to define help function please generate it as a subfuncion in the translated function."
             self.append_failure_info(
@@ -874,28 +1297,58 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 function_result
             )
             return self._translate_function_impl(
+                function,
+                verify_result=(
+                    VerifyResult.COMPILE_ERROR, error_message),
+                error_translation=function_result,
+                attempts=attempts+1
+            )
+
+        # Determine idiomatic function name; prefer SPEC if provided
+        idiomatic_func_name = None
+        if allow_spec:
+            try:
+                raw_spec_try = extract_spec_block(llm_raw)
+                if raw_spec_try:
+                    spec_obj_try = json.loads(raw_spec_try)
+                    name_from_spec = spec_obj_try.get("function_name")
+                    if isinstance(name_from_spec, str) and name_from_spec.strip():
+                        idiomatic_func_name = name_from_spec.strip()
+            except Exception:
+                pass
+        # Fallback: only function present in result
+        if idiomatic_func_name is None and len(function_result_sigs) == 1:
+            try:
+                idiomatic_func_name = next(iter(function_result_sigs.keys()))
+            except Exception:
+                idiomatic_func_name = None
+
+        # If still unknown, require original name to be present
+        if idiomatic_func_name is None:
+            if function.name not in function_result_sigs:
+                if function.name in translator.RESERVED_KEYWORDS:
+                    # TODO: handle this case
+                    pass
+                else:
+                    error_message = f"Error: Function signature not found in the translated code for function `{function.name}`. Got functions: {list(function_result_sigs.keys())}. If you renamed the function, include a SPEC with `function_name`."
+                    print(error_message)
+                    return self._translate_function_impl(
                         function,
                         verify_result=(
-                            VerifyResult.COMPILE_ERROR, error_message),
+                            VerifyResult.COMPILE_ERROR,
+                            error_message,
+                        ),
                         error_translation=function_result,
                         attempts=attempts+1
                     )
-
-        if function.name not in function_result_sigs:
-            if function.name in translator.RESERVED_KEYWORDS:
-                # TODO: handle this case
-                pass
-            else:
-                error_message = f"Error: Function signature not found in the translated code for function `{function.name}`. Got functions: {list(
-                    function_result_sigs.keys()
-                )}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa."
+        else:
+            # SPEC provided a new name; ensure it exists in the output
+            if idiomatic_func_name not in function_result_sigs:
+                error_message = f"Error: SPEC declares function_name `{idiomatic_func_name}`, but translated code defines: {list(function_result_sigs.keys())}"
                 print(error_message)
                 return self._translate_function_impl(
                     function,
-                    verify_result=(
-                        VerifyResult.COMPILE_ERROR,
-                        error_message,
-                    ),
+                    verify_result=(VerifyResult.COMPILE_ERROR, error_message),
                     error_translation=function_result,
                     attempts=attempts+1
                 )
@@ -927,21 +1380,77 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         all_dt_code = {}
         for struct in all_structs:
-            all_dt_code[struct] = read_file(f"{self.translated_struct_path}/{struct}.rs")
+            all_dt_code[struct] = read_file(
+                f"{self.translated_struct_path}/{struct}.rs")
 
         for g_var in all_global_vars:
-            all_dt_code[g_var] = read_file(f"{self.translated_global_var_path}/{g_var}.rs")
+            all_dt_code[g_var] = read_file(
+                f"{self.translated_global_var_path}/{g_var}.rs")
 
         all_dependency_functions_code = {}
         for f in all_dependency_functions:
-            all_dependency_functions_code[f] = read_file(f"{self.translated_function_path}/{f}.rs")
+            all_dependency_functions_code[f] = read_file(
+                f"{self.translated_function_path}/{f}.rs")
 
         data_type_code = all_dt_code | used_global_vars | code_of_enum
 
         # process the function result
-        function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
+        function_result = rust_ast_parser.expand_use_aliases(
+            function_result)  # remove potentail 'as' in use statements
 
         # Verify the translation
+        # Stage SPEC (with idiomatic name) before verification so harness generation can see it
+        spec_tmp_dir: Optional[str] = None
+        spec_tmp_path: Optional[str] = None
+        spec_pre_saved = False
+        spec_json_to_save: Optional[str] = None
+        final_spec_base = os.path.join(self.result_path, self.base_name)
+        final_spec_path = os.path.join(
+            final_spec_base, "specs", "functions", f"{function.name}.json"
+        )
+        if allow_spec:
+            try:
+                raw_spec_candidate = extract_spec_block(llm_raw)
+                if raw_spec_candidate:
+                    spec_obj = json.loads(raw_spec_candidate)
+                    # Force canonical function name and attach idiomatic name hint
+                    spec_obj["function_name"] = function.name
+                    if idiomatic_func_name:
+                        spec_obj["idiomatic_name"] = idiomatic_func_name
+                    ok, msg = validate_basic_function_spec(
+                        spec_obj, function.name)
+                    if ok:
+                        spec_json_to_save = json.dumps(spec_obj, indent=2)
+                        spec_tmp_dir = utils.get_temp_dir()
+                        tmp_stage_base = os.path.join(
+                            spec_tmp_dir, "spec_stage")
+                        save_spec(
+                            tmp_stage_base,
+                            "function",
+                            function.name,
+                            spec_json_to_save,
+                        )
+                        spec_tmp_path = os.path.join(
+                            tmp_stage_base,
+                            "specs",
+                            "functions",
+                            f"{function.name}.json",
+                        )
+                        save_spec(
+                            final_spec_base,
+                            "function",
+                            function.name,
+                            spec_json_to_save,
+                        )
+                        spec_pre_saved = True
+                    else:
+                        print(f"Function spec validation failed: {msg}")
+                else:
+                    print(
+                        f"Function {function.name}: SPEC block not found in LLM output")
+            except Exception as e:
+                print(f"Function spec staging skipped: {e}")
+
         result = self.verifier.verify_function(
             function,
             function_code=function_result,
@@ -952,6 +1461,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         )
 
         if result[0] != VerifyResult.SUCCESS:
+            # Clean up staged SPEC and mapping if verification failed
+            if spec_pre_saved and os.path.exists(final_spec_path):
+                try:
+                    os.remove(final_spec_path)
+                except OSError:
+                    pass
+            if spec_tmp_dir:
+                shutil.rmtree(spec_tmp_dir, ignore_errors=True)
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
                     function.name, "COMPILE_ERROR", result[1], function_result)
@@ -973,6 +1490,38 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=function_result,
                 attempts=attempts + 1
             )
+
+        # Persist SPEC (if staged) and update mapping after successful verification
+        if spec_json_to_save and not spec_pre_saved:
+            try:
+                save_spec(final_spec_base, "function",
+                          function.name, spec_json_to_save)
+                spec_pre_saved = True
+            except Exception as e:
+                print(f"Function spec final save failed: {e}")
+        if spec_tmp_dir:
+            shutil.rmtree(spec_tmp_dir, ignore_errors=True)
+
+        # Update idiomatic name mapping (best-effort)
+        if idiomatic_func_name:
+            try:
+                mapping_dir = os.path.join(final_spec_base, "specs")
+                os.makedirs(mapping_dir, exist_ok=True)
+                mapping_path = os.path.join(
+                    mapping_dir, "function_name_map.json")
+                mapping_data = {}
+                if os.path.exists(mapping_path):
+                    with open(mapping_path, "r") as _mf:
+                        try:
+                            mapping_data = json.load(_mf)
+                        except Exception:
+                            mapping_data = {}
+                mapping_data[function.name] = idiomatic_func_name
+                with open(mapping_path, "w") as _mf:
+                    json.dump(mapping_data, _mf, indent=2)
+                self._function_name_map_cache = mapping_data
+            except Exception as e:
+                print(f"Function name mapping update skipped: {e}")
 
         # save code
         utils.save_code(

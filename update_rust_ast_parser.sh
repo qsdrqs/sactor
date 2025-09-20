@@ -7,5 +7,5 @@ ORIGINAL_PWD=$(pwd)
 trap "cd ${ORIGINAL_PWD}" EXIT
 
 cd $SCRIPT_DIR
-cargo run --bin stub_gen
+cargo run --no-default-features --bin stub_gen
 maturin develop -m rust_ast_parser/Cargo.toml --uv
