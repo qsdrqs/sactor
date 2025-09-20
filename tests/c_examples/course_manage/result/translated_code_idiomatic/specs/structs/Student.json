@@ -1,0 +1,25 @@
+{
+  "struct_name": "Student",
+  "fields": [
+    {
+      "u_field": { "name": "name", "type": "*mut libc::c_char", "shape": { "ptr": { "kind": "cstring" } } },
+      "i_field": { "name": "name", "type": "String" }
+    },
+    {
+      "u_field": { "name": "age", "type": "libc::c_int", "shape": "scalar" },
+      "i_field": { "name": "age", "type": "i32" }
+    },
+    {
+      "u_field": { "name": "enrolledCourse", "type": "*mut Course", "shape": { "ptr": { "kind": "ref" } } },
+      "i_field": { "name": "enrolled_course", "type": "Course" }
+    },
+    {
+      "u_field": { "name": "grades", "type": "*mut libc::c_float", "shape": { "ptr": { "kind": "slice", "len_from": "numGrades" } } },
+      "i_field": { "name": "grades", "type": "Vec<f32>" }
+    },
+    {
+      "u_field": { "name": "numGrades", "type": "libc::c_int", "shape": "scalar" },
+      "i_field": { "name": "grades.len", "type": "usize" }
+    }
+  ]
+}

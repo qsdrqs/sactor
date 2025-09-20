@@ -1,14 +1,14 @@
 #[derive(Clone, Debug)]
+pub struct Course {
+    pub course_name: String,
+    pub course_code: i32,
+}
+#[derive(Clone, Debug)]
 pub struct Student {
     pub name: String,
     pub age: i32,
     pub enrolled_course: Course,
     pub grades: Vec<f32>,
-}
-#[derive(Clone, Debug)]
-pub struct Course {
-    pub course_name: String,
-    pub course_code: i32,
 }
 pub fn printUsage() {
     println ! ("Usage: ./program <student_name> <age> <course_name> <course_code> <grade1> [grade2] [grade3] ...");
@@ -149,7 +149,7 @@ pub fn main() {
     let mut grades: Vec<f32> = Vec::with_capacity(num_grades);
     for i in 0..num_grades {
         let g = parse_c_float_prefix(&args[5 + i]);
-        if !(0.0..=100.0).contains(&g) {
+        if g < 0.0 || g > 100.0 {
             println!("Error: Invalid grade {:.6} (must be between 0 and 100)", g);
             let _ = io::stdout().flush();
             process::exit(1);
