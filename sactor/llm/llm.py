@@ -71,8 +71,9 @@ class LLM:
     def query(self, prompt, model=None, override_system_message=None) -> str:
         input_tokens = self.enc.encode(prompt)
         if len(input_tokens) > 20480:
-            print(f"Input is too long: {len(prompt)}")
-            return ""
+            print(f"Input is too long: {len(prompt)}, truncating to 20480 tokens.")
+            input_tokens = input_tokens[:20480]
+            prompt = self.enc.decode(input_tokens)
         utils.print_red(prompt)
         old_system_msg = None
         if override_system_message is not None:
