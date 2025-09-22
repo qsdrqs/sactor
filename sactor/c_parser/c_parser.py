@@ -7,6 +7,7 @@ from .enum_info import EnumInfo, EnumValueInfo
 from .function_info import FunctionInfo
 from .global_var_info import GlobalVarInfo
 from .struct_info import StructInfo
+from clang.cindex import CursorKind
 
 standard_io = [
     "stdin",
@@ -321,18 +322,22 @@ class CParser:
         Recursively collects the names of functions called within the given node,
         excluding standard library functions.
         """
+
+        def is_function_reference(cursor: cindex.Cursor) -> bool:
+            if cursor.kind == CursorKind.DECL_REF_EXPR:
+                if cursor.referenced and cursor.referenced.kind == CursorKind.FUNCTION_DECL:
+                    return True
+            return False
+        
         called_functions = set()
         if not node:
             return called_functions
-        #debug
-        # print("_collect_function", node.displayname, flush=True)
-        for child in node.get_children():
-            if child.kind == cindex.CursorKind.CALL_EXPR:
-                # print("child.kind:", child.displayname, flush=True)
-                called_func_cursor = child.referenced
 
+        for child in node.get_children():
+            # functions in function calls and references (e.g., assign the function to a function pointer) are tracked
+            if child.kind == CursorKind.CALL_EXPR or is_function_reference(child):
+                called_func_cursor = child.referenced
                 if called_func_cursor:
-                    # print("called func cursor:", called_func_cursor.displayname, flush=True)
                     # Exclude functions declared in system headers
                     if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
                         called_functions.add(called_func_cursor.spelling)
