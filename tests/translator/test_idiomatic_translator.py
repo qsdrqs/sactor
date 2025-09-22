@@ -1,12 +1,16 @@
 import tempfile
 
 import pytest
+from functools import partial
+from unittest.mock import patch
 
 from sactor.c_parser import CParser
 from sactor.thirdparty.crown import Crown
 from sactor.translator import IdiomaticTranslator, TranslateResult
-from tests.azure_llm import azure_llm
+from sactor.llm import LLM, llm_factory
+from sactor import utils
 from tests.utils import config
+from tests.mock_llm import llm_with_mock
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
@@ -45,7 +49,8 @@ pub struct Course {''') != -1:
 
 @pytest.fixture
 def llm():
-    yield from azure_llm(mock_query_impl)
+    # Use shared helper to create a patched LLM
+    yield from llm_with_mock(mock_query_impl)
 
 
 def test_idiomatic_translator(llm, config):

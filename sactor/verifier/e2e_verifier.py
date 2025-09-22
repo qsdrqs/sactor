@@ -6,7 +6,6 @@ from sactor import utils
 
 from .verifier import Verifier
 from .verifier_types import VerifyResult
-from sactor.c_parser import CParser
 
 
 class E2EVerifier(Verifier):

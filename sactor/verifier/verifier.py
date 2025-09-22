@@ -7,8 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from sactor import rust_ast_parser, utils
-from tenacity import retry, stop_after_attempt
-from sactor.utils import is_compile_command, process_commands_to_compile
+from sactor.utils import is_compile_command, process_commands_to_compile, read_file, read_file_lines
 
 from sactor.c_parser import FunctionInfo, StructInfo, c_parser_utils, CParser
 from sactor.combiner.combiner import RustCode, merge_uses
@@ -47,8 +46,7 @@ class Verifier(ABC):
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
         try:
-            with open(test_cmd_path, "r") as f:
-                test_cmd = f.read()
+            test_cmd = read_file(test_cmd_path)
             test_cmd = test_cmd.strip()
             test_cmd = json.loads(test_cmd)
             if not isinstance(test_cmd, list):
@@ -139,8 +137,7 @@ class Verifier(ABC):
         return self._try_compile_rust_code_impl(rust_code, executable)
 
     def _load_test_cmd(self, target) -> list[list[str]]:
-        with open(self.test_cmd_path, "r") as f:
-            test_cmd_str = f.read()
+        test_cmd_str = read_file(self.test_cmd_path)
         test_cmd_str = test_cmd_str.strip()
         test_cmd_json = json.loads(test_cmd_str)
         test_cmd = []
@@ -226,8 +223,7 @@ class Verifier(ABC):
     def _mutate_c_code(self, c_function: FunctionInfo, filename, prefix=False) -> str:
         # remove the c code of the function, but keep the function signature
         node = c_function.node
-        with open(filename, "r") as f:
-            lines = f.readlines()
+        lines = read_file_lines(filename)
 
         # remove `static` from the function signature in function dependencies
         source_code = "".join(lines)

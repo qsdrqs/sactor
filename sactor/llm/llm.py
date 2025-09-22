@@ -1,14 +1,15 @@
 import json
 import os
 import time
-from abc import ABC, abstractmethod
 
 import tiktoken
+import litellm
+from litellm import Router
 
 from sactor import utils
 
 
-class LLM(ABC):
+class LLM:
     def __init__(self, config, encoding=None, system_msg=None):
         self.config = config
         if system_msg is None:
@@ -24,9 +25,48 @@ class LLM(ABC):
         self.costed_output_tokens = []
         self.costed_time = []
 
-    @abstractmethod
-    def _query_impl(self, prompt, model) -> str:
-        pass
+        # Initialize litellm router with config
+        self.default_model = config['general']['model']
+        litellm_config = config.get('litellm', {})
+
+        # Debug logging
+        print(f"Default model: '{self.default_model}'")
+        model_list = litellm_config.get('model_list', [])
+        print(f" Found {len(model_list)} models in config:")
+        for i, model_config in enumerate(model_list):
+            model_name = model_config.get('model_name', 'MISSING')
+            litellm_model = model_config.get('litellm_params', {}).get('model', 'MISSING')
+            print(f"  {i}: '{model_name}' -> '{litellm_model}'")
+
+        # Create router with model list and settings
+        self.router = Router(
+            model_list=model_list,
+            **litellm_config.get('router_settings', {})
+        )
+
+    def _query_impl(self, prompt, model=None) -> str:
+        if model is None:
+            model = self.default_model
+
+        messages = []
+        if self.system_msg is not None:
+            messages.append({"role": "system", "content": self.system_msg})
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            response = self.router.completion(
+                model=model,
+                messages=messages
+            )
+            content = response.choices[0].message.content
+
+            if content is None:
+                raise Exception(f"Failed to generate response: {response}")
+
+            return content
+
+        except Exception as e:
+            raise Exception(f"LiteLLM router query failed for {model}: {str(e)}")
 
     def query(self, prompt, model=None, override_system_message=None) -> str:
         input_tokens = self.enc.encode(prompt)

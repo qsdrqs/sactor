@@ -1,5 +1,16 @@
 [general]
 max_translation_attempts = 3
+model = "gpt-4o"
 
-[OpenAI]
+# LiteLLM minimal configuration for tests
+[litellm]
+[litellm.router_settings]
+routing_strategy = "simple-shuffle"
+num_retries = 1
+timeout = 30
+
+[[litellm.model_list]]
+model_name = "gpt-4o"
+[litellm.model_list.litellm_params]
+model = "openai/gpt-4o-2024-08-06"
 api_key = "mock-api-key"

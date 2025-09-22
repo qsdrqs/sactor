@@ -14,8 +14,3 @@ __pycache__
 *.so
 
 sactor.toml
-
-#experiment
-Dockerfile_zy
-todo.md
-.vscode/

@@ -867,6 +867,97 @@ fn unidiomatic_types_cleanup(code: &str) -> PyResult<String> {
     Ok(prettyplease::unparse(&ast))
 }
 
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn get_value_type_name(code: &str, value: &str) -> PyResult<String> {
+    let ast = parse_src(code)?;
+
+    for item in ast.items.iter() {
+        match item {
+            // Handle static variables
+            syn::Item::Static(s) if s.ident == value => {
+                let static_without_value = syn::ItemStatic {
+                    attrs: vec![], // No attributes
+                    vis: syn::Visibility::Inherited, // No visibility modifier
+                    static_token: s.static_token,
+                    mutability: s.mutability.clone(),
+                    ident: s.ident.clone(),
+                    colon_token: s.colon_token,
+                    ty: s.ty.clone(),
+                    eq_token: s.eq_token,
+                    expr: Box::new(syn::Expr::Verbatim(Default::default())), // Empty expression
+                    semi_token: s.semi_token,
+                };
+
+                let static_item = syn::Item::Static(static_without_value);
+                let file = syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![static_item],
+                };
+
+                let code_str = prettyplease::unparse(&file);
+
+                // Extract just the static declaration line (remove empty expression)
+                let lines: Vec<&str> = code_str.lines().collect();
+                for line in lines {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("static") && trimmed.ends_with("= ;") {
+                        // Remove the "= " part to get just the type declaration
+                        return Ok(trimmed.replace("= ", ""));
+                    }
+                }
+
+                return Ok(code_str.trim().to_string());
+            }
+
+            // Handle const variables
+            syn::Item::Const(c) if c.ident == value => {
+                let const_without_value = syn::ItemConst {
+                    attrs: vec![], // No attributes
+                    vis: syn::Visibility::Inherited, // No visibility modifier
+                    const_token: c.const_token,
+                    ident: c.ident.clone(),
+                    generics: c.generics.clone(),
+                    colon_token: c.colon_token,
+                    ty: c.ty.clone(),
+                    eq_token: c.eq_token,
+                    expr: Box::new(syn::Expr::Verbatim(Default::default())), // Empty expression
+                    semi_token: c.semi_token,
+                };
+
+                let const_item = syn::Item::Const(const_without_value);
+                let file = syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![const_item],
+                };
+
+                let code_str = prettyplease::unparse(&file);
+
+                // Extract just the const declaration line (remove empty expression)
+                let lines: Vec<&str> = code_str.lines().collect();
+                for line in lines {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("const") && trimmed.ends_with("= ;") {
+                        // Remove the "= " part to get just the type declaration
+                        return Ok(trimmed.replace("= ", ""));
+                    }
+                }
+
+                return Ok(code_str.trim().to_string());
+            }
+
+            _ => continue,
+        }
+    }
+
+    Err(pyo3::exceptions::PyValueError::new_err(format!(
+        "Item '{}' not found",
+        value
+    )))
+}
+
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
@@ -885,6 +976,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(unidiomatic_types_cleanup, m)?)?;
     m.add_function(wrap_pyfunction!(get_static_item_definition, m)?)?;
     m.add_function(wrap_pyfunction!(expand_use_aliases, m)?)?;
+    m.add_function(wrap_pyfunction!(get_value_type_name, m)?)?;
     m.add_function(wrap_pyfunction!(replace_libc_numeric_types_to_rust_primitive_types, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]

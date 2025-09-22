@@ -6,7 +6,6 @@ from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 from .verifier import Verifier
 from .verifier_types import VerifyResult
-from sactor.c_parser import CParser
 
 from ..combiner.rust_code import RustCode
 from ..combiner.combiner import Combiner

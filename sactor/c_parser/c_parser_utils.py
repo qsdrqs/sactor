@@ -1,13 +1,13 @@
 import os
 import re
-import shutil, shlex
+import shutil
 import subprocess
 
 from clang import cindex
 from clang.cindex import Cursor, Index, TranslationUnit
 
 from sactor import utils
-from sactor.utils import get_temp_dir
+from sactor.utils import get_temp_dir, read_file, read_file_lines
 
 from .c_parser import CParser
 
@@ -75,7 +75,7 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
     if not commands:
         commands = []
     filename = os.path.basename(input_file)
-    
+
     if commands:
         compile_flags = utils.get_compile_flags_from_commands(commands)
     else:
@@ -83,11 +83,6 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
     tmpdir = utils.get_temp_dir()
     os.makedirs(tmpdir, exist_ok=True)
 
-    def get_file_hash(filepath: str) -> str:
-        result = subprocess.run(["sha256sum", filepath], capture_output=True, text=True)
-        sha256 = result.stdout.split()[0].strip()
-        return sha256
-    
     def expand_custom_headers(tmp_file_path: str, flags: list):
         """
         This will only expand the custom header non-recursively.
@@ -107,7 +102,7 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
             if not header or not loc:
                 continue
             if not os.path.samefile(loc.file.name, tmp_file_path):
-                continue 
+                continue
             header_location = cindex.SourceLocation.from_position(
                 translation_unit,
                 header,
@@ -117,89 +112,81 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
             if not bool(cindex.conf.lib.clang_Location_isInSystemHeader(header_location)):
                 # print(header.name , "include source location:", loc.file.name)
                 non_system_includes[loc.line] = header.name
+
         new_lines = []
-        non_system_includes = {k: v for k, v in non_system_includes.items() if not v.startswith('/usr/lib/')}
+        # exclude system includes (includes in compiler include paths)
+        for path in compiler_include_paths:
+            non_system_includes = {k: v for k, v in non_system_includes.items() if not v.startswith(path)}
         if non_system_includes:
-            with open(tmp_file_path, 'r') as f:
-                for i, line in enumerate(f, start=1):
-                    if i in non_system_includes:
-                        header_file = non_system_includes[i]
-                        try:
-                            with open(header_file, "r") as hf:
-                                header_content = hf.read()
-                            # Paste raw contents, but don’t recursively expand
-                            new_lines.append(f"/* Begin expanded {header_file} */\n")
-                            new_lines.append(header_content)
-                            if not header_content.endswith("\n"):
-                                new_lines.append("\n")
-                            new_lines.append(f"/* End expanded {header_file} */\n")
-                        except Exception as e:
-                            print(f"Warning: could not read {header_file}: {e}")
-                            new_lines.append(line)  # fallback
-                    else:
-                        # Keep system includes and other code unchanged
-                        new_lines.append(line)
+            lines = read_file_lines(tmp_file_path)
+            for i, line in enumerate(lines, start=1):
+                if i in non_system_includes:
+                    header_file = non_system_includes[i]
+                    try:
+                        header_content = read_file(header_file)
+                        # Paste raw contents, but don't recursively expand
+                        new_lines.append(f"/* Begin expanded {header_file} */\n")
+                        new_lines.append(header_content)
+                        if not header_content.endswith("\n"):
+                            new_lines.append("\n")
+                        new_lines.append(f"/* End expanded {header_file} */\n")
+                    except Exception as e:
+                        print(f"Warning: could not read {header_file}: {e}")
+                        new_lines.append(line)  # fallback
+                else:
+                    # Keep system includes and other code unchanged
+                    new_lines.append(line)
             with open(tmp_file_path, 'w') as f:
                 f.writelines(new_lines)
-        
-    def remove_includes(filepath: str) -> dict:
-        includes = {}
-        new_lines = []
-        with open(filepath, "r") as f:
-            for line in f:
-                if re.search(r"# *include", line):
-                    remove_marker = f"/* sactor remove marker: {len(includes)} */\n"
-                    new_lines.append(remove_marker)
-                    includes[remove_marker] = line
-                else:
-                    new_lines.append(line)
-        with open(filepath, "w") as f:
-            f.writelines(new_lines)
-        return includes
 
+    tmp_file_path = os.path.join(tmpdir, f"expanded_{filename}")
+    shutil.copy(input_file, tmp_file_path)
 
-    def get_expanded_code(tmpdir: str, filename: str, flags: list[str], output_filename_prefix: str="expanded") -> str:
+    # For #include, keep system headers, expand custom headers.
+    while True:
+        file_content_before = utils.read_file(tmp_file_path)
+        expand_custom_headers(tmp_file_path, compile_flags)
+        file_content_after = utils.read_file(tmp_file_path)
+        if file_content_before.strip() == file_content_after.strip():
+            break
 
-        tmp_file_path = os.path.join(tmpdir, f"{output_filename_prefix}_{filename}")
-        shutil.copy(input_file, tmp_file_path)
+    # remove all remaining headers, to be added after preprocessing
+    includes_lines = {}
+    new_lines = []
+    lines = read_file_lines(tmp_file_path)
+    for line in lines:
+        if re.search(r"# *include", line):
+            remove_marker = f"/* sactor remove marker: {len(includes_lines)} */\n"
+            new_lines.append(remove_marker)
+            includes_lines[remove_marker] = line
+        else:
+            new_lines.append(line)
+    with open(tmp_file_path, "w") as f:
+        f.writelines(new_lines)
 
-        # For #include, keep system headers, expand custom headers.
-        while True:
-            hash_before = get_file_hash(tmp_file_path)
-            expand_custom_headers(tmp_file_path, flags)
-            hash_after = get_file_hash(tmp_file_path)
-            if hash_before == hash_after:
-                break
-        # remove all remaining headers, to be added after preprocessing
-        includes_lines = remove_includes(tmp_file_path)
+    # expand macros
+    # #ifdef __cplusplus will be automatically removed if there is no __cplusplus flag
+    result = subprocess.run(
+        ['cpp', '-C', '-P', '-xc', '-std=c99', tmp_file_path, *compile_flags],
+        capture_output=True,
+        text=True,
+        check=True
+    )
 
-        # expand macros
-        # #ifdef __cplusplus will be automatically removed if there is no __cplusplus flag
-        result = subprocess.run(
-            ['cpp', '-C', '-P', '-xc', '-std=c99', tmp_file_path, *flags],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+    # add removed headers
+    content = result.stdout.splitlines(keepends=True)
+    for i, line in enumerate(content[:]):
+        if line in includes_lines:
+            content[i] = includes_lines[line]
 
-        # add removed headers
-        content = result.stdout.splitlines(keepends=True)
-        for i, line in enumerate(content[:]):
-            if line in includes_lines:
-                content[i] = includes_lines[line]
+    with open(tmp_file_path, 'w') as f:
+        f.writelines(content)
 
-        with open(tmp_file_path, 'w') as f:
-            f.writelines(content)
+    # check if it can compile, if not, will raise an error
+    # assume it is a library, compatible with the executable
+    utils.compile_c_code(tmp_file_path, commands=commands, is_library=True)
 
-        # check if it can compile, if not, will raise an error
-        # assume it is a library, compatible with the executable
-        utils.compile_c_code(tmp_file_path, commands=commands, is_library=True)
-        return tmp_file_path
-
-    # use `cpp -C -P` to expand all macros
-    output_filepath = get_expanded_code(tmpdir, filename, compile_flags, "expanded")
-
-    return output_filepath
+    return tmp_file_path
 
 
 def preprocess_source_code(input_file, commands: list[list[str]]) -> str:
@@ -216,8 +203,8 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
     c_parser = CParser(input_file, omit_error=True, extra_args=compile_flags)
     type_aliases = c_parser._type_alias
 
-    with open(input_file, 'r') as f:
-        content = f.read()
+    text_str, data_bytes, b2s, s2b = utils.load_text_with_mappings(input_file)
+    content = text_str
 
     # Remove/replace typedef declarations using libclang
     typedef_nodes = c_parser.get_typedef_nodes()
@@ -238,36 +225,44 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
                 enum_child = child
                 break
 
-        start_offset = node.extent.start.offset
-        end_offset = node.extent.end.offset
-        # Extend end_offset to include any trailing semicolon and whitespace
-        while end_offset < len(content) and content[end_offset] in ' \t\n':
-            end_offset += 1
-        if end_offset < len(content) and content[end_offset] == ';':
-            end_offset += 1
+        _start_b = node.extent.start.offset
+        _end_b = node.extent.end.offset
+        _end_b = utils.scan_ws_semicolon_bytes(data_bytes, _end_b) # For removing trailing semicolon and whitespace
+        start_offset = utils.byte_to_str_index(b2s, _start_b)
+        end_offset = utils.byte_to_str_index(b2s, _end_b)
 
         if struct_child:
-            struct_start = struct_child.extent.start.offset
-            struct_end = struct_child.extent.end.offset
+            _struct_start_b = struct_child.extent.start.offset
+            _struct_end_b = struct_child.extent.end.offset
+            struct_start = utils.byte_to_str_index(b2s, _struct_start_b)
+            struct_end = utils.byte_to_str_index(b2s, _struct_end_b)
             typedef_name = node.spelling
             struct_body = content[struct_start:struct_end]
 
-            # Handle anonymous struct/union typedef
-            if typedef_name and struct_child.spelling == typedef_name:
-                if struct_body.startswith("struct"):
-                    struct_text = f"struct {typedef_name}" + struct_body[6:] + ";"
-                elif struct_body.startswith("union"):
-                    struct_text = f"union {typedef_name}" + struct_body[5:] + ";"
+            is_union = (struct_child.kind == cindex.CursorKind.UNION_DECL)
+            kw = "union" if is_union else "struct"
+
+            brace_idx = struct_body.find("{")
+            if brace_idx != -1:
+                name_seg = struct_body[len(kw):brace_idx]
+                anonymous = name_seg.strip() == ""
+            else:
+                anonymous = True
+
+            if anonymous and typedef_name:
+                if brace_idx != -1:
+                    struct_text = f"{kw} {typedef_name} " + struct_body[brace_idx:] + ";"
                 else:
-                    struct_text = f"struct {typedef_name} {struct_body};"
+                    struct_text = f"{kw} {typedef_name} {{}};"
             else:
                 struct_text = struct_body + ";"
 
-            content = content[:start_offset] + \
-                struct_text + content[end_offset:]
+            content = content[:start_offset] + struct_text + content[end_offset:]
         elif enum_child:
-            enum_start = enum_child.extent.start.offset
-            enum_end = enum_child.extent.end.offset
+            _enum_start_b = enum_child.extent.start.offset
+            _enum_end_b = enum_child.extent.end.offset
+            enum_start = utils.byte_to_str_index(b2s, _enum_start_b)
+            enum_end = utils.byte_to_str_index(b2s, _enum_end_b)
             typedef_name = node.spelling
 
             # Handle anonymous enum typedef
@@ -292,6 +287,8 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
         tmp_file_path = os.path.join(tmp_dir, 'temp_unfolded.c')
         with open(tmp_file_path, 'w') as tmp_file:
             tmp_file.write(content)
+        txt2, b2, b2s2, s2b2 = utils.load_text_with_mappings(tmp_file_path)
+        content = txt2
 
         try:
             # Re-parse the modified content
@@ -316,8 +313,10 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
                 if (token.kind == cindex.TokenKind.IDENTIFIER and
                         token.spelling in type_aliases):
 
-                    start_offset = token.extent.start.offset
-                    end_offset = token.extent.end.offset
+                    _tok_start_b = token.extent.start.offset
+                    _tok_end_b = token.extent.end.offset
+                    start_offset = utils.byte_to_str_index(b2s2, _tok_start_b)
+                    end_offset = utils.byte_to_str_index(b2s2, _tok_end_b)
 
                     # Make sure the token text actually matches
                     if (start_offset < len(content) and

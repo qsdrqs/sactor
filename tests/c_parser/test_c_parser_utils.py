@@ -2,15 +2,17 @@ import os
 import tempfile
 import textwrap
 import shutil
+import pytest
+import glob
 
 from sactor.c_parser import c_parser_utils
+from sactor.utils import read_file
 from tests import utils as test_utils
 
 
 def test_function_get_declaration():
     file_path = 'tests/verifier/mutation_test.c'
-    with open(file_path, 'r') as f:
-        source_code = f.read()
+    source_code = read_file(file_path)
     output = c_parser_utils.remove_function_static_decorator(
         'add', source_code)
     print(output)
@@ -58,8 +60,7 @@ def test_expand_macro():
             f.write(c_code)
 
         out_path = c_parser_utils.expand_all_macros(test_file)
-        with open(out_path) as f:
-            content = f.read()
+        content = read_file(out_path)
 
         # Assertions
         assert "#include <stdio.h>" in content, "Should restore includes"
@@ -73,86 +74,20 @@ def test_expand_macro():
     finally:
         shutil.rmtree(tmpdir)
 
-def test_unfold_typedefs():
-    original_file = "tests/c_parser/test_unfold_typedefs_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs_expected.c"
+cases = sorted(glob.glob("tests/c_parser/unfold_typedefs/*_original.c"))
 
+@pytest.mark.parametrize("original_file", cases)
+def test_unfold_typedefs(original_file):
+    expected_file = original_file.replace("_original.c", "_expected.c")
     tmpdir = tempfile.mkdtemp()
     try:
         test_file = os.path.join(tmpdir, "test.c")
         shutil.copy(original_file, test_file)
-
         out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
+        actual_content = read_file(out_path)
+        print(actual_content)
+        expected_content = read_file(expected_file)
         assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
     finally:
         shutil.rmtree(tmpdir)
 
-def test_unfold_typedefs2():
-    original_file = "tests/c_parser/test_unfold_typedefs2_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs2_expected.c"
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        test_file = os.path.join(tmpdir, "test.c")
-        shutil.copy(original_file, test_file)
-
-        out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
-        assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
-    finally:
-        shutil.rmtree(tmpdir)
-
-def test_unfold_typedefs3():
-    original_file = "tests/c_parser/test_unfold_typedefs3_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs3_expected.c"
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        test_file = os.path.join(tmpdir, "test.c")
-        shutil.copy(original_file, test_file)
-
-        out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
-        assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
-    finally:
-        shutil.rmtree(tmpdir)
-
-def test_unfold_typedefs4():
-    original_file = "tests/c_parser/test_unfold_typedefs4_original.c"
-    expected_file = "tests/c_parser/test_unfold_typedefs4_expected.c"
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        test_file = os.path.join(tmpdir, "test.c")
-        shutil.copy(original_file, test_file)
-
-        out_path = c_parser_utils.unfold_typedefs(test_file);
-        with open(out_path) as f:
-            actual_content = f.read()
-
-        with open(expected_file) as f:
-            expected_content = f.read()
-
-        assert actual_content == expected_content, "The unfolded code does not match the expected code."
-
-    finally:
-        shutil.rmtree(tmpdir)
