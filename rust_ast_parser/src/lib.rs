@@ -4,14 +4,18 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
+use std::any::TypeId;
 use syn::{
     parse::{Parse, ParseStream},
     parse_quote, parse_str,
     spanned::Spanned,
     token,
     visit_mut::VisitMut,
+    TypePath,
     Abi, AttrStyle, Attribute, File, LitStr, Meta, Result, Token,
 };
+use libc::*;
+
 
 fn get_error_context(source: &str, error: &syn::Error) -> String {
    let lines: Vec<_> = source.lines().collect();
@@ -709,6 +713,124 @@ fn add_derive_to_struct_union(
     Ok(prettyplease::unparse(&ast))
 }
 
+/// Builds a map from libc type names to their equivalent Rust primitive type names.
+/// This is done at runtime by comparing `TypeId`s, so the mapping is correct
+/// for the architecture that this tool is compiled and running on.
+fn build_libc_type_map() -> HashMap<String, &'static str> {
+    let mut map = HashMap::new();
+
+    // This macro takes a libc type, gets its TypeId, and compares it against
+    // the TypeIds of Rust's primitive types to find the match.
+    macro_rules! map_type {
+        ($($libc_ty:ty),*) => {
+            $(
+                // Get the base name of the type (e.g., "c_int" from "libc::c_int").
+                let name = stringify!($libc_ty).split("::").last().unwrap();
+                let type_id = TypeId::of::<$libc_ty>();
+                let mut has_type = true;
+                let rust_type_name = if type_id == TypeId::of::<i8>() { "i8" }
+                else if type_id == TypeId::of::<u8>() { "u8" }
+                else if type_id == TypeId::of::<i16>() { "i16" }
+                else if type_id == TypeId::of::<u16>() { "u16" }
+                else if type_id == TypeId::of::<i32>() { "i32" }
+                else if type_id == TypeId::of::<u32>() { "u32" }
+                else if type_id == TypeId::of::<i64>() { "i64" }
+                else if type_id == TypeId::of::<u64>() { "u64" }
+                else if type_id == TypeId::of::<isize>() { "isize" }
+                else if type_id == TypeId::of::<usize>() { "usize" }
+                else if type_id == TypeId::of::<f32>() { "f32" }
+                else if type_id == TypeId::of::<f64>() { "f64" }
+                else {
+                    has_type = false;
+                    // This case should not be hit for the types we are mapping.
+                    // We'll print a warning if a type can't be mapped.
+                    eprintln!("Warning: Could not determine a Rust primitive type for libc type '{}'.", name);
+                    ""
+                };
+                if has_type {
+                    map.insert(name.to_string(), rust_type_name);
+                }
+            )*
+        }
+    }
+
+    // List of all libc integer/float types we want to replace.
+    map_type!(
+        c_char,
+        c_schar,
+        c_uchar,
+        c_short,
+        c_ushort,
+        c_int,
+        c_uint,
+        c_long,
+        c_ulong,
+        c_longlong,
+        c_ulonglong,
+        c_float,
+        c_double,
+        size_t,
+        ssize_t,
+        ptrdiff_t,
+        intptr_t,
+        uintptr_t
+    );
+
+    map
+}
+
+/// A visitor that traverses the AST and mutates libc types based on the provided map.
+struct LibcTypeVisitor<'a> {
+    type_map: &'a HashMap<String, &'static str>,
+}
+
+impl<'a> VisitMut for LibcTypeVisitor<'a> {
+    /// This method is called for every type path in the source code.
+    fn visit_type_path_mut(&mut self, type_path: &mut TypePath) {
+        // We are looking for paths with exactly two segments, like `libc::c_int`.
+        if type_path.qself.is_none() && type_path.path.segments.len() == 2 {
+            let first_segment = &type_path.path.segments[0];
+
+            // Check if the first segment is `libc`.
+            if first_segment.ident == "libc" && first_segment.arguments.is_none() {
+                let second_segment = &type_path.path.segments[1];
+                let libc_type_name = second_segment.ident.to_string();
+
+                // If the second segment is a libc type we can replace...
+                if let Some(&rust_type_str) = self.type_map.get(&libc_type_name) {
+                    // Create a new identifier for the Rust type.
+                    let new_rust_type_ident =
+                        syn::Ident::new(rust_type_str, second_segment.ident.span());
+
+                    // Create a new path from this single identifier.
+                    let new_path: syn::Path = new_rust_type_ident.into();
+
+                    // Replace the old path (`libc::c_int`) with the new one (`i32`).
+                    type_path.path = new_path;
+                }
+            }
+        }
+
+        // Continue traversing the rest of the AST to find other types.
+        syn::visit_mut::visit_type_path_mut(self, type_path);
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn replace_libc_numeric_types_to_rust_primitive_types(code: &str) -> PyResult<String> {
+    let type_map = build_libc_type_map();
+    let mut ast = parse_src(code)?;
+    let mut visitor = LibcTypeVisitor {
+        type_map: &type_map,
+    };
+    visitor.visit_file_mut(&mut ast);
+
+    // Convert the modified syntax tree back into formatted code.
+    let transformed_code = prettyplease::unparse(&ast);
+    Ok(transformed_code)
+}
+
 #[gen_stub_pyfunction]
 #[pyfunction]
 fn unidiomatic_function_cleanup(code: &str) -> PyResult<String> {
@@ -763,6 +885,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(unidiomatic_types_cleanup, m)?)?;
     m.add_function(wrap_pyfunction!(get_static_item_definition, m)?)?;
     m.add_function(wrap_pyfunction!(expand_use_aliases, m)?)?;
+    m.add_function(wrap_pyfunction!(replace_libc_numeric_types_to_rust_primitive_types, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;

@@ -13,6 +13,8 @@ from sactor.verifier import VerifyResult
 from .translator import Translator
 from .translator_types import TranslateResult
 
+CONST_VAR_MAX_TRANSLATION_LEN = 2048
+
 
 class IdiomaticTranslator(Translator):
     def __init__(
@@ -199,6 +201,45 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
+        
+        def return_result(global_var_result, verification=True):
+            # check the global variable name, allow const global variable to have different name
+            if global_var.name not in global_var_result and not global_var.is_const:
+                if global_var_result.lower().find(global_var.name.lower()) != -1:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
+                else:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
+                    print(error_message)
+                    self.append_failure_info(
+                        global_var.name, "COMPILE_ERROR", error_message, global_var_result
+                    )
+                    return self._translate_global_vars_impl(
+                        global_var,
+                        verify_result=(
+                            VerifyResult.COMPILE_ERROR, error_message),
+                        error_translation=global_var_result,
+                        attempts=attempts+1
+                    )
+
+            print("Translated global variable:")
+            print(global_var_result)
+
+            # TODO: may add verification here
+            result = self.verifier.try_compile_rust_code(global_var_result)
+            if result[0] != VerifyResult.SUCCESS:
+                if result[0] == VerifyResult.COMPILE_ERROR:
+                    self.append_failure_info(
+                        global_var.name, "COMPILE_ERROR", result[1], global_var_result)
+                return self._translate_global_vars_impl(
+                    global_var,
+                    verify_result=result,
+                    error_translation=global_var_result,
+                    attempts=attempts + 1
+                )
+            self.failure_info[global_var.name]['status'] = "success"
+            utils.save_code(global_var_save_path, global_var_result)
+            return TranslateResult.SUCCESS
+
         if os.path.exists(global_var_save_path):
             print(f"Global variable {global_var.name} already translated")
             return TranslateResult.SUCCESS
@@ -219,6 +260,10 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet")
             with open(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs", "r") as file:
                 code_of_global_var = file.read()
+            if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
+                # use ast parser to change libc numeric types to Rust primitive types
+                result = rust_ast_parser.replace_libc_numeric_types_to_rust_primitive_types(code_of_global_var)
+                return return_result(result, verification=False)
             prompt = f'''
 Translate the following unidiomatic Rust const global variable to idiomatic Rust. Try to avoid using raw pointers in the translation of the global variable.
 The global variable is:
@@ -550,7 +595,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         elif result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {result[0]} not implemented')
-
+        
+        self.failure_info[struct_union.name]['status'] = "success"
         # Save the results
         utils.save_code(struct_save_path, struct_result)
 
@@ -612,6 +658,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Get used global variables
         used_global_var_nodes = function.global_vars_dependencies
         used_global_vars = {}
+        used_global_vars_only_type_and_names = {}
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
@@ -620,7 +667,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 return global_var_res
             with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
                 code_of_global_var = file.read()
+                # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
+                # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
+                # including the value will break the LLM.
+                # TODO: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
+                type_and_name = f"{code_of_global_var.rsplit("=")[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
+                used_global_vars_only_type_and_names[global_var.name] = type_and_name
 
         used_enum_values: list[EnumValueInfo] = function.enum_values_dependencies
         used_enum_defs = function.enum_dependencies
@@ -699,11 +752,11 @@ Try to avoid using pointers in the function arguments and return values if possi
 '''
 
         if len(used_global_vars) > 0:
-            joint_used_global_vars = '\n'.join(used_global_vars.values())
+            joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
             prompt += f'''
-The function uses the following const global variables, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function uses the following const global variables, whose types and names are (you should **NOT** define or declare them in your translation, as the system will automatically define them. But you can access these global variables):
 ```rust
-{joint_used_global_vars}
+{joint_used_global_vars_only_type_and_names}
 ```
 '''
         if len(used_enum_values) > 0 or len(used_enum_defs) > 0:
@@ -958,16 +1011,29 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         # process the function result
         function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
-
-        # Verify the translation
-        result = self.verifier.verify_function(
-            function,
-            function_code=function_result,
-            data_type_code=data_type_code,
-            function_dependencies_code=all_dependency_functions_code,
-            unidiomatic_signature=undiomantic_function_signature,
-            prefix=False,  # TODO: check here
-        )
+        
+        try:
+            # Verify the translation
+            result = self.verifier.verify_function(
+                function,
+                function_code=function_result,
+                data_type_code=data_type_code,
+                function_dependencies_code=all_dependency_functions_code,
+                unidiomatic_signature=undiomantic_function_signature,
+                prefix=False,  # TODO: check here
+            )
+        except Exception as e:
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", str(e), function_result
+            )
+            # TODO: assign a new error code instead of compile_error?
+            result = (VerifyResult.COMPILE_ERROR, str(e))
+            return self._translate_function_impl(
+                function,
+                result,
+                error_translation=function_result,
+                attempts=attempts+1
+            )
 
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
@@ -991,7 +1057,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=function_result,
                 attempts=attempts + 1
             )
-
+        
+        self.failure_info[function.name]["status"] = "success"
         # save code
         utils.save_code(
             f"{self.translated_function_path}/{function.name}.rs", function_result)
