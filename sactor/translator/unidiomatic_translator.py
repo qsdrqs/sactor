@@ -46,7 +46,7 @@ class UnidiomaticTranslator(Translator):
 
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_unidiomatic"
-
+        self.base_name = base_name
         self.translated_struct_path = os.path.join(
             self.result_path, base_name, "structs")
         self.translated_global_var_path = os.path.join(
@@ -515,7 +515,7 @@ The function uses the following type aliases, which are defined as:
             joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
             prompt += f'''
 The function uses the following const global variables, which are already translated. The global variables' types and names are provided below, but the values are omitted.
-You should **NOT** define the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation.
+You should **NOT** define or declare the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation.
 The translated const global variables are:
 :
 ```rust
@@ -773,9 +773,11 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=result,
                 attempts=attempts+1
             )
-
+        try:
         # process the function result
-        function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
+            function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
+        except Exception as e:
+            print(str(e))
 
         print("Translated function:")
         print(function_result)

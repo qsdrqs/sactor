@@ -176,7 +176,7 @@ class Sactor:
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
+                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies, ty="struct"):
                     continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
@@ -184,8 +184,8 @@ class Sactor:
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
-                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
+                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies, ty="struct") \
+                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies, ty="function"):
                     continue
                 result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
@@ -221,7 +221,7 @@ class Sactor:
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
+                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies, ty="struct"):
                     continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
@@ -229,8 +229,8 @@ class Sactor:
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
-                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
+                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies, ty="struct") \
+                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies, ty="function"):
                     continue
                 result = translator.translate_function(function)
 

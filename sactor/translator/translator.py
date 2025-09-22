@@ -105,10 +105,11 @@ class Translator(ABC):
         with open(path, 'w') as f:
             json.dump(self.failure_info, f, indent=4)
 
-    def has_dependencies_all_translated(self, cursor, dependencies_mapping):
+    def has_dependencies_all_translated(self, cursor, dependencies_mapping, ty="function"):
+        ty_dir = ty + "s"
+        result_path = os.path.join(self.result_path, self.base_name, ty_dir, f'{dep.name}.rs')
         for dep in dependencies_mapping(cursor):
-            result = subprocess.run(["find", self.result_path, "-name", f'{dep.name}.rs'], capture_output=True, text=True)
-            if len(result.stdout.strip()) == 0:
+            if not os.path.isfile(result_path):
                 return False
         return True
 
