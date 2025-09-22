@@ -445,7 +445,7 @@ extern "C" {{
                 print(f"Error: Failed to compile Rust code for function {name}")
                 print(res.stderr.decode())
                 raise RuntimeError(
-                    f"Failed to compile Rust code for function {name}")
+                    f"Failed to compile Rust code for function {name}. Error messages from the Rust compiler:\n{res.stderr.decode()}")
 
             previous_result = result
 
