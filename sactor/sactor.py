@@ -173,6 +173,7 @@ class Sactor:
 
     def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
+        translator.prepare_failure_info_backup()
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
@@ -218,6 +219,7 @@ class Sactor:
 
     def _run_idiomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_idiomatic_translator()
+        translator.prepare_failure_info_backup()
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:

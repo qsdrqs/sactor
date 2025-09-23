@@ -174,7 +174,8 @@ class IdiomaticVerifier(Verifier):
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to get compilable test harness for function {function_name} after {self.max_attempts} attempts")
-            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, None
+            last_message = verify_result[1] if verify_result else None
+            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, last_message
         print(
             f"Tries: {attempts} to generate test harness for function {function_name}")
 
@@ -515,7 +516,8 @@ Output only the final function in this format:
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to get compilable test harness for function {struct_name} after {self.max_attempts} attempts")
-            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, None
+            last_message = verify_result[1] if verify_result else None
+            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, last_message
 
         # rename the unidiomatic struct to C struct
         unidiomatic_struct_code_renamed = rust_ast_parser.rename_struct_union(

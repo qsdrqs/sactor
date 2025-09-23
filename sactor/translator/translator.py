@@ -25,6 +25,7 @@ class Translator(ABC):
                 utils.find_project_root(), 'result')
         self.failure_info_path = os.path.join(
             self.result_path, "general_failure_info.json")
+        self._failure_info_backup_prepared = False
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         res = self._translate_struct_impl(struct_union)
@@ -101,9 +102,20 @@ class Translator(ABC):
             return
         # write into json format
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        utils.try_backup_file(path)
         with open(path, 'w') as f:
             json.dump(self.failure_info, f, indent=4)
+
+    def prepare_failure_info_backup(self):
+        if self._failure_info_backup_prepared:
+            return
+        dir_path = os.path.dirname(self.failure_info_path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+        if os.path.exists(self.failure_info_path):
+            utils.try_backup_file(self.failure_info_path)
+            # Start fresh for the new run; previous state lives in the backup.
+            self.failure_info = {}
+        self._failure_info_backup_prepared = True
 
     def has_dependencies_all_translated(self, cursor, dependencies_mapping):
         for dep in dependencies_mapping(cursor):

@@ -44,6 +44,7 @@ class UnidiomaticTranslator(Translator):
         if os.path.isfile(self.failure_info_path):
             content = read_file(self.failure_info_path)
             self.failure_info = json.loads(content)
+        self._failure_info_backup_prepared = False
 
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_unidiomatic"
@@ -76,15 +77,18 @@ class UnidiomaticTranslator(Translator):
     ) -> TranslateResult:
         enum_save_path = os.path.join(
             self.translated_enum_path, enum.name + ".rs")
+        # Always initialize failure_info, even if already translated
+        self.init_failure_info("enum", enum.name)
         if os.path.exists(enum_save_path):
             print(f"Enum {enum.name} already translated")
+            # Mark as success for this run so the new failure_info.json is populated
+            self.failure_info[enum.name]['status'] = "success"
             return TranslateResult.SUCCESS
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to translate enum {enum.name} after {self.max_attempts} attempts")
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating enum: {enum.name} (attempts: {attempts})")
-        self.init_failure_info("enum", enum.name)
 
         code_of_enum = self.c_parser.extract_enum_definition_code(enum.name)
         prompt = f'''
@@ -229,8 +233,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             utils.save_code(global_var_save_path, global_var_result)
             return TranslateResult.SUCCESS
 
+        # Always initialize failure_info, even if already translated
+        self.init_failure_info("global_var", global_var.name)
         if os.path.exists(global_var_save_path):
             print(f"Global variable {global_var.name} already translated")
+            # Mark as success for this run so the new failure_info.json is populated
+            self.failure_info[global_var.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
@@ -244,8 +252,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         print(
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
-
-        self.init_failure_info("global_var", global_var.name)
         if global_var.is_const:
             code_of_global_var = self.c_parser.extract_global_var_definition_code(
                 global_var.name)
@@ -350,6 +356,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Translate all the dependencies of the struct/union
         struct_union_dependencies = struct_union.dependencies
         self.init_failure_info("struct", struct_union.name)
+        # If already translated on disk, mark success and skip re-generation
+        struct_path = os.path.join(self.translated_struct_path, struct_union.name + ".rs")
+        if os.path.exists(struct_path):
+            print(f"Struct/Union {struct_union.name} already translated")
+            self.failure_info[struct_union.name]['status'] = "success"
+            return TranslateResult.SUCCESS
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
 
@@ -387,8 +399,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         function_save_path = os.path.join(
             self.translated_function_path, function.name + ".rs")
+        # Always initialize failure_info, even if already translated
+        self.init_failure_info("function", function.name)
         if os.path.exists(function_save_path):
             print(f"Function {function.name} already translated")
+            # Mark as success for this run so the new failure_info.json is populated
+            self.failure_info[function.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
@@ -396,8 +412,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating function: {function.name} (attempts: {attempts})")
-
-        self.init_failure_info("function", function.name)
 
         function_dependencies = function.function_dependencies
         function_name_dependencies = [f.name for f in function_dependencies]
@@ -820,4 +834,3 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         self.failure_info[function.name]["status"] = "success"
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS
-

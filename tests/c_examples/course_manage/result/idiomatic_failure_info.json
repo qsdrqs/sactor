@@ -2,22 +2,22 @@
     "Course": {
         "type": "struct",
         "errors": [],
-        "status": "untranslated"
+        "status": "success"
     },
     "Student": {
         "type": "struct",
         "errors": [],
-        "status": "untranslated"
+        "status": "success"
     },
     "printUsage": {
         "type": "function",
         "errors": [],
-        "status": "untranslated"
+        "status": "success"
     },
     "updateStudentInfo": {
         "type": "function",
         "errors": [],
-        "status": "untranslated"
+        "status": "success"
     },
     "main": {
         "type": "function",
