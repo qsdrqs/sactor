@@ -1,50 +1,42 @@
-use libc::c_char;
-use std::env;
-use std::ffi::CString;
-use std::process;
-pub unsafe fn atoi(str: *const c_char) -> i32 {
-    let mut result: i32 = 0;
-    let mut sign: i32 = 1;
-    let mut ptr = str;
-    while *ptr == ' ' as c_char
-        || *ptr == '\t' as c_char
-        || *ptr == '\n' as c_char
-        || *ptr == '\r' as c_char
-        || *ptr == '\x0B' as c_char
-        || *ptr == '\x0C' as c_char
-    {
-        ptr = ptr.add(1);
+pub unsafe fn atoi(mut str_: *mut libc::c_char) -> libc::c_int {
+    let mut result: libc::c_int = 0;
+    let mut sign: libc::c_int = 1;
+    loop {
+        let c = *str_ as u8;
+        if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' || c == b'\x0b' || c == b'\x0c' {
+            str_ = str_.add(1);
+        } else {
+            break;
+        }
     }
-    if *ptr == '+' as c_char || *ptr == '-' as c_char {
-        if *ptr == '-' as c_char {
+    let c = *str_ as u8;
+    if c == b'+' || c == b'-' {
+        if c == b'-' {
             sign = -1;
         }
-        ptr = ptr.add(1);
+        str_ = str_.add(1);
     }
-    while *ptr >= '0' as c_char && *ptr <= '9' as c_char {
-        let digit = (*ptr - '0' as c_char) as i32;
-        if let Some(new_result) = result.checked_mul(10).and_then(|r| r.checked_add(digit)) {
-            result = new_result;
+    loop {
+        let c = *str_ as u8;
+        if c.is_ascii_digit() {
+            result = result
+                .wrapping_mul(10)
+                .wrapping_add((c - b'0') as libc::c_int);
+            str_ = str_.add(1);
         } else {
-            return if sign == 1 { i32::MAX } else { i32::MIN };
+            break;
         }
-        ptr = ptr.add(1);
     }
-    sign * result
+    sign.wrapping_mul(result)
 }
 pub fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 {
-        println!("Usage: {} <number>", args[0]);
-        process::exit(1);
+        let prog = args.first().map(|s| s.as_str()).unwrap_or("program");
+        println!("Usage: {} <number>", prog);
+        std::process::exit(1);
     }
-    let c_str = match CString::new(args[1].as_str()) {
-        Ok(cstring) => cstring,
-        Err(_) => {
-            eprintln!("Failed to create CString from input");
-            process::exit(1);
-        }
-    };
-    let value = unsafe { atoi(c_str.as_ptr() as *const c_char) };
+    let cstr = std::ffi::CString::new(args[1].as_bytes()).unwrap();
+    let value: libc::c_int = unsafe { atoi(cstr.as_ptr() as *mut libc::c_char) };
     println!("Parsed integer: {}", value);
 }

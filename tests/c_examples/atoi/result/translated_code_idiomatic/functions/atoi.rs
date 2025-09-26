@@ -1,42 +1,32 @@
-pub fn atoi(input: &str) -> i32 {
-    let mut result: i32 = 0;
+pub fn atoi(s: &str) -> i32 {
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c => i += 1,
+            _ => break,
+        }
+    }
     let mut sign: i32 = 1;
-    let mut chars = input.chars().peekable();
-
-    // Skip leading whitespace
-    while let Some(&c) = chars.peek() {
-        if c.is_whitespace() {
-            chars.next();
-        } else {
-            break;
-        }
-    }
-
-    // Check for sign
-    if let Some(&c) = chars.peek() {
-        if c == '+' || c == '-' {
-            if c == '-' {
+    if i < bytes.len() {
+        match bytes[i] {
+            b'+' => i += 1,
+            b'-' => {
                 sign = -1;
+                i += 1;
             }
-            chars.next();
+            _ => {}
         }
     }
-
-    // Parse digits
-    while let Some(c) = chars.next() {
-        if let Some(digit) = c.to_digit(10) {
-            if let Some(new_result) = result
-                .checked_mul(10)
-                .and_then(|r| r.checked_add(digit as i32))
-            {
-                result = new_result;
-            } else {
-                return if sign == 1 { i32::MAX } else { i32::MIN };
-            }
+    let mut result: i32 = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if (b'0'..=b'9').contains(&c) {
+            result = result.wrapping_mul(10).wrapping_add((c - b'0') as i32);
+            i += 1;
         } else {
             break;
         }
     }
-
-    sign * result
+    result.wrapping_mul(sign)
 }

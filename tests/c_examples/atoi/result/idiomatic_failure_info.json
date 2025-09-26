@@ -1,10 +1,12 @@
 {
     "atoi": {
         "type": "function",
-        "errors": []
+        "errors": [],
+        "status": "untranslated"
     },
     "main": {
         "type": "function",
-        "errors": []
+        "errors": [],
+        "status": "untranslated"
     }
 }

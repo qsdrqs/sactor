@@ -174,8 +174,15 @@ class IdiomaticVerifier(Verifier):
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to get compilable test harness for function {function_name} after {self.max_attempts} attempts")
-            last_message = verify_result[1] if verify_result else None
-            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, last_message
+            last_status, last_log = verify_result
+            detail = ""
+            if last_status != VerifyResult.SUCCESS and last_log:
+                detail = f"\nLast error ({last_status.name}):\n{last_log}"
+            message = (
+                f"Spec-driven harness exhausted {self.max_attempts} attempts for function {function_name}."
+            )
+            message += detail
+            return (VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, message)
         print(
             f"Tries: {attempts} to generate test harness for function {function_name}")
 
@@ -516,8 +523,15 @@ Output only the final function in this format:
         if attempts > self.max_attempts - 1:
             print(
                 f"Error: Failed to get compilable test harness for function {struct_name} after {self.max_attempts} attempts")
-            last_message = verify_result[1] if verify_result else None
-            return VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, last_message
+            last_status, last_log = verify_result
+            detail = ""
+            if last_status != VerifyResult.SUCCESS and last_log:
+                detail = f"\nLast error ({last_status.name}):\n{last_log}"
+            message = (
+                f"Spec-driven harness exhausted {self.max_attempts} attempts for struct {struct_name}."
+            )
+            message += detail
+            return (VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, message)
 
         # rename the unidiomatic struct to C struct
         unidiomatic_struct_code_renamed = rust_ast_parser.rename_struct_union(
