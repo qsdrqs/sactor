@@ -850,8 +850,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     pass
             self.append_failure_info(
                 struct_union.name, "TEST_ERROR", result[1], struct_result)
-            return TranslateResult.MAX_ATTEMPTS_EXCEEDED
-
+            return self._translate_struct_impl(
+                struct_union,
+                verify_result=result,
+                error_translation=struct_result,
+                attempts=attempts + 1,
+            )
         elif result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {result[0]} not implemented')
@@ -1489,7 +1493,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
                 self.append_failure_info(
                     function.name, "TEST_ERROR", result[1], function_result)
-                return TranslateResult.MAX_ATTEMPTS_EXCEEDED
+                return self._translate_function_impl(
+                    function,
+                    verify_result=result,
+                    error_translation=function_result,
+                    attempts=attempts + 1,
+                )
             else:
                 raise NotImplementedError(
                     f'error type {result[0]} not implemented')
