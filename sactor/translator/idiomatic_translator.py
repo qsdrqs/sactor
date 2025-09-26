@@ -681,7 +681,7 @@ Remember, you should only provide the translation for the struct and necessary `
 
         elif verify_result[0] == VerifyResult.TEST_ERROR:
             prompt += f'''
-Lastly, the function is translated as:
+Lastly, the struct is translated as:
 ```rust
 {error_translation}
 ```
@@ -888,6 +888,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
+        error_spec=None,
     ) -> TranslateResult:
 
         function_save_path = os.path.join(
@@ -1215,7 +1216,31 @@ The error message may be cause your translation includes other functions or stru
 Remember, you should only provide the translation for the function and necessary `use` statements. The system will automatically include the dependencies in the final translation.
 '''
 
-        elif verify_result[0] == VerifyResult.TEST_ERROR or verify_result[0] == VerifyResult.TEST_TIMEOUT:
+        elif verify_result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
+            harness_log = verify_result[1] if verify_result[1] else "(harness generator produced no log)"
+            prompt += f'''
+Lastly, the function is translated as:
+```rust
+{error_translation}
+```
+The SPEC is translated as:
+```json
+{error_spec}
+```
+
+Test harness failed to generate after repeated attempts.
+Harness generator output:
+```
+{harness_log}
+```
+This may indicate the SPEC is inconsistent with the function implementation,
+please analyze the possible reasons, try to fix it this time.
+'''
+
+        elif verify_result[0] in (
+            VerifyResult.TEST_ERROR,
+            VerifyResult.TEST_TIMEOUT,
+        ):
             feed_to_verify = verify_result
             prompt += f'''
 Lastly, the function is translated as:
@@ -1415,7 +1440,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Verify the translation
         # Stage SPEC (with idiomatic name) before verification so harness generation can see it
         spec_tmp_dir: Optional[str] = None
-        spec_tmp_path: Optional[str] = None
         spec_pre_saved = False
         spec_json_to_save: Optional[str] = None
         final_spec_base = os.path.join(self.result_path, self.base_name)
@@ -1443,12 +1467,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                             "function",
                             function.name,
                             spec_json_to_save,
-                        )
-                        spec_tmp_path = os.path.join(
-                            tmp_stage_base,
-                            "specs",
-                            "functions",
-                            f"{function.name}.json",
                         )
                         save_spec(
                             final_spec_base,
@@ -1498,6 +1516,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     verify_result=result,
                     error_translation=function_result,
                     attempts=attempts + 1,
+                    error_spec=spec_json_to_save
                 )
             else:
                 raise NotImplementedError(

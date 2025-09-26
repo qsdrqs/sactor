@@ -441,10 +441,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         function_code[f"{function_name}_harness"] = function_result
 
         combiner = PartialCombiner(function_code, struct_code)
-        result, compile_code = combiner.combine()
+        try:
+            result, compile_code = combiner.combine()
+        except Exception as e:
+            return (VerifyResult.COMPILE_ERROR, f"Failed to combine code for function {function_name}: {e}")
         if result != CombineResult.SUCCESS or compile_code is None:
-            raise ValueError(
-                f"Failed to combine the function {function_name}")
+            return (VerifyResult.COMPILE_ERROR, f"Failed to combine the function {function_name}")
 
         result = self.try_compile_rust_code(
             compile_code)
