@@ -3,10 +3,12 @@ import shutil
 import subprocess
 from typing import override, List
 
+from sactor import logging as sactor_logging
 from sactor import utils
 
 from .thirdparty import ThirdParty
 
+logger = sactor_logging.get_logger(__name__)
 
 class C2Rust(ThirdParty):
     def __init__(self, filename):
@@ -44,7 +46,7 @@ class C2Rust(ThirdParty):
             f'-I{path}' for path in search_include_paths]
         cmd = ['c2rust', 'transpile', tmp_filename,
             '--', *search_include_paths, *compile_flags]
-        print(cmd)
+        logger.debug("Running c2rust command: %s", cmd)
         # add C_INCLUDE_PATH to the environment if needed
         result = subprocess.run(
             cmd,
@@ -52,7 +54,7 @@ class C2Rust(ThirdParty):
             stderr=subprocess.PIPE
         )
         if result.returncode != 0:
-            print(f"c2rust failed: {result.stderr.decode()}")
+            logger.error("c2rust failed: %s", result.stderr.decode())
             if os.path.exists(tmp_filename_rs):
                 os.remove(tmp_filename_rs)
             raise RuntimeError("c2rust transpile command failed")

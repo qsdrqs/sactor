@@ -7,9 +7,12 @@ import re, shlex
 import tomli as toml
 from clang.cindex import Cursor, SourceLocation, SourceRange
 
+from sactor import logging as sactor_logging
 from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
+
+logger = sactor_logging.get_logger(__name__)
 
 TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
 
@@ -98,8 +101,8 @@ def parse_llm_result(llm_result, *args):
             raise ValueError(f"Could not find {arg}")
         if in_arg:
             raise ValueError(f"Could not find end of {arg}")
-        print(f"Generated {arg}:")
-        print(arg_result)
+        logger.debug("Generated %s:", arg)
+        logger.debug("%s", arg_result)
         res[arg] = arg_result
     return res
 
@@ -113,7 +116,7 @@ def save_code(path, code):
     try:
         rustfmt.format()
     except Exception:
-        print("Cannot format the code")  # allow to continue
+        logger.warning("Cannot format the code")  # allow to continue
 
 
 def format_rust_snippet(code: str) -> str:
@@ -128,14 +131,6 @@ def format_rust_snippet(code: str) -> str:
     except Exception:
         pass
     return code
-
-
-def print_red(s):
-    print("\033[91m {}\033[00m".format(s))
-
-
-def print_green(s):
-    print("\033[92m {}\033[00m".format(s))
 
 
 def _merge_configs(config, default_config):
@@ -476,3 +471,12 @@ def read_file_lines(path: str) -> List[str]:
         raise FileNotFoundError(f"Could not find file {path}")
     with open(path, "r") as f:
         return f.readlines()
+
+def patched_env(key, value, env=None):
+    if env is None:
+        env = os.environ.copy()
+    old_value = None
+    if key in env:
+        old_value = env[key]
+    env[key] = value if old_value is None else f"{value}:{old_value}"
+    return env

@@ -5,7 +5,10 @@ import textwrap
 import json
 from typing import List, Optional, Tuple
 
-from sactor import utils
+from sactor import logging as sactor_logging, utils
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class StructRoundTripTester:
@@ -182,7 +185,7 @@ Return the statements between these tags, without backticks:
         try:
             raw = self.llm.query(prompt)
         except Exception as e:
-            print(f"LLM struct sample generation failed: {e}")
+            logger.error("LLM struct sample generation failed: %s", e)
             return None, True
 
         try:
@@ -191,7 +194,7 @@ Return the statements between these tags, without backticks:
             if block.strip():
                 return block, True
         except Exception as e:
-            print(f"Failed to parse LLM fill result: {e}")
+            logger.error("Failed to parse LLM fill result: %s", e)
         return None, True
 
     def _render_sample_blocks(self, struct_name: str) -> List[str]:

@@ -4,7 +4,7 @@ from typing import Optional, override
 
 import sactor.translator as translator
 import sactor.verifier as verifier
-from sactor import rust_ast_parser, utils
+from sactor import logging as sactor_logging, rust_ast_parser, utils
 from sactor.utils import read_file
 from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
@@ -18,6 +18,8 @@ from .translator_types import TranslateResult
 from ..combiner.rust_code import RustCode
 
 CONST_VAR_MAX_TRANSLATION_LEN = 2048
+
+logger = sactor_logging.get_logger(__name__)
 
 class UnidiomaticTranslator(Translator):
     def __init__(
@@ -80,15 +82,18 @@ class UnidiomaticTranslator(Translator):
         # Always initialize failure_info, even if already translated
         self.init_failure_info("enum", enum.name)
         if os.path.exists(enum_save_path):
-            print(f"Enum {enum.name} already translated")
+            logger.info("Enum %s already translated", enum.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[enum.name]['status'] = "success"
             return TranslateResult.SUCCESS
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to translate enum {enum.name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to translate enum %s after %d attempts",
+                enum.name,
+                self.max_attempts,
+            )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
-        print(f"Translating enum: {enum.name} (attempts: {attempts})")
+        logger.info("Translating enum: %s (attempts: %d)", enum.name, attempts)
 
         code_of_enum = self.c_parser.extract_enum_definition_code(enum.name)
         prompt = f'''
@@ -136,7 +141,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END ENUM----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 enum.name, "COMPILE_ERROR", error_message, result
             )
@@ -161,8 +166,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts+1
             )
 
-        print("Translated enum:")
-        print(enum_result)
+        logger.debug("Translated enum for %s:", enum.name)
+        logger.debug("%s", enum_result)
 
         # TODO: temporary solution, may need to add verification here
         result = self.verifier.try_compile_rust_code(enum_result)
@@ -201,7 +206,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
                 else:
                     error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
-                    print(error_message)
+                    logger.error("%s", error_message)
                     self.append_failure_info(
                         global_var.name, "COMPILE_ERROR", error_message, global_var_result
                     )
@@ -212,8 +217,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         error_translation=global_var_result,
                         attempts=attempts+1
                     )
-            print("Translated global variable:")
-            print(global_var_result)
+            logger.debug("Translated global variable %s:", global_var.name)
+            logger.debug("%s", global_var_result)
             if verification:
                 # TODO: may add verification here
                 result = self.verifier.try_compile_rust_code(global_var_result)
@@ -236,22 +241,26 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Always initialize failure_info, even if already translated
         self.init_failure_info("global_var", global_var.name)
         if os.path.exists(global_var_save_path):
-            print(f"Global variable {global_var.name} already translated")
+            logger.info("Global variable %s already translated", global_var.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[global_var.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
             # fallback
-            print(
-                f"Failed to translate global variable {global_var.name} after {self.max_attempts} attempts using LLM.",
-                "Translated it using c2rust"
-                )
+            logger.warning(
+                "Failed to translate global variable %s after %d attempts using LLM; falling back to c2rust",
+                global_var.name,
+                self.max_attempts,
+            )
             result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
             return return_result(result, verification=False)
 
-        print(
-            f"Translating global variable: {global_var.name} (attempts: {attempts})")
+        logger.info(
+            "Translating global variable: %s (attempts: %d)",
+            global_var.name,
+            attempts,
+        )
         if global_var.is_const:
             code_of_global_var = self.c_parser.extract_global_var_definition_code(
                 global_var.name)
@@ -318,7 +327,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END GLOBAL VAR----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 global_var.name, "COMPILE_ERROR", error_message, result
             )
@@ -359,7 +368,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # If already translated on disk, mark success and skip re-generation
         struct_path = os.path.join(self.translated_struct_path, struct_union.name + ".rs")
         if os.path.exists(struct_path):
-            print(f"Struct/Union {struct_union.name} already translated")
+            logger.info("Struct/Union %s already translated", struct_union.name)
             self.failure_info[struct_union.name]['status'] = "success"
             return TranslateResult.SUCCESS
         for struct in struct_union_dependencies:
@@ -402,16 +411,19 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Always initialize failure_info, even if already translated
         self.init_failure_info("function", function.name)
         if os.path.exists(function_save_path):
-            print(f"Function {function.name} already translated")
+            logger.info("Function %s already translated", function.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[function.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to translate function %s after %d attempts",
+                function.name,
+                self.max_attempts,
+            )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
-        print(f"Translating function: {function.name} (attempts: {attempts})")
+        logger.info("Translating function: %s (attempts: %d)", function.name, attempts)
 
         function_dependencies = function.function_dependencies
         function_name_dependencies = [f.name for f in function_dependencies]
@@ -523,7 +535,11 @@ The function uses the following type aliases, which are defined as:
                 type_and_name = rust_ast_parser.get_value_type_name(code_of_global_var, global_var.name)
             except Exception as e:
                 # Fallback to old method if parsing fails
-                print(f"Failed to parse global variable {global_var.name} with Rust parser: {e}. Using fallback method.")
+                logger.warning(
+                    "Failed to parse global variable %s with Rust parser: %s. Using fallback method.",
+                    global_var.name,
+                    e,
+                )
                 type_and_name = f"{code_of_global_var.rsplit('=')[0]};"
             used_global_vars[global_var.name] = code_of_global_var
             used_global_vars_only_type_and_names[global_var.name] = type_and_name
@@ -684,7 +700,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END FUNCTION----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 function.name, "COMPILE_ERROR", error_message, result
             )
@@ -702,7 +718,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 function_result)
         except Exception as e:
             error_message = f"Error: Syntax error in the translated code: {e}"
-            print(error_message)
+            logger.error("%s", error_message)
             # retry the translation
             self.append_failure_info(
                 function.name,
@@ -758,7 +774,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_message = f"Error: Function signature not found in the translated code for function `{function.name}`. Got functions: {list(
                     function_result_sigs.keys()
                 )}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa."
-                print(error_message)
+                logger.error("%s", error_message)
                 self.append_failure_info(
                     function.name, "COMPILE_ERROR", error_message, function_result
                 )
@@ -793,8 +809,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # process the function result
         function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
 
-        print("Translated function:")
-        print(function_result)
+        logger.debug("Translated function %s:", function.name)
+        logger.debug("%s", function_result)
 
         data_type_code = code_of_structs | used_global_vars | code_of_enum | {
             "stdio": used_stdio_code}

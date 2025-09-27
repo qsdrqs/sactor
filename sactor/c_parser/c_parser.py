@@ -1,6 +1,6 @@
 from clang import cindex
 
-from sactor import utils
+from sactor import logging as sactor_logging, utils
 from sactor.utils import read_file, read_file_lines
 
 from .enum_info import EnumInfo, EnumValueInfo
@@ -13,6 +13,9 @@ standard_io = [
     "stdout",
     "stderr",
 ]
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class CParser:
@@ -30,8 +33,9 @@ class CParser:
         if not omit_error and len(self.translation_unit.diagnostics) > 0:
             for diag in self.translation_unit.diagnostics:
                 if diag.severity >= cindex.Diagnostic.Error:
-                    print(
-                        f"Warning: Parsing error in {filename}: {diag.spelling}")
+                    logger.warning(
+                        "Parsing error in %s: %s", filename, diag.spelling
+                    )
 
         # Initialize data structures
         self._global_vars: dict[str, GlobalVarInfo] = {}
@@ -523,7 +527,7 @@ class CParser:
         if node.location.file is None or node.location.file.name != self.filename:
             # don't print nodes from other files
             return
-        print(' ' * indent, node.kind, node.spelling, node.location)
+        logger.debug('%s%s %s %s', ' ' * indent, node.kind, node.spelling, node.location)
         for child in node.get_children():
             self.print_ast(child, indent + 2)
 

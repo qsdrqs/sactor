@@ -5,12 +5,14 @@ import subprocess
 from enum import Enum, auto
 from typing import override
 
+from sactor import logging as sactor_logging
 from sactor import utils
 
 from .thirdparty import ThirdParty
 
 CROWN_RUST_VERSION = "nightly-2023-01-26"
 
+logger = sactor_logging.get_logger(__name__)
 
 class CrownType(Enum):
     FUNCTION = auto()
@@ -36,11 +38,10 @@ class Crown(ThirdParty):
             self.build_path, "crown_analysis_results")
 
         # Set up environment variables
-        env = os.environ.copy()
         result = subprocess.run(
             ['rustc', f'+{CROWN_RUST_VERSION}', '--print', 'sysroot'], stdout=subprocess.PIPE)
         rust_sysroot = result.stdout.decode().strip()
-        env['LD_LIBRARY_PATH'] = f'{rust_sysroot}/lib'
+        env = utils.patched_env("LD_LIBRARY_PATH", f'{rust_sysroot}/lib')
         self.env = env
 
     @staticmethod
@@ -77,15 +78,15 @@ pub mod {crown_analysis_lib};
         # run crown preprocess
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'preprocess', 'in-place']
-        print(" ".join(cmd))
+        logger.debug("Executing crown command: %s", " ".join(cmd))
         result = subprocess.run(
             cmd, env=self.env, capture_output=True, cwd=self.analysis_build_path)
         if result.returncode != 0:
-            print(result.stderr.decode())
+            logger.error("Crown preprocess stderr: %s", result.stderr.decode())
             raise RuntimeError("crown preprocess failed")
         if not self._try_compile_rust(self.analysis_build_path):
             # preoprocess messes up the code, recover it
-            print("preprocess messes up the code, recover it")
+            logger.warning("crown preprocess messed up code; restoring original translation")
             with open(os.path.join(self.analysis_build_path, f"src/{crown_analysis_lib}.rs"), "w") as f:
                 f.write(target_c2rust_code)
 
@@ -97,7 +98,7 @@ pub mod {crown_analysis_lib};
             raise RuntimeError("crown explicit-addr failed")
         if not self._try_compile_rust(self.analysis_build_path):
             # explicit-addr messes up the code, recover it
-            print("explicit-addr messes up the code, recover it")
+            logger.warning("crown explicit-addr messed up code; restoring original translation")
             with open(os.path.join(self.analysis_build_path, f"src/{crown_analysis_lib}.rs"), "w") as f:
                 f.write(target_c2rust_code)
 

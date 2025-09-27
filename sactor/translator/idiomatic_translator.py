@@ -5,7 +5,7 @@ from typing import Optional, override
 
 import sactor.translator as translator
 import sactor.verifier as verifier
-from sactor import rust_ast_parser, utils
+from sactor import logging as sactor_logging, rust_ast_parser, utils
 from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
 from sactor.llm import LLM
@@ -18,6 +18,9 @@ from sactor.verifier.spec.spec_types import (extract_spec_block, save_spec,
 
 from .translator import Translator
 from .translator_types import TranslateResult
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class IdiomaticTranslator(Translator):
@@ -180,15 +183,18 @@ class IdiomaticTranslator(Translator):
         enum_save_path = os.path.join(
             self.translated_enum_path, enum.name + ".rs")
         if os.path.exists(enum_save_path):
-            print(f"Enum {enum.name} already translated")
+            logger.info("Enum %s already translated", enum.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[enum.name]['status'] = "success"
             return TranslateResult.SUCCESS
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to translate enum {enum.name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to translate enum %s after %d attempts",
+                enum.name,
+                self.max_attempts,
+            )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
-        print(f"Translating enum: {enum.name} (attempts: {attempts})")
+        logger.info("Translating enum: %s (attempts: %d)", enum.name, attempts)
 
         if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
             raise RuntimeError(
@@ -240,7 +246,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END ENUM----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 enum.name, "COMPILE_ERROR", error_message, result
             )
@@ -265,8 +271,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 attempts=attempts+1
             )
 
-        print("Translated enum:")
-        print(enum_result)
+        logger.debug("Translated enum %s:", enum.name)
+        logger.debug("%s", enum_result)
 
         # TODO: temporary solution, may need to add verification here
         result = self.verifier.try_compile_rust_code(enum_result)
@@ -298,17 +304,23 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Always initialize failure_info, even if already translated
         self.init_failure_info("global_var", global_var.name)
         if os.path.exists(global_var_save_path):
-            print(f"Global variable {global_var.name} already translated")
+            logger.info("Global variable %s already translated", global_var.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[global_var.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to translate global variable {global_var.name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to translate global variable %s after %d attempts",
+                global_var.name,
+                self.max_attempts,
+            )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
-        print(
-            f"Translating global variable: {global_var.name} (attempts: {attempts})")
+        logger.info(
+            "Translating global variable: %s (attempts: %d)",
+            global_var.name,
+            attempts,
+        )
         if global_var.is_const:
             global_var_name = global_var.name
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
@@ -365,7 +377,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END GLOBAL VAR----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 global_var.name, "COMPILE_ERROR", error_message, result
             )
@@ -396,7 +408,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
             else:
                 error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
-                print(error_message)
+                logger.error("%s", error_message)
                 self.append_failure_info(
                     global_var.name, "COMPILE_ERROR", error_message, global_var_result
                 )
@@ -408,8 +420,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     attempts=attempts+1
                 )
 
-        print("Translated global variable:")
-        print(global_var_result)
+        logger.debug("Translated global variable %s:", global_var.name)
+        logger.debug("%s", global_var_result)
 
         # TODO: may add verification here
         result = self.verifier.try_compile_rust_code(global_var_result)
@@ -442,18 +454,24 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Always initialize failure_info, even if already translated
         self.init_failure_info("struct", struct_union.name)
         if os.path.exists(struct_save_path):
-            print(f"Struct {struct_union.name} already translated")
+            logger.info("Struct %s already translated", struct_union.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[struct_union.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to translate struct {struct_union.name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to translate struct %s after %d attempts",
+                struct_union.name,
+                self.max_attempts,
+            )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
 
-        print(
-            f"Translating struct: {struct_union.name} (attempts: {attempts})")
+        logger.info(
+            "Translating struct: %s (attempts: %d)",
+            struct_union.name,
+            attempts,
+        )
 
         # Get unidiomatic translation code
         struct_path = os.path.join(
@@ -708,7 +726,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END STRUCT----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 struct_union.name, "COMPILE_ERROR", error_message, llm_raw
             )
@@ -726,7 +744,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 struct_result, struct_union.name, "Debug")
         except Exception as e:
             error_message = f"Error: Failed to add Debug trait to the struct: {e}, please check if the struct has a correct syntax"
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 struct_union.name, "COMPILE_ERROR", error_message, llm_raw
             )
@@ -774,22 +792,24 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         spec_pre_saved = True
                         spec_valid = True
                     except Exception as e:
-                        print(f"Struct spec pre-save failed: {e}")
+                        logger.error("Struct spec pre-save failed: %s", e)
                 else:
-                    print(f"Struct spec validation failed: {msg}")
+                    logger.error("Struct spec validation failed: %s", msg)
                     spec_valid = False
             else:
-                print(
-                    f"Struct {struct_union.name}: SPEC block not found in LLM output")
+                logger.warning(
+                    "Struct %s: SPEC block not found in LLM output",
+                    struct_union.name,
+                )
                 spec_valid = False
         except Exception as e:
-            print(f"Struct spec staging skipped: {e}")
+            logger.warning("Struct spec staging skipped: %s", e)
 
         if not spec_valid:
             if spec_tmp_dir:
                 shutil.rmtree(spec_tmp_dir, ignore_errors=True)
             error_message = "Struct SPEC missing or invalid; retrying translation"
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 struct_union.name,
                 "COMPILE_ERROR",
@@ -866,7 +886,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                           struct_union.name, raw_struct_spec)
                 spec_pre_saved = True
             except Exception as e:
-                print(f"Struct spec final save failed: {e}")
+                logger.error("Struct spec final save failed: %s", e)
         if not spec_pre_saved and os.path.exists(final_spec_path):
             try:
                 os.remove(final_spec_path)
@@ -896,16 +916,19 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Always initialize failure_info, even if already translated
         self.init_failure_info("function", function.name)
         if os.path.exists(function_save_path):
-            print(f"Function {function.name} already translated")
+            logger.info("Function %s already translated", function.name)
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[function.name]['status'] = "success"
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to translate function {function.name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to translate function %s after %d attempts",
+                function.name,
+                self.max_attempts,
+            )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
-        print(f"Translating function: {function.name} (attempts: {attempts})")
+        logger.info("Translating function: %s (attempts: %d)", function.name, attempts)
 
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
@@ -1284,7 +1307,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 ```
 ----END FUNCTION----
 '''
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 function.name, "COMPILE_ERROR", error_message, llm_raw
             )
@@ -1313,7 +1336,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 function_result)
         except Exception as e:
             error_message = f"Error: Syntax error in the translated code: {e}"
-            print(error_message)
+            logger.error("%s", error_message)
             self.append_failure_info(
                 function.name, "COMPILE_ERROR", error_message, llm_raw
             )
@@ -1370,7 +1393,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     pass
                 else:
                     error_message = f"Error: Function signature not found in the translated code for function `{function.name}`. Got functions: {list(function_result_sigs.keys())}. If you renamed the function, include a SPEC with `function_name`."
-                    print(error_message)
+                    logger.error("%s", error_message)
                     return self._translate_function_impl(
                         function,
                         verify_result=(
@@ -1384,7 +1407,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             # SPEC provided a new name; ensure it exists in the output
             if idiomatic_func_name not in function_result_sigs:
                 error_message = f"Error: SPEC declares function_name `{idiomatic_func_name}`, but translated code defines: {list(function_result_sigs.keys())}"
-                print(error_message)
+                logger.error("%s", error_message)
                 return self._translate_function_impl(
                     function,
                     verify_result=(VerifyResult.COMPILE_ERROR, error_message),
@@ -1476,12 +1499,14 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         )
                         spec_pre_saved = True
                     else:
-                        print(f"Function spec validation failed: {msg}")
+                        logger.error("Function spec validation failed: %s", msg)
                 else:
-                    print(
-                        f"Function {function.name}: SPEC block not found in LLM output")
+                    logger.warning(
+                        "Function %s: SPEC block not found in LLM output",
+                        function.name,
+                    )
             except Exception as e:
-                print(f"Function spec staging skipped: {e}")
+                logger.warning("Function spec staging skipped: %s", e)
 
         result = self.verifier.verify_function(
             function,
@@ -1536,7 +1561,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                           function.name, spec_json_to_save)
                 spec_pre_saved = True
             except Exception as e:
-                print(f"Function spec final save failed: {e}")
+                logger.error("Function spec final save failed: %s", e)
         if spec_tmp_dir:
             shutil.rmtree(spec_tmp_dir, ignore_errors=True)
 
@@ -1559,7 +1584,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     json.dump(mapping_data, _mf, indent=2)
                 self._function_name_map_cache = mapping_data
             except Exception as e:
-                print(f"Function name mapping update skipped: {e}")
+                logger.warning("Function name mapping update skipped: %s", e)
 
         # save code
         utils.save_code(

@@ -4,11 +4,15 @@ import shutil
 import subprocess
 from typing import override
 
+from sactor import logging as sactor_logging
 from sactor import utils
 from sactor.llm import llm_factory
 
 from .test_generator import TestGenerator
 from .test_generator_types import TestGeneratorResult
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class ExecutableTestGenerator(TestGenerator):
@@ -71,7 +75,7 @@ class ExecutableTestGenerator(TestGenerator):
                     f"Failed to run the executable with the input: {result.stdout.decode() + result.stderr.decode()}"
                 )
         except subprocess.TimeoutExpired as e:
-            print(f"Timeout: {e}")
+            logger.error("Timeout while executing sample: %s", e)
             raise ValueError(f"Timeout: {e}. Please check the input format.")
 
         # Rerun without valgrind
@@ -113,7 +117,7 @@ class ExecutableTestGenerator(TestGenerator):
             return TestGeneratorResult.SUCCESS
 
         if attempt >= self.max_attempts:
-            print(f"Max attempts exceeded: {attempt}")
+            logger.error("Max attempts exceeded: %d", attempt)
             return TestGeneratorResult.MAX_ATTEMPTS_EXCEEDED
 
         # Generate test cases
@@ -225,7 +229,7 @@ Your input i here
 ----END INPUT i----
 REMEMBER: i should start from 1.
 '''
-                print(error_message)
+                logger.error("%s", error_message)
                 return self._generate_test_impl(
                     count - success_count,
                     feedback=error_message,
@@ -233,7 +237,9 @@ REMEMBER: i should start from 1.
                 )  # Retry
 
         if success_count < count:
-            print(f"Generated {success_count} test cases, required {count}")
+            logger.info(
+                "Generated %d test cases, required %d", success_count, count
+            )
             return self._generate_test_impl(count - success_count, attempt=attempt+1)
 
         # collect test cases
@@ -245,7 +251,7 @@ REMEMBER: i should start from 1.
             except ValueError as e:
                 counter_examples.append((sample, e))
                 continue
-            print(f"Test {i} verified")
+            logger.info("Test %d verified", i)
             self.test_samples_output.append(
                 {
                     "input": sample,
@@ -257,7 +263,7 @@ REMEMBER: i should start from 1.
         self.test_samples = set(remaining_test_samples)
         if len(counter_examples) > 0:
             # remove invalid test cases
-            print(f"Counter examples: {len(counter_examples)}")
+            logger.info("Counter examples: %d", len(counter_examples))
             return self._generate_test_impl(len(counter_examples), counter_examples, attempt=attempt+1)
 
         return TestGeneratorResult.SUCCESS

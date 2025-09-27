@@ -2,10 +2,14 @@ import os, shlex
 import subprocess
 from typing import override, Optional
 
+from sactor import logging as sactor_logging
 from sactor import utils
 
 from .verifier import Verifier
 from .verifier_types import VerifyResult
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class E2EVerifier(Verifier):
@@ -60,7 +64,7 @@ class E2EVerifier(Verifier):
                 self.build_path, "program_combiner")
             os.makedirs(program_combiner_path, exist_ok=True)
             compiler = utils.get_compiler()
-            
+
             # make sure executable_objects in front of -l
             c_compile_cmd = [
                 compiler,
@@ -72,20 +76,18 @@ class E2EVerifier(Verifier):
             if self.extra_compile_command:
                 c_compile_cmd.extend(self.extra_compile_command)
 
-            print(c_compile_cmd)
+            logger.debug("Compiling combined program with command: %s", c_compile_cmd)
             res = subprocess.run(c_compile_cmd)
             if res.returncode != 0:
                 raise RuntimeError(
                     f"Error: Failed to compile C code for testing the combined code")
 
-            env = os.environ.copy()
-            env["LD_LIBRARY_PATH"] = os.path.abspath(
-                f"{self.build_attempt_path}/target/debug")
+            env = utils.patched_env("LD_LIBRARY_PATH", f"{self.build_attempt_path}/target/debug")
             test_error = self._run_tests(
                 os.path.join(program_combiner_path, "combined"), env=env)
 
         if test_error[0] != VerifyResult.SUCCESS:
-            print("Error: Failed to run tests for the combined code")
+            logger.error("Failed to run tests for the combined code")
             return test_error[:2]
 
         return (VerifyResult.SUCCESS, None)

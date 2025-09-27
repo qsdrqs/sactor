@@ -6,11 +6,13 @@ import subprocess
 from clang import cindex
 from clang.cindex import Cursor, Index, TranslationUnit
 
-from sactor import utils
+from sactor import logging as sactor_logging, utils
 from sactor.utils import get_temp_dir, read_file, read_file_lines
 
 from .c_parser import CParser
 
+
+logger = sactor_logging.get_logger(__name__)
 
 def _remove_static_decorator_impl(node: Cursor, source_code: str) -> str:
     code_lines = source_code.split("\n")
@@ -131,7 +133,7 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
                             new_lines.append("\n")
                         new_lines.append(f"/* End expanded {header_file} */\n")
                     except Exception as e:
-                        print(f"Warning: could not read {header_file}: {e}")
+                        logger.warning("Could not read %s: %s", header_file, e)
                         new_lines.append(line)  # fallback
                 else:
                     # Keep system includes and other code unchanged

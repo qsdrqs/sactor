@@ -3,12 +3,16 @@ import os
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from sactor import logging as sactor_logging
 from sactor import utils
 from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
 from .translator_types import TranslateResult
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class Translator(ABC):
@@ -129,6 +133,14 @@ class Translator(ABC):
             v = sum([1 if v['type'] == ctype and v['status'] == 'success' else 0 for v in self.failure_info.values() ])
             return v
 
-        print(f"{title} translation result summary:")
-        print(f"Functions: successfully translated {count_success("function")} out of {len(self.c_parser.get_functions())} in total")
-        print(f"Structs or Unions: successfully translated {count_success("struct")} out of {len(self.c_parser.get_structs())} in total")
+        logger.info("%s translation result summary:", title)
+        logger.info(
+            "Functions: successfully translated %d out of %d in total",
+            count_success("function"),
+            len(self.c_parser.get_functions()),
+        )
+        logger.info(
+            "Structs or Unions: successfully translated %d out of %d in total",
+            count_success("struct"),
+            len(self.c_parser.get_structs()),
+        )

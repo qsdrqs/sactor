@@ -8,6 +8,24 @@ You are an expert in translating code from C to Rust. You will take all informat
 encoding = "o200k_base" # Encoding for the `tiktoken` library, default for GPT-4o model
 model = "gpt-4o" # Default model to use
 
+[logging]
+# Minimum level that appears on stdout (DEBUG, PROMPT, RESPONSE, INFO, WARNING, ERROR, CRITICAL)
+console_level = "DEBUG"
+# Minimum level written to timestamped log files (same set of names or numeric values)
+file_level = "DEBUG"
+# Emit ANSI colour codes when the console is a TTY
+color = true
+# Also write structured JSONL entries alongside the text log
+jsonl = true
+# Persist LLM prompts/responses to a separate transcript file when enabled
+prompt_trace = false
+# Filename pattern for text logs; `{timestamp}` expands using `timestamp_format`
+filename_pattern = "sactor-{timestamp}.log"
+# Timestamp format used in generated log filenames
+timestamp_format = "%Y%m%dT%H%M%S"
+# Subdirectory (under result_dir) where logs are stored by default
+subdir = "logs"
+
 # LiteLLM Router Configuration - follows litellm config format
 # Supports all providers that litellm supports: OpenAI, Anthropic, Google, Azure, AWS Bedrock,
 # Cohere, DeepSeek, Groq, Ollama, vLLM, and 100+ other providers

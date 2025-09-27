@@ -1,5 +1,6 @@
 import os, shlex
 
+from sactor import logging as sactor_logging
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
 from sactor.c_parser.c_parser_utils import preprocess_source_code
@@ -10,6 +11,9 @@ from sactor.thirdparty import C2Rust, Crown
 from sactor.translator import (IdiomaticTranslator, TranslateResult,
                                Translator, UnidiomaticTranslator)
 from sactor.verifier import Verifier
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class Sactor:
@@ -64,6 +68,12 @@ class Sactor:
 
         self.config = utils.try_load_config(self.config_file)
 
+        if not sactor_logging.is_configured():
+            sactor_logging.configure_logging(
+                self.config,
+                result_dir=self.result_dir,
+            )
+
         # Check necessary requirements
         missing_requirements = thirdparty.check_all_requirements()
         if missing_requirements:
@@ -90,8 +100,8 @@ class Sactor:
                 raise ValueError(
                     "Circular dependencies for structs is not supported yet")
 
-        print("Struct order: ", self.struct_order)
-        print("Function order: ", self.function_order)
+        logger.debug("Struct order: %s", self.struct_order)
+        logger.debug("Function order: %s", self.function_order)
         self.c2rust = C2Rust(self.input_file_preprocessed)
         self.combiner = ProgramCombiner(
             self.config,

@@ -2,7 +2,7 @@ import os
 import json as json
 from typing import Optional, override
 
-from sactor import rust_ast_parser, utils
+from sactor import logging as sactor_logging, rust_ast_parser, utils
 from sactor.c_parser import FunctionInfo, StructInfo
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 from sactor.data_types import DataType
@@ -11,6 +11,8 @@ from .verifier import Verifier
 from .verifier_types import VerifyResult
 from .selftest.struct_roundtrip import StructRoundTripTester
 from sactor.verifier.spec.harness_codegen import generate_struct_harness_from_spec_file, generate_function_harness_from_spec_file
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class IdiomaticVerifier(Verifier):
@@ -172,8 +174,11 @@ class IdiomaticVerifier(Verifier):
         attempts=0,
     ):
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to get compilable test harness for function {function_name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to get compilable test harness for function %s after %d attempts",
+                function_name,
+                self.max_attempts,
+            )
             last_status, last_log = verify_result
             detail = ""
             if last_status != VerifyResult.SUCCESS and last_log:
@@ -183,8 +188,11 @@ class IdiomaticVerifier(Verifier):
             )
             message += detail
             return (VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED, message)
-        print(
-            f"Tries: {attempts} to generate test harness for function {function_name}")
+        logger.info(
+            "Generating test harness for function %s (attempt %d)",
+            function_name,
+            attempts,
+        )
 
         original_signature_renamed = original_signature
         if len(struct_signature_dependency_names) > 0:
@@ -341,7 +349,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 func_spec_path,
             )
         except Exception as e:
-            print(f"Spec-driven function harness failed: {e}")
+            logger.error("Spec-driven function harness failed: %s", e)
 
         # If spec-driven produced TODOs or failed previously, ask LLM to finish/fix
         if function_result is not None and 'TODO:' in function_result:
@@ -390,7 +398,7 @@ Current harness:
                 llm_result = utils.parse_llm_result(result, "function")
                 function_result = llm_result["function"]
             except Exception as e:
-                print(f"Failed to parse LLM completion for TODO-fix: {e}")
+                logger.error("Failed to parse LLM completion for TODO-fix: %s", e)
 
         if function_result is None:
             # TZ: when this will be called?
@@ -493,7 +501,7 @@ Output only the final function in this format:
                                 f"{self.function_test_harness_dir}/{function_name}.rs", compile_code2)
                             return (VerifyResult.SUCCESS, None)
                 except Exception as e:
-                    print(f"LLM fix attempt failed: {e}")
+                    logger.error("LLM fix attempt failed: %s", e)
 
             return self._function_generate_test_harness(
                 function_name,
@@ -523,8 +531,11 @@ Output only the final function in this format:
         attempts=0,
     ) -> tuple[VerifyResult, Optional[str]]:
         if attempts > self.max_attempts - 1:
-            print(
-                f"Error: Failed to get compilable test harness for function {struct_name} after {self.max_attempts} attempts")
+            logger.error(
+                "Failed to get compilable test harness for struct %s after %d attempts",
+                struct_name,
+                self.max_attempts,
+            )
             last_status, last_log = verify_result
             detail = ""
             if last_status != VerifyResult.SUCCESS and last_log:
@@ -581,14 +592,18 @@ Output only the final function in this format:
                 except Exception:
                     pass
         except Exception as e:
-            print(f"Spec-driven harness generation failed (struct {struct_name}): {e}")
+            logger.error(
+                "Spec-driven harness generation failed (struct %s): %s",
+                struct_name,
+                e,
+            )
 
         if function_result is None:
             error_message = (
                 "Error: Spec-driven struct harness generation failed; "
                 "no fallback template is allowed."
             )
-            print(error_message)
+            logger.error("%s", error_message)
             return (
                 VerifyResult.COMPILE_ERROR,
                 error_message,
@@ -666,7 +681,7 @@ Output only the two functions in this format:
                     "----FUNCTION----\n```rust\n// Your translated function here\n```\n"
                     "----END FUNCTION----"
                 )
-                print(error_message)
+                logger.error("%s", error_message)
                 return self._struct_generate_test_harness(
                     struct_name,
                     unidiomatic_struct_code,
@@ -685,7 +700,7 @@ Output only the two functions in this format:
                 f"C{struct_name}_to_{struct_name}_mut"]
         except:
             error_message = "Error: The transformation functions are not complete"
-            print(error_message)
+            logger.error("%s", error_message)
             return self._struct_generate_test_harness(
                 struct_name,
                 unidiomatic_struct_code,
@@ -768,7 +783,7 @@ Output only the two functions in this format:
                         self._persist_struct_harness(struct_name)
                         return (VerifyResult.SUCCESS, None)
                 except Exception as e:
-                    print(f"LLM struct fix attempt failed: {e}")
+                    logger.error("LLM struct fix attempt failed: %s", e)
 
             return self._struct_generate_test_harness(
                 struct_name,
@@ -841,7 +856,10 @@ Output only the two functions in this format:
         try:
             rust_ast_parser.get_standalone_uses_code_paths(function_code)
         except Exception as e:
-            print(f"Error: Failed to get standalone uses code paths for function {function.name}")
+            logger.error(
+                "Failed to get standalone uses code paths for function %s",
+                function.name,
+            )
             return (VerifyResult.COMPILE_ERROR, str(e))
 
         # Determine the idiomatic function's declared name in `function_code`.
@@ -916,8 +934,10 @@ Output only the two functions in this format:
                 for struct in struct_signature_dependencies:
                     struct_name = struct.name
                     if struct_name not in data_type_code:
-                        print(
-                            f"Error: Struct {struct_name} is not provided in the struct code")
+                        logger.error(
+                            "Struct %s is not provided in the struct code",
+                            struct_name,
+                        )
                         return (VerifyResult.COMPILE_ERROR, None)
 
                     # Ensure the struct harness exists (regenerate if cache missing).
@@ -972,7 +992,7 @@ Output only the two functions in this format:
         )
 
         if test_error[0] != VerifyResult.SUCCESS:
-            print(f"Error: Failed to run tests for function {function_name}")
+            logger.error("Failed to run tests for function %s", function_name)
             return test_error
 
         # save harness code

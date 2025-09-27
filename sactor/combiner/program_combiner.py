@@ -4,6 +4,7 @@ import re
 import subprocess
 from typing import override, Optional
 
+from sactor import logging as sactor_logging
 from sactor import rust_ast_parser, utils
 from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
 from sactor.thirdparty.rustfmt import RustFmt
@@ -12,6 +13,9 @@ from sactor.verifier import E2EVerifier, VerifyResult
 from .combiner import Combiner
 from .combiner_types import CombineResult
 from .rust_code import RustCode
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class ProgramCombiner(Combiner):
@@ -54,7 +58,7 @@ class ProgramCombiner(Combiner):
     def combine(self, result_dir_with_type: str, is_idiomatic=False) -> tuple[CombineResult, Optional[str]]:
         file_path = os.path.join(result_dir_with_type, 'combined.rs')
         if os.path.exists(file_path):
-            print("Skip combining: combined.rs already exists")
+            logger.info("Skip combining: combined.rs already exists")
             return CombineResult.SUCCESS, None
 
         function_code: dict[str, RustCode] = {}
@@ -118,7 +122,7 @@ class ProgramCombiner(Combiner):
             result = self.verifier.e2e_verify(
                 e2e_code)
             if result[0] != VerifyResult.SUCCESS:
-                print(f"Error: Failed to verify the combined code: {result[1]}")
+                logger.error("Failed to verify the combined code: %s", result[1])
                 match result[0]:
                     case VerifyResult.COMPILE_ERROR:
                         return CombineResult.COMPILE_FAILED, None
@@ -184,18 +188,18 @@ class ProgramCombiner(Combiner):
             cmd, capture_output=True)
 
         if result.returncode != 0:
-            print(f"Error: Failed to format the code: {result.stderr}")
+            logger.error("Failed to format the code: %s", result.stderr)
             return CombineResult.RUSTFMT_FAILED, None
 
         # fix the code
         cmd = ["cargo", "clippy", "--fix", "--allow-no-vcs", "--manifest-path",
                os.path.join(build_dir, "Cargo.toml")]
-        print(cmd)
+        logger.debug("Running clippy fix command: %s", " ".join(cmd))
         result = subprocess.run(
             cmd, capture_output=True)
 
         if result.returncode != 0:
-            print(f"Error: Failed to fix the code: {result.stderr}")
+            logger.error("Failed to fix the code: %s", result.stderr)
             return CombineResult.RUSTFIX_FAILED, None
 
         # cargo clippy
@@ -218,10 +222,8 @@ class ProgramCombiner(Combiner):
         warning_types = []
         error_types = []
 
-        print(
-            f"Found {total_warnings} warnings in the combined code")
-        print(
-            f"Found {total_errors} errors in the combined code")
+        logger.info("Found %d warnings in the combined code", total_warnings)
+        logger.info("Found %d errors in the combined code", total_errors)
         for output in compiler_output_lines:
             note_warning_pattern = re.compile(
                 r'.*= note: `#\[warn\((.*)\)\]` on by default.*')

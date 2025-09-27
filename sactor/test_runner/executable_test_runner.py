@@ -2,10 +2,14 @@ import difflib
 import subprocess
 from typing import override, Optional
 
+from sactor import logging as sactor_logging
 from sactor import utils
 
 from .test_runner import TestRunner
 from .test_runner_types import TestRunnerResult
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class ExecutableTestRunner(TestRunner):
@@ -63,7 +67,7 @@ class ExecutableTestRunner(TestRunner):
                     timeout=self.timeout_seconds,
                 )
         except subprocess.TimeoutExpired as e:
-            print(f'Test {test_sample_number} timed out: {e}')
+            logger.error('Test %d timed out: %s', test_sample_number, e)
             raise ValueError(f'Test {test_sample_number} timed out: {e}')
 
 

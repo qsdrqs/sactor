@@ -1,11 +1,14 @@
 from clang import cindex
 from clang.cindex import Cursor
 import os
-from sactor import utils
+from sactor import logging as sactor_logging, utils
 
 from .enum_info import EnumInfo, EnumValueInfo
 from .struct_info import StructInfo
 from .global_var_info import GlobalVarInfo
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class FunctionInfo:
@@ -78,14 +81,18 @@ class FunctionInfo:
                 if struct_name in struct_dependencies_tbl:
                     structs_in_signature.add(struct_dependencies_tbl[struct_name])
                 else:
-                    print(f"Warning: {struct_name} not found in struct_dependencies_tbl")
+                    logger.warning(
+                        "%s not found in struct_dependencies_tbl", struct_name
+                    )
             for _, arg_type in self.arguments:
                 if arg_type.find(type_alias) != -1:
                     struct_name = self.type_alias_dependencies[type_alias]
                     if struct_name in struct_dependencies_tbl:
                         structs_in_signature.add(struct_dependencies_tbl[struct_name])
                     else:
-                        print(f"Warning: {struct_name} not found in struct_dependencies_tbl")
+                        logger.warning(
+                            "%s not found in struct_dependencies_tbl", struct_name
+                        )
 
         return list(structs_in_signature)
 
