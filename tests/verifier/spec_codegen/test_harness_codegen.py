@@ -3,6 +3,7 @@ import textwrap
 from pathlib import Path
 
 from sactor.verifier.spec.harness_codegen import (
+    _render_len_expression,
     generate_struct_harness_from_spec_file,
     generate_function_harness_from_spec_file,
 )
@@ -530,3 +531,64 @@ def test_generate_function_harness_todo_fallback(tmp_path: Path):
         """
     ).strip("\n")
     assert code == expected
+
+def test_render_len_expression_supports_composite_product():
+    field_types = {"rows": "usize", "cols": "usize"}
+    rendered = _render_len_expression("rows * cols", field_types, "c.")
+    assert rendered == "((c.rows as usize) * (c.cols as usize))"
+
+
+def test_render_len_expression_returns_none_with_unknown_identifier():
+    field_types = {"rows": "usize"}
+    rendered = _render_len_expression("rows * missing", field_types, "c.")
+    assert rendered is None
+
+
+def test_generate_struct_harness_with_len_expression(tmp_path: Path):
+    spec = {
+        "struct_name": "Matrix",
+        "fields": [
+            {
+                "u_field": {"name": "n_rows", "type": "usize", "shape": "scalar"},
+                "i_field": {"name": "n_rows", "type": "usize"},
+            },
+            {
+                "u_field": {"name": "n_cols", "type": "usize", "shape": "scalar"},
+                "i_field": {"name": "n_cols", "type": "usize"},
+            },
+            {
+                "u_field": {
+                    "name": "vals",
+                    "type": "*mut f64",
+                    "shape": {"ptr": {"kind": "slice", "len_from": "n_rows * n_cols"}},
+                },
+                "i_field": {"name": "vals", "type": "Vec<f64>"},
+            },
+        ],
+    }
+    spec_path = write_json(tmp_path / "matrix_spec.json", spec)
+
+    unidiomatic_struct_code = """#[repr(C)]
+pub struct CMatrix {
+    pub n_rows: usize,
+    pub n_cols: usize,
+    pub vals: *mut f64,
+}
+"""
+    idiomatic_struct_code = """pub struct Matrix {
+    pub n_rows: usize,
+    pub n_cols: usize,
+    pub vals: Vec<f64>,
+}
+"""
+
+    code = generate_struct_harness_from_spec_file(
+        "Matrix",
+        idiomatic_struct_code,
+        unidiomatic_struct_code,
+        str(spec_path),
+    )
+
+    assert code is not None
+    assert "TODO: unsupported len_from expression" not in code
+    assert "((c.n_rows as usize) * (c.n_cols as usize))" in code

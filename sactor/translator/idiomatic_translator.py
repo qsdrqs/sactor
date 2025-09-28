@@ -301,6 +301,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
+        enum_dependency_code = ""
         # Always initialize failure_info, even if already translated
         self.init_failure_info("global_var", global_var.name)
         if os.path.exists(global_var_save_path):
@@ -308,6 +309,26 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             # Mark as success for this run so the new failure_info.json is populated
             self.failure_info[global_var.name]['status'] = "success"
             return TranslateResult.SUCCESS
+
+        used_enum_values = getattr(global_var, "enum_value_dependencies", [])
+        used_enum_defs = getattr(global_var, "enum_dependencies", [])
+        if used_enum_values or used_enum_defs:
+            enum_defs_map: dict[str, EnumInfo] = {}
+            for enum_val in used_enum_values:
+                enum_defs_map[enum_val.definition.name] = enum_val.definition
+            for enum_def in used_enum_defs:
+                enum_defs_map[enum_def.name] = enum_def
+
+            rust_enum_codes: list[str] = []
+            for enum_def in [enum_defs_map[name] for name in sorted(enum_defs_map.keys())]:
+                enum_translation_res = self._translate_enum_impl(enum_def)
+                if enum_translation_res != TranslateResult.SUCCESS:
+                    return enum_translation_res
+                enum_code_path = os.path.join(
+                    self.translated_enum_path, enum_def.name + ".rs")
+                rust_enum_codes.append(read_file(enum_code_path))
+
+            enum_dependency_code = "\n\n".join(rust_enum_codes)
 
         if attempts > self.max_attempts - 1:
             logger.error(
@@ -424,7 +445,10 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         logger.debug("%s", global_var_result)
 
         # TODO: may add verification here
-        result = self.verifier.try_compile_rust_code(global_var_result)
+        compile_code = global_var_result
+        if enum_dependency_code:
+            compile_code = f"{enum_dependency_code}\n{global_var_result}"
+        result = self.verifier.try_compile_rust_code(compile_code)
         if result[0] != VerifyResult.SUCCESS:
             if result[0] == VerifyResult.COMPILE_ERROR:
                 self.append_failure_info(
@@ -447,6 +471,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             VerifyResult.SUCCESS, None),
         error_translation=None,
         attempts=0,
+        error_spec=None,
     ) -> TranslateResult:
         # Translate the struct/union
         struct_save_path = os.path.join(
@@ -709,6 +734,28 @@ It failed the following tests:
 ```
 Analyze the error messages, think about the possible reasons, and try to avoid this error.
 '''
+        elif verify_result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
+            harness_log = verify_result[1] if verify_result[1] else "(harness generator produced no log)"
+            prompt += f'''
+Lastly, the struct is translated as:
+```rust
+{error_translation}
+```
+'''
+            if error_spec:
+                prompt += f'''
+The SPEC generated for the struct was:
+```json
+{error_spec}
+```
+'''
+            prompt += f'''
+Test harness generation failed repeatedly with the following log:
+```
+{harness_log}
+```
+Please inspect the SPEC and conversion logic to ensure both transformation functions are emitted and consistent with the struct layout. Try to fix the issues this time.
+'''
         elif verify_result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {verify_result[0]} not implemented')
@@ -821,6 +868,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 verify_result=(VerifyResult.COMPILE_ERROR, error_message),
                 error_translation=llm_raw,
                 attempts=attempts + 1,
+                error_spec=raw_struct_spec,
             )
 
         result = self.verifier.verify_struct(
@@ -842,7 +890,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 struct_union,
                 verify_result=result,
                 error_translation=struct_result,
-                attempts=attempts + 1
+                attempts=attempts + 1,
+                error_spec=raw_struct_spec,
             )
         elif result[0] == VerifyResult.TEST_ERROR:
             if spec_tmp_dir:
@@ -858,7 +907,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 struct_union,
                 verify_result=result,
                 error_translation=struct_result,
-                attempts=attempts + 1
+                attempts=attempts + 1,
+                error_spec=raw_struct_spec,
             )
         elif result[0] == VerifyResult.TEST_HARNESS_MAX_ATTEMPTS_EXCEEDED:
             if spec_tmp_dir:
@@ -875,6 +925,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 verify_result=result,
                 error_translation=struct_result,
                 attempts=attempts + 1,
+                error_spec=raw_struct_spec,
             )
         elif result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(

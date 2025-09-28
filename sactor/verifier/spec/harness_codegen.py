@@ -1,11 +1,70 @@
 import json
 import os
+import re
 from typing import Optional
 
 from sactor import rust_ast_parser
 
 
 _TYPE_TRAITS_CACHE: dict[str, dict] = {}
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_ALLOWED_LEN_WORDS = {
+    "as",
+    "usize",
+    "isize",
+    "u8",
+    "i8",
+    "u16",
+    "i16",
+    "u32",
+    "i32",
+    "u64",
+    "i64",
+    "f32",
+    "f64",
+}
+
+
+def _is_simple_identifier(text: Optional[str]) -> bool:
+    if not isinstance(text, str):
+        return False
+    candidate = text.strip()
+    return bool(candidate) and bool(_IDENTIFIER_RE.fullmatch(candidate))
+
+
+def _render_len_expression(
+    expr: str,
+    field_types: dict[str, str],
+    prefix: str,
+    *,
+    cast_to_usize: bool = True,
+) -> Optional[str]:
+    if not isinstance(expr, str):
+        return None
+    cleaned = expr.strip()
+    if not cleaned:
+        return None
+
+    unknown: set[str] = set()
+
+    def _replace(match: re.Match[str]) -> str:
+        name = match.group(0)
+        if name in field_types:
+            base = f"{prefix}{name}"
+            return f"({base} as usize)" if cast_to_usize else base
+        if name in _ALLOWED_LEN_WORDS:
+            return name
+        # Numbers are not matched by this regex, so any other identifier is unknown
+        unknown.add(name)
+        return name
+
+    rendered = _IDENTIFIER_RE.sub(_replace, cleaned)
+    if unknown:
+        return None
+    rendered = re.sub(r"\s+", " ", rendered).strip()
+    if not rendered:
+        return None
+    return f"({rendered})"
 
 
 def _parse_unidiomatic_struct_field_types(
@@ -663,6 +722,7 @@ def generate_struct_harness_from_spec_file(
             blocking_todos.append(f"nested field path not supported: u={c_name} i={i_name}")
 
     u_field_types = _parse_unidiomatic_struct_field_types(struct_name, unidiomatic_struct_code_renamed)
+    ptr_len_info: dict[str, dict] = {}
 
     if blocking_todos:
         return _struct_todo_skeleton(struct_name, blocking_todos)
@@ -760,14 +820,53 @@ def generate_struct_harness_from_spec_file(
             continue
 
         if kind in ("slice", "ref"):
+            raw_len_from = ptr_meta.get("len_from")
+            len_from_value = raw_len_from
+            len_from_is_field = False
             len_expr = None
             if kind == "ref":
                 len_expr = "1usize"
-            else:
-                if "len_from" in ptr_meta:
-                    len_expr = f"(c.{ptr_meta['len_from']} as usize)"
-                elif "len_const" in ptr_meta:
-                    len_expr = f"{int(ptr_meta['len_const'])}usize"
+            if isinstance(raw_len_from, str):
+                candidate = raw_len_from.strip()
+                if _is_simple_identifier(candidate) and candidate in u_field_types:
+                    len_expr = f"(c.{candidate} as usize)"
+                    len_from_is_field = True
+                    len_from_value = candidate
+                else:
+                    rendered = _render_len_expression(raw_len_from, u_field_types, "c.")
+                    if rendered is None:
+                        msg = f"unsupported len_from expression '{raw_len_from}' for field {c_field}"
+                        init_lines.append(f"{field_comment_indent}// TODO: {msg}")
+                        ptr_len_info[c_field] = {
+                            "len_from": raw_len_from,
+                            "len_expr": None,
+                            "len_from_is_field": False,
+                            "supported": False,
+                        }
+                        continue
+                    len_expr = rendered
+            elif isinstance(raw_len_from, (int, float)):
+                len_expr = f"{int(raw_len_from)}usize"
+            elif raw_len_from is not None:
+                msg = f"unsupported len_from metadata for field {c_field}"
+                init_lines.append(f"{field_comment_indent}// TODO: {msg}")
+                ptr_len_info[c_field] = {
+                    "len_from": raw_len_from,
+                    "len_expr": None,
+                    "len_from_is_field": False,
+                    "supported": False,
+                }
+                continue
+            elif kind == "slice" and "len_const" in ptr_meta:
+                len_expr = f"{int(ptr_meta['len_const'])}usize"
+
+            ptr_len_info[c_field] = {
+                "len_from": len_from_value,
+                "len_expr": len_expr,
+                "len_from_is_field": len_from_is_field,
+                "supported": True,
+            }
+
             elem = _infer_slice_elem_from_ptr_ty(c_ty)
             is_opt = i_ty.startswith("Option<")
             box_inner = _extract_box_inner(raw_i_ty)
@@ -912,6 +1011,7 @@ def generate_struct_harness_from_spec_file(
         elem = _infer_slice_elem_from_ptr_ty(c_ty)
         is_opt = i_ty.startswith("Option<")
         if kind in ("slice", "ref"):
+            len_info = ptr_len_info.get(c_field, {})
             if is_opt:
                 back_lines.append(
                     f"""    let _{c_field}_ptr: *mut {elem} = match r.{rust_path}.as_ref() {{
@@ -938,19 +1038,21 @@ def generate_struct_harness_from_spec_file(
     }};""".rstrip()
                 )
 
-            if kind == "slice" and "len_from" in ptr_meta:
-                lf = ptr_meta['len_from']
-                lf_ty = u_field_types.get(lf, None)
-                if is_opt:
-                    if lf_ty is None:
-                        back_lines.append(f"    let _{lf} = r.{rust_path}.as_ref().map(|v| v.len()).unwrap_or(0) as usize;")
+            if kind == "slice":
+                lf = len_info.get("len_from")
+                if len_info.get("len_from_is_field") and isinstance(lf, str) and _is_simple_identifier(lf):
+                    lf_clean = lf.strip()
+                    lf_ty = u_field_types.get(lf_clean, None)
+                    if is_opt:
+                        if lf_ty is None:
+                            back_lines.append(f"    let _{lf_clean} = r.{rust_path}.as_ref().map(|v| v.len()).unwrap_or(0) as usize;")
+                        else:
+                            back_lines.append(f"    let _{lf_clean}: {lf_ty} = (r.{rust_path}.as_ref().map(|v| v.len()).unwrap_or(0) as usize) as {lf_ty};")
                     else:
-                        back_lines.append(f"    let _{lf}: {lf_ty} = (r.{rust_path}.as_ref().map(|v| v.len()).unwrap_or(0) as usize) as {lf_ty};")
-                else:
-                    if lf_ty is None:
-                        back_lines.append(f"    let _{lf} = r.{rust_path}.len() as usize;")
-                    else:
-                        back_lines.append(f"    let _{lf}: {lf_ty} = (r.{rust_path}.len() as usize) as {lf_ty};")
+                        if lf_ty is None:
+                            back_lines.append(f"    let _{lf_clean} = r.{rust_path}.len() as usize;")
+                        else:
+                            back_lines.append(f"    let _{lf_clean}: {lf_ty} = (r.{rust_path}.len() as usize) as {lf_ty};")
             continue
 
         msg = f"unsupported ptr kind for field {c_field}"
@@ -994,9 +1096,11 @@ def generate_struct_harness_from_spec_file(
                 c_fields_init.append(f"        {c_field}: _{c_field}_ptr,")
             elif kind in ("slice", "ref"):
                 c_fields_init.append(f"        {c_field}: _{c_field}_ptr,")
-                ptr = shape["ptr"]
-                if kind == "slice" and "len_from" in ptr:
-                    c_fields_init.append(f"        {ptr['len_from']}: _{ptr['len_from']},")
+                len_info = ptr_len_info.get(c_field, {})
+                lf = len_info.get("len_from")
+                if kind == "slice" and len_info.get("len_from_is_field") and isinstance(lf, str) and _is_simple_identifier(lf):
+                    lf_clean = lf.strip()
+                    c_fields_init.append(f"        {lf_clean}: _{lf_clean},")
             else:
                 return None
         else:

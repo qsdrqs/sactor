@@ -1,6 +1,8 @@
 from clang import cindex
 from clang.cindex import Cursor
 
+from .enum_info import EnumInfo, EnumValueInfo
+
 
 class GlobalVarInfo():
     def __init__(self, node: Cursor):
@@ -19,6 +21,9 @@ class GlobalVarInfo():
             self.is_array = True
             self.array_size = self.node.type.get_array_size()
 
+        self.enum_value_dependencies: list[EnumValueInfo] = []
+        self.enum_dependencies: list[EnumInfo] = []
+
     def __hash__(self) -> int:
         return hash(self.name) + hash(self.location)
 
@@ -30,3 +35,11 @@ class GlobalVarInfo():
 
     def get_decl(self) -> str:
         return f"{self.type} {self.name};"
+
+    def set_enum_dependencies(
+        self,
+        enum_values: list[EnumValueInfo],
+        enum_defs: list[EnumInfo],
+    ) -> None:
+        self.enum_value_dependencies = enum_values
+        self.enum_dependencies = enum_defs

@@ -382,6 +382,19 @@ class CParser:
                 if referenced_cursor.kind == cindex.CursorKind.VAR_DECL:
                     if referenced_cursor.storage_class == cindex.StorageClass.STATIC or referenced_cursor.linkage == cindex.LinkageKind.EXTERNAL:
                         global_var = GlobalVarInfo(referenced_cursor)
+                        used_enums = self._collect_enum_dependencies(referenced_cursor)
+                        enum_values = set()
+                        enum_defs = set()
+                        for used_enum in used_enums:
+                            if isinstance(used_enum, EnumValueInfo):
+                                enum_values.add(used_enum)
+                                enum_defs.add(used_enum.definition)
+                            else:
+                                enum_defs.add(used_enum)
+                        global_var.set_enum_dependencies(
+                            sorted(enum_values, key=lambda e: e.name),
+                            sorted(enum_defs, key=lambda e: e.name),
+                        )
                         used_global_vars.add(global_var)
                         self._global_vars[global_var.name] = global_var
             elif child.kind == cindex.CursorKind.DECL_REF_EXPR and child.spelling in standard_io and stdio:

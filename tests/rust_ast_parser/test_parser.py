@@ -50,6 +50,17 @@ def test_get_struct_definition(code):
     assert struct_definition == '#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n'
 
 
+def test_get_enum_definition_returns_pretty_source():
+    code = """pub enum Color {\n    Red,\n    Green,\n    Blue,\n}\n"""
+    expected = """pub enum Color {\n    Red,\n    Green,\n    Blue,\n}\n"""
+    assert rust_ast_parser.get_enum_definition(code, "Color") == expected
+
+
+def test_get_enum_definition_errors_for_missing_enum():
+    with pytest.raises(ValueError):
+        rust_ast_parser.get_enum_definition("pub enum Foo {}", "Bar")
+
+
 def test_get_struct_field_types(code):
     expected = {
         "a": "i32",
@@ -183,6 +194,16 @@ def test_expose_function_to_c(code):
     exposed_code = rust_ast_parser.expose_function_to_c(code, "add")
     assert exposed_code.count('extern "C"') == 1
     assert exposed_code.count('#[no_mangle]') == 1
+
+
+def test_get_function_definition_returns_pretty_source(code):
+    expected = """pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n"""
+    assert rust_ast_parser.get_function_definition(code, "add") == expected
+
+
+def test_get_function_definition_errors_for_missing_function(code):
+    with pytest.raises(ValueError):
+        rust_ast_parser.get_function_definition(code, "missing")
 
 def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")
