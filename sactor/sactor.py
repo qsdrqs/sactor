@@ -34,6 +34,17 @@ class Sactor:
         # compile_commands_file: compile_commands.json
         compile_commands_file: str=""
     ):
+        self.config_file = config_file
+        self.config = utils.try_load_config(self.config_file)
+        self.result_dir = os.path.join(
+            os.getcwd(), "sactor_result") if result_dir is None else result_dir
+
+        if not sactor_logging.is_configured():
+            sactor_logging.configure_logging(
+                self.config,
+                result_dir=self.result_dir,
+            )
+
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
@@ -48,13 +59,9 @@ class Sactor:
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
 
-        self.result_dir = os.path.join(
-            os.getcwd(), "sactor_result") if result_dir is None else result_dir
-
         self.llm_stat = llm_stat if llm_stat is not None else os.path.join(
             self.result_dir, "llm_stat.json")
 
-        self.config_file = config_file
         self.no_verify = no_verify
         self.unidiomatic_only = unidiomatic_only
         self.extra_compile_command = extra_compile_command
@@ -66,13 +73,24 @@ class Sactor:
             raise ValueError(
                 "executable_object must be provided for library translation")
 
-        self.config = utils.try_load_config(self.config_file)
 
-        if not sactor_logging.is_configured():
-            sactor_logging.configure_logging(
-                self.config,
-                result_dir=self.result_dir,
-            )
+        # Print configuration
+        logger.info("-------------SACTOR Configuration-------------")
+        logger.info("Input file: %s", self.input_file)
+        logger.info("Test command: %s", self.test_cmd_path)
+        logger.info("Is executable: %s", self.is_executable)
+        if not self.is_executable:
+            logger.info("Executable object: %s", self.executable_object)
+        logger.info("Build directory: %s", self.build_dir)
+        logger.info("Result directory: %s", self.result_dir)
+        logger.info("Config file: %s", self.config_file)
+        logger.info("No verify: %s", self.no_verify)
+        logger.info("Unidiomatic only: %s", self.unidiomatic_only)
+        logger.info("LLM statistics file: %s", self.llm_stat)
+        logger.info("Extra compile command: %s", self.extra_compile_command)
+        logger.info("All compile commands: %s", self.all_compile_commands)
+        logger.info("Compile commands file: %s", self.compile_commands_file)
+        logger.info("-------------End of Configuration-------------")
 
         # Check necessary requirements
         missing_requirements = thirdparty.check_all_requirements()
@@ -100,6 +118,10 @@ class Sactor:
                 raise ValueError(
                     "Circular dependencies for structs is not supported yet")
 
+        logger.debug("Total structs: %d; order groups: %d",
+                     sum(len(group) for group in self.struct_order), len(self.struct_order))
+        logger.debug("Total functions: %d; order groups: %d",
+                        sum(len(group) for group in self.function_order), len(self.function_order))
         logger.debug("Struct order: %s", self.struct_order)
         logger.debug("Function order: %s", self.function_order)
         self.c2rust = C2Rust(self.input_file_preprocessed)

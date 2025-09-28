@@ -174,6 +174,13 @@ def parse_run_tests(parser):
         help='Only avaliable for binary targets. If set, the test samples will be fed to the target program via stdin.'
     )
 
+    parser.add_argument(
+        '--save',
+        '-s',
+        type=str,
+        help='The path to save the output json of the test run and the expected output, if the test fails. If not set, the output will not be saved.'
+    )
+
 
 def parse_generate_tests(parser):
     parser.add_argument(
@@ -323,7 +330,7 @@ def run_tests(parser, args):
             config_path=args.config_file,
             feed_as_arguments=feed_as_args
         )
-        result = test_runner.run_test(args.test_sample_number)
+        result = test_runner.run_test(args.test_sample_number, args.save)
         if result[0] == TestRunnerResult.PASSED:
             logger.info('✅ Test %d passed successfully!', args.test_sample_number, extra={"plain": True})
             sys.exit(0)
