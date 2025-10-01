@@ -268,7 +268,13 @@ def test_generate_function_harness_basic(tmp_path: Path):
                 String::new()
             };
             // Arg 'data': slice from data with len data_len as usize
-            let data: &[u8] = unsafe { std::slice::from_raw_parts(data as *const u8, data_len as usize) };
+            let data_len = data_len as usize;
+            let data_len_non_null = if data.is_null() { 0 } else { data_len };
+            let data: &[u8] = if data_len_non_null == 0 {
+                &[]
+            } else {
+                unsafe { std::slice::from_raw_parts(data as *const u8, data_len_non_null) }
+            };
             let __ret = process_idiomatic(&name_str, data);
             return __ret;
         }
@@ -374,6 +380,46 @@ def test_generate_function_harness_return_cstring(tmp_path: Path):
         }
         """
     ).strip("\n")
+    assert code == expected
+
+
+def test_generate_function_harness_struct_return_without_ret_spec(tmp_path: Path):
+    spec = {
+        "function_name": "make_point",
+        "fields": [
+            {
+                "u_field": {"name": "z", "type": "u64", "shape": "scalar"},
+                "i_field": {"name": "z", "type": "u64"},
+            }
+        ],
+    }
+    spec_path = write_json(tmp_path / "make_point.json", spec)
+
+    idiomatic_sig = "pub fn make_point_idiomatic(z: u64) -> Point;"
+    c_sig = "pub fn make_point(z: u64) -> CPoint;"
+
+    code = generate_function_harness_from_spec_file(
+        "make_point",
+        idiomatic_sig,
+        c_sig,
+        ["Point"],
+        str(spec_path),
+    )
+
+    expected = textwrap.dedent(
+        """\
+        pub fn make_point(z: u64) -> CPoint
+        {
+            let __ret = make_point_idiomatic(z);
+            let mut __ret_clone = __ret.clone();
+            let __ret_ptr = unsafe { Point_to_CPoint_mut(&mut __ret_clone) };
+            let __ret_c_value = unsafe { *__ret_ptr };
+            unsafe { let _ = Box::from_raw(__ret_ptr); };
+            return __ret_c_value;
+        }
+        """
+    ).strip("\n")
+
     assert code == expected
 
 
@@ -592,3 +638,44 @@ pub struct CMatrix {
     assert code is not None
     assert "TODO: unsupported len_from expression" not in code
     assert "((c.n_rows as usize) * (c.n_cols as usize))" in code
+
+
+def test_generate_struct_harness_with_renamed_i_type(tmp_path: Path):
+    spec = {
+        "struct_name": "node",
+        "i_type": "Node",
+        "fields": [
+            {
+                "u_field": {
+                    "name": "value",
+                    "type": "*mut libc::c_char",
+                    "shape": {"ptr": {"kind": "cstring", "null": "nullable"}},
+                },
+                "i_field": {"name": "value", "type": "Option<String>"},
+            },
+            {
+                "u_field": {"name": "count", "type": "usize", "shape": "scalar"},
+                "i_field": {"name": "count", "type": "usize"},
+            },
+        ],
+    }
+    spec_path = write_json(tmp_path / "node_spec.json", spec)
+
+    unidiomatic_struct_code = """#[repr(C)]
+pub struct Cnode {
+    pub value: *mut libc::c_char,
+    pub count: usize,
+}
+"""
+    idiomatic_struct_code = """pub struct Node {
+    pub value: Option<String>,
+    pub count: usize,
+}
+"""
+
+    code = generate_struct_harness_from_spec_file(
+        "node", idiomatic_struct_code, unidiomatic_struct_code, str(spec_path)
+    )
+    assert code is not None
+    assert "unsafe fn Cnode_to_Node_mut" in code
+    assert "unsafe fn Node_to_Cnode_mut" in code

@@ -32,6 +32,55 @@ def _is_simple_identifier(text: Optional[str]) -> bool:
     return bool(candidate) and bool(_IDENTIFIER_RE.fullmatch(candidate))
 
 
+def _normalize_ident(name: str) -> str:
+    return re.sub(r"[^0-9a-z]", "", name.lower())
+
+
+def _infer_idiomatic_item(code: str) -> list[tuple[str, str]]:
+    try:
+        items = rust_ast_parser.list_struct_enum_union(code)
+        return [(name, kind.lower()) for name, kind in items]
+    except Exception:
+        return []
+
+
+def _select_idiomatic_item(
+    struct_name: str,
+    matches: list[tuple[str, str]],
+    preferred_kind: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    if not matches:
+        return None, None
+
+    normalized_target = _normalize_ident(struct_name)
+    preferred_kind = preferred_kind.lower() if preferred_kind else None
+
+    ranked: list[tuple[int, int, str, str]] = []
+    for idx, (name, kind) in enumerate(matches):
+        score = 10
+        if _normalize_ident(name) == normalized_target:
+            score = 0
+        elif preferred_kind and kind == preferred_kind:
+            score = 1
+        ranked.append((score, idx, name, kind))
+
+    ranked.sort()
+    _, _, name, kind = ranked[0]
+    return name, kind
+
+
+def _item_exists_in_code(code: str, name: str, kind: str) -> bool:
+    try:
+        if kind == "enum":
+            rust_ast_parser.get_enum_definition(code, name)
+        else:
+            # Treat unions the same as structs for lookup purposes.
+            rust_ast_parser.get_struct_definition(code, name)
+        return True
+    except Exception:
+        return False
+
+
 def _render_len_expression(
     expr: str,
     field_types: dict[str, str],
@@ -223,19 +272,26 @@ def _classify_string_traits(traits: Optional[dict]) -> str:
     return "other"
 
 
-def _classify_slice_traits(traits: Optional[dict]) -> tuple[bool, bool, Optional[str]]:
+def _classify_slice_traits(traits: Optional[dict]) -> tuple[bool, bool, Optional[str], bool]:
     traits = _ensure_traits_dict(traits)
     if not traits:
-        return False, False, None
+        return False, False, None, False
     if traits.get("is_option"):
-        is_slice, _ignored_optional, elem = _classify_slice_traits(traits.get("option_inner"))
+        is_slice, _ignored_optional, elem, is_mut = _classify_slice_traits(
+            traits.get("option_inner")
+        )
         if is_slice:
-            return True, True, elem
+            return True, True, elem, is_mut
     if traits.get("is_slice"):
-        return True, False, traits.get("slice_elem")
+        is_mut = bool(traits.get("is_mut_reference"))
+        return True, False, traits.get("slice_elem"), is_mut
     if traits.get("is_reference"):
-        return _classify_slice_traits(traits.get("reference_inner"))
-    return False, False, None
+        inner = _ensure_traits_dict(traits.get("reference_inner"))
+        is_slice, is_opt, elem, is_mut = _classify_slice_traits(inner)
+        if is_slice and traits.get("is_mut_reference"):
+            is_mut = True
+        return is_slice, is_opt, elem, is_mut
+    return False, False, None, False
 
 
 def _pointer_depth_and_base(traits: Optional[dict]) -> tuple[int, dict]:
@@ -328,18 +384,18 @@ def _type_traits_from_param(param: Optional[dict]) -> dict:
     return _ensure_traits_dict(param.get('traits'))
 
 
-def _struct_todo_skeleton(struct_name: str, todos: list[str]) -> str:
+def _struct_todo_skeleton(struct_name: str, idiomatic_name: str, todos: list[str]) -> str:
     todo_header = "\n".join(
         ["// TODO: Spec exceeds automatic rules. Items to handle manually:"]
         + [f"// TODO: {t}" for t in todos]
     )
     return f"""{todo_header}
-unsafe fn {struct_name}_to_C{struct_name}_mut(input: &mut {struct_name}) -> *mut C{struct_name} {{
+unsafe fn {idiomatic_name}_to_C{struct_name}_mut(input: &mut {idiomatic_name}) -> *mut C{struct_name} {{
     // TODO: implement I->U conversion based on above items
     unimplemented!()
 }}
 
-unsafe fn C{struct_name}_to_{struct_name}_mut(input: *mut C{struct_name}) -> &'static mut {struct_name} {{
+unsafe fn C{struct_name}_to_{idiomatic_name}_mut(input: *mut C{struct_name}) -> &'static mut {idiomatic_name} {{
     // TODO: implement U->I conversion based on above items
     unimplemented!()
 }}
@@ -687,8 +743,39 @@ def generate_struct_harness_from_spec_file(
     except Exception:
         return None
     fields = spec.get("fields", [])
-    i_kind = (spec.get("i_kind") or "struct").lower()
-    i_type = spec.get("i_type") or struct_name
+    inferred_items = _infer_idiomatic_item(idiomatic_struct_code)
+    inferred_name: Optional[str] = None
+    inferred_kind: Optional[str] = None
+
+    raw_kind = spec.get("i_kind") if isinstance(spec.get("i_kind"), str) else None
+    selection_preference = raw_kind.strip().lower() if raw_kind else None
+    inferred_name, inferred_kind = _select_idiomatic_item(
+        struct_name,
+        inferred_items,
+        preferred_kind=selection_preference,
+    )
+    if inferred_kind == "union":
+        inferred_kind = "struct"
+
+    if raw_kind:
+        i_kind = raw_kind.strip().lower() or "struct"
+    elif inferred_kind:
+        i_kind = inferred_kind
+    else:
+        i_kind = "struct"
+    if i_kind not in ("struct", "enum"):
+        i_kind = "struct"
+
+    raw_i_type = spec.get("i_type") if isinstance(spec.get("i_type"), str) else None
+    candidate_i_type = (raw_i_type or "").strip()
+    if candidate_i_type:
+        # Ensure the declared idiomatic type actually exists in the provided code.
+        if not _item_exists_in_code(idiomatic_struct_code, candidate_i_type, i_kind):
+            candidate_i_type = inferred_name or struct_name
+    else:
+        candidate_i_type = inferred_name or struct_name
+
+    i_type = candidate_i_type or struct_name
     blocking_todos: list[str] = []
     derived_len_i_fields: set[str] = set()
     derived_len_c_fields: set[str] = set()
@@ -701,7 +788,7 @@ def generate_struct_harness_from_spec_file(
                 blocking_todos.append(f"enum: nested field path not supported: {u.get('name')}")
         u_field_types = _parse_unidiomatic_struct_field_types(struct_name, unidiomatic_struct_code_renamed)
         if blocking_todos:
-            return _struct_todo_skeleton(struct_name, blocking_todos)
+            return _struct_todo_skeleton(struct_name, i_type, blocking_todos)
         return _generate_enum_struct_converters(struct_name, i_type, fields, spec.get("variants") or [], u_field_types)
     # Only support flat i_field (no dot) in this first cut
     for f in fields:
@@ -725,7 +812,7 @@ def generate_struct_harness_from_spec_file(
     ptr_len_info: dict[str, dict] = {}
 
     if blocking_todos:
-        return _struct_todo_skeleton(struct_name, blocking_todos)
+        return _struct_todo_skeleton(struct_name, i_type, blocking_todos)
 
     # Build U->I initializers
     init_lines: list[str] = []
@@ -954,7 +1041,7 @@ def generate_struct_harness_from_spec_file(
             struct_ptr = _analyze_struct_ptr_conversion(c_ty, raw_i_ty)
 
         if struct_ptr:
-            conv_back = f"{struct_ptr['idiom_ident']}_to_C{struct_ptr['idiom_ident']}_mut"
+            conv_back = f"{struct_ptr['idiom_ident']}_to_{struct_ptr['c_ident']}_mut"
             if struct_ptr['is_option']:
                 back_lines.append(
                     f"""    let _{c_field}_ptr: {c_ty} = match r.{rust_path}.as_mut() {{
@@ -1060,7 +1147,7 @@ def generate_struct_harness_from_spec_file(
 
     # Compose functions
     to_rust = [
-        f"unsafe fn C{struct_name}_to_{struct_name}_mut(input: *mut C{struct_name}) -> &'static mut {struct_name} {{",
+        f"unsafe fn C{struct_name}_to_{i_type}_mut(input: *mut C{struct_name}) -> &'static mut {i_type} {{",
         "    assert!(!input.is_null());",
         "    let c = &*input;",
     ]
@@ -1072,7 +1159,7 @@ def generate_struct_harness_from_spec_file(
         if isinstance(shape, dict) and shape.get("ptr", {}).get("null") == "forbidden":
             to_rust.append(f"    assert!(!c.{c_field}.is_null());")
 
-    to_rust.append(f"    let r = {struct_name} {{")
+    to_rust.append(f"    let r = {i_type} {{")
     to_rust.extend(init_lines)
     to_rust.append("    };")
     to_rust.append("    Box::leak(Box::new(r))")
@@ -1109,7 +1196,7 @@ def generate_struct_harness_from_spec_file(
     if back_block:
         back_block = f"{back_block}\n"
     struct_literal = "\n".join(c_fields_init)
-    to_c_code = f"""unsafe fn {struct_name}_to_C{struct_name}_mut(r: &mut {struct_name}) -> *mut C{struct_name} {{
+    to_c_code = f"""unsafe fn {i_type}_to_C{struct_name}_mut(r: &mut {i_type}) -> *mut C{struct_name} {{
 {back_block}    let c = C{struct_name} {{
 {struct_literal}
     }};
@@ -1150,6 +1237,7 @@ def generate_function_harness_from_spec_file(
     original_signature_renamed: str,
     struct_dep_names: list[str],
     spec_path: str,
+    struct_name_alias: Optional[dict[str, str]] = None,
 ) -> Optional[str]:
     if not os.path.exists(spec_path):
         return None
@@ -1167,6 +1255,19 @@ def generate_function_harness_from_spec_file(
         u = f.get('u_field', {}) or {}
         by_rust[i.get('name', '')] = f
         by_u[u.get('name', '')] = f
+
+    struct_name_alias = struct_name_alias or {}
+    idiom_names = {struct_name_alias.get(name, name) for name in struct_dep_names}
+    c_name_for_idiom: dict[str, str] = {}
+    for orig_name in struct_dep_names:
+        alias = struct_name_alias.get(orig_name, orig_name)
+        c_name_for_idiom.setdefault(alias, orig_name)
+    for orig_name, alias in struct_name_alias.items():
+        if alias:
+            c_name_for_idiom.setdefault(alias, orig_name)
+
+    def c_alias_for(idiom: str) -> str:
+        return c_name_for_idiom.get(idiom, idiom)
 
     parsed_id = _parse_fn_signature(idiomatic_signature)
     parsed_c = _parse_fn_signature(original_signature_renamed)
@@ -1213,7 +1314,8 @@ def generate_function_harness_from_spec_file(
             u_param_info.get('type') if isinstance(u_param_info, dict) else None
         ) or u_field.get('type') or ""
 
-        if norm_type in struct_dep_names and not traits.get('is_reference'):
+        if norm_type in idiom_names and not traits.get('is_reference'):
+            c_alias = c_name_for_idiom.get(norm_type, norm_type)
             struct_ptr = _analyze_struct_ptr_conversion(c_type_for_param, raw_type)
             if struct_ptr and struct_ptr['idiom_ident'] == norm_type:
                 pre_lines.append(
@@ -1221,7 +1323,7 @@ def generate_function_harness_from_spec_file(
                 )
                 pre_lines.append(f"    assert!(!{u_name}.is_null());")
                 pre_lines.append(
-                    f"    let mut {pname}_ref: &'static mut {norm_type} = unsafe {{ C{norm_type}_to_{norm_type}_mut({u_name}) }};"
+                    f"    let mut {pname}_ref: &'static mut {norm_type} = unsafe {{ C{c_alias}_to_{norm_type}_mut({u_name}) }};"
                 )
                 pre_lines.append(
                     f"    let {pname}_val: {norm_type} = {pname}_ref.clone();"
@@ -1240,11 +1342,12 @@ def generate_function_harness_from_spec_file(
             if option_inner.get('is_reference') and option_inner.get('is_mut_reference'):
                 inner = _ensure_traits_dict(option_inner.get('reference_inner'))
                 inner_name = inner.get('path_ident') or inner.get('normalized') or inner.get('raw') or ''
-                if inner_name in struct_dep_names:
+                if inner_name in idiom_names:
+                    c_alias_inner = c_name_for_idiom.get(inner_name, inner_name)
                     pre_lines.append(
                         f"""    // Arg '{pname}': optional *mut {inner_name} to Option<&mut {inner_name}>
     let mut {pname}_storage: Option<&'static mut {inner_name}> = if !{u_name}.is_null() {{
-        Some(unsafe {{ C{inner_name}_to_{inner_name}_mut({u_name}) }})
+        Some(unsafe {{ C{c_alias_inner}_to_{inner_name}_mut({u_name}) }})
     }} else {{
         None
     }};"""
@@ -1255,6 +1358,7 @@ def generate_function_harness_from_spec_file(
                             "mode": "option_mut_struct",
                             "storage_var": f"{pname}_storage",
                             "struct_name": inner_name,
+                            "c_name": c_alias_inner,
                             "u_name": u_name,
                             "param_name": pname,
                         }
@@ -1264,7 +1368,8 @@ def generate_function_harness_from_spec_file(
         if traits.get('is_reference') and traits.get('is_mut_reference'):
             inner = _ensure_traits_dict(traits.get('reference_inner'))
             inner_name = inner.get('path_ident') or inner.get('normalized') or inner.get('raw') or ''
-            if inner_name in struct_dep_names:
+            if inner_name in idiom_names:
+                c_alias_inner = c_name_for_idiom.get(inner_name, inner_name)
                 if u_name not in u_param_map:
                     msg = f"&mut {inner_name}: cannot find matching U param"
                     pre_lines.append(f"    // TODO: {msg}")
@@ -1272,7 +1377,7 @@ def generate_function_harness_from_spec_file(
                 else:
                     pre_lines.append(
                         f"""    // Arg '{pname}': convert *mut {inner_name} to &mut {inner_name}
-    let mut {pname}: &'static mut {inner_name} = unsafe {{ C{inner_name}_to_{inner_name}_mut({u_name}) }};
+    let mut {pname}: &'static mut {inner_name} = unsafe {{ C{c_alias_inner}_to_{inner_name}_mut({u_name}) }};
     // will copy back after call for {pname}"""
                     )
                     call_args.append(pname)
@@ -1281,6 +1386,7 @@ def generate_function_harness_from_spec_file(
                             "mode": "direct_mut_struct",
                             "param_name": pname,
                             "struct_name": inner_name,
+                            "c_name": c_alias_inner,
                             "u_name": u_name,
                         }
                     )
@@ -1306,7 +1412,7 @@ def generate_function_harness_from_spec_file(
                     continue
 
         # slice parameters (&[T], Option<&[T]>)
-        is_slice, is_slice_optional, slice_elem = _classify_slice_traits(traits)
+        is_slice, is_slice_optional, slice_elem, is_mut_slice = _classify_slice_traits(traits)
         if is_slice:
             if not isinstance(u_shape, dict):
                 msg = f"slice arg {pname}: missing spec mapping"
@@ -1335,21 +1441,55 @@ def generate_function_harness_from_spec_file(
                 pre_lines.append(
                     f"    // Arg '{pname}': optional slice from {c_ptr_name} with len {len_expr}"
                 )
+                len_var = f"{pname}_len"
+                usable_len_var = f"{len_var}_non_null"
+                pre_lines.append(f"    let {len_var} = {len_expr};")
                 pre_lines.append(
-                    f"""    let {pname}_opt: Option<&[{elem}]> = if !{c_ptr_name}.is_null() && {len_expr} > 0 {{
-        Some(unsafe {{ std::slice::from_raw_parts({c_ptr_name} as *const {elem}, {len_expr}) }})
-    }} else {{
-        None
-    }};""".rstrip()
+                    f"    let {usable_len_var} = if {c_ptr_name}.is_null() {{ 0 }} else {{ {len_var} }};"
                 )
+                if is_mut_slice:
+                    pre_lines.append(
+                        f"""    let {pname}_opt: Option<&mut [{elem}]> = if {usable_len_var} == 0 {{
+        None
+    }} else {{
+        Some(unsafe {{ std::slice::from_raw_parts_mut({c_ptr_name} as *mut {elem}, {usable_len_var}) }})
+    }};""".rstrip()
+                    )
+                else:
+                    pre_lines.append(
+                        f"""    let {pname}_opt: Option<&[{elem}]> = if {usable_len_var} == 0 {{
+        None
+    }} else {{
+        Some(unsafe {{ std::slice::from_raw_parts({c_ptr_name} as *const {elem}, {usable_len_var}) }})
+    }};""".rstrip()
+                    )
                 call_args.append(f"{pname}_opt")
             else:
                 pre_lines.append(
                     f"    // Arg '{pname}': slice from {c_ptr_name} with len {len_expr}"
                 )
+                len_var = f"{pname}_len"
+                usable_len_var = f"{len_var}_non_null"
+                pre_lines.append(f"    let {len_var} = {len_expr};")
                 pre_lines.append(
-                    f"""    let {pname}: &[{elem}] = unsafe {{ std::slice::from_raw_parts({c_ptr_name} as *const {elem}, {len_expr}) }};""".rstrip()
+                    f"    let {usable_len_var} = if {c_ptr_name}.is_null() {{ 0 }} else {{ {len_var} }};"
                 )
+                if is_mut_slice:
+                    pre_lines.append(
+                        f"""    let {pname}: &mut [{elem}] = if {usable_len_var} == 0 {{
+        &mut []
+    }} else {{
+        unsafe {{ std::slice::from_raw_parts_mut({c_ptr_name} as *mut {elem}, {usable_len_var}) }}
+    }};""".rstrip()
+                    )
+                else:
+                    pre_lines.append(
+                        f"""    let {pname}: &[{elem}] = if {usable_len_var} == 0 {{
+        &[]
+    }} else {{
+        unsafe {{ std::slice::from_raw_parts({c_ptr_name} as *const {elem}, {usable_len_var}) }}
+    }};""".rstrip()
+                    )
                 call_args.append(pname)
             continue
 
@@ -1429,6 +1569,7 @@ def generate_function_harness_from_spec_file(
     id_call_name = parsed_id[0]
     call_args_str = ", ".join(call_args)
     has_id_ret = _has_non_unit_return(id_ret)
+    has_ret = bool(c_ret)
     if not has_id_ret and not ret_spec:
         call_line = f"    {id_call_name}({call_args_str});"
     else:
@@ -1439,13 +1580,14 @@ def generate_function_harness_from_spec_file(
     for entry in mut_struct_params:
         mode = entry.get('mode')
         struct_name = entry.get('struct_name')
+        c_name = entry.get('c_name', struct_name)
         u_name = entry.get('u_name')
         param_name = entry.get('param_name')
         tmp_var = f"__c_{param_name}"
         if mode == 'direct_mut_struct':
             post_lines.append(
                 f"""    if !{u_name}.is_null() {{
-        let {tmp_var} = unsafe {{ {struct_name}_to_C{struct_name}_mut({param_name}) }};
+        let {tmp_var} = unsafe {{ {struct_name}_to_C{c_name}_mut({param_name}) }};
         unsafe {{ *{u_name} = *{tmp_var}; }}
         unsafe {{ let _ = Box::from_raw({tmp_var}); }}
     }}"""
@@ -1455,7 +1597,7 @@ def generate_function_harness_from_spec_file(
             post_lines.append(
                 f"""    if !{u_name}.is_null() {{
         if let Some(inner) = {storage_var}.as_deref_mut() {{
-            let {tmp_var} = unsafe {{ {struct_name}_to_C{struct_name}_mut(inner) }};
+            let {tmp_var} = unsafe {{ {struct_name}_to_C{c_name}_mut(inner) }};
             unsafe {{ *{u_name} = *{tmp_var}; }}
             unsafe {{ let _ = Box::from_raw({tmp_var}); }}
         }}
@@ -1467,6 +1609,7 @@ def generate_function_harness_from_spec_file(
     # Handle idiomatic return mapping to unidiomatic outputs via spec (i_field.name == 'ret')
     ret_spec = by_rust.get('ret')
     ret_lines: list[str] = []
+    ret_return_expr = "__ret"
     if ret_spec:
         u = ret_spec.get('u_field', {}) or {}
         i = ret_spec.get('i_field', {}) or {}
@@ -1495,7 +1638,7 @@ def generate_function_harness_from_spec_file(
                 ret_lines.append(
                     f"""    if !{u_name}.is_null() {{
         let mut __ret_clone = __ret.clone();
-        let ret_ptr = unsafe {{ {struct_ret['idiom_ident']}_to_C{struct_ret['idiom_ident']}_mut(&mut __ret_clone) }};
+        let ret_ptr = unsafe {{ {struct_ret['idiom_ident']}_to_C{c_alias_for(struct_ret['idiom_ident'])}_mut(&mut __ret_clone) }};
         unsafe {{ *{u_name} = *ret_ptr; }}
         unsafe {{ let _ = Box::from_raw(ret_ptr); }}
     }};""".rstrip()
@@ -1558,21 +1701,44 @@ def generate_function_harness_from_spec_file(
                 )
             else:
                 return None
+    if has_ret and ret_return_expr == "__ret":
+        id_traits = _ensure_traits_dict(id_ret)
+        c_traits = _ensure_traits_dict(c_ret)
+        id_name = (id_traits.get('path_ident') or id_traits.get('normalized') or id_traits.get('raw') or '')
+        c_name_full = (c_traits.get('path_ident') or c_traits.get('normalized') or c_traits.get('raw') or '')
+        id_name_simple = id_name.split('::')[-1] if id_name else ''
+        c_name_simple = c_name_full.split('::')[-1] if c_name_full else ''
 
-    # Return handling (simple): if original has return, return __ret; else omit
-    has_ret = bool(c_ret)
+        if id_name_simple and c_name_simple:
+            for struct_name in struct_dep_names:
+                idiom_name = struct_name_alias.get(struct_name, struct_name)
+                if id_name_simple != idiom_name:
+                    continue
+                c_base = c_alias_for(idiom_name)
+                expected_c = f"C{c_base}"
+                alt_expected = f"C{idiom_name}"
+                candidates = {expected_c.split('::')[-1], alt_expected.split('::')[-1], c_base.split('::')[-1]}
+                if c_name_simple not in candidates:
+                    continue
+                ret_lines.extend([
+                    "    let mut __ret_clone = __ret.clone();",
+                    f"    let __ret_ptr = unsafe {{ {idiom_name}_to_{expected_c}_mut(&mut __ret_clone) }};",
+                    "    let __ret_c_value = unsafe { *__ret_ptr };",
+                    "    unsafe { let _ = Box::from_raw(__ret_ptr); };",
+                ])
+                ret_return_expr = "__ret_c_value"
+                break
 
     body = []
     body.append("{")
 
     body.extend(pre_lines)
     body.append(call_line)
-    # If we synthesized ret->out assignments and original had no return, prefer the out assignments
-    if ret_lines and not has_ret:
+    if ret_lines:
         body.extend(ret_lines)
     body.extend(post_lines)
     if has_ret:
-        body.append("    return __ret;")
+        body.append(f"    return {ret_return_expr};")
     body.append("}")
 
     # Compose full function

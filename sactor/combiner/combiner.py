@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from sactor import logging as sactor_logging, rust_ast_parser
+
 from .combiner_types import CombineResult
 from .rust_code import RustCode
+
+logger = sactor_logging.get_logger(__name__)
 
 def merge_uses(all_uses: list[list[str]]) -> list[str]:
     libc_identifiers = {
@@ -77,6 +81,10 @@ class Combiner(ABC):
             output_code.append(function_code[function].remained_code)
 
         output_code = '\n'.join(output_code)
+        try:
+            output_code = rust_ast_parser.dedup_items(output_code)
+        except Exception as exc:
+            logger.warning("Failed to deduplicate combined Rust code: %s", exc)
         return output_code
 
     @abstractmethod
