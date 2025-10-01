@@ -26,7 +26,7 @@ class Verifier(ABC):
         build_path=None,
         no_feedback=False,
         extra_compile_command: str | None=None,
-        executable_object: str | None=None,
+        executable_object: str | list[str] | None=None,
         processed_compile_commands: list[list[str]] = [],
     ):
         self.config = config
@@ -44,6 +44,7 @@ class Verifier(ABC):
         self.no_feedback = no_feedback
         self.extra_compile_command = extra_compile_command
         self.executable_object = executable_object
+        self._executable_object_variants = self._normalize_executable_object(executable_object)
         self.processed_compile_commands = processed_compile_commands
 
     @staticmethod
@@ -84,6 +85,36 @@ class Verifier(ABC):
             logger.error("Invalid test command file %s: %s", test_cmd_path, e)
             return False
 
+    @staticmethod
+    def _normalize_executable_object(
+        executable_object: str | list[str] | None,
+    ) -> list[list[str]]:
+        variants: list[list[str]] = []
+        if executable_object is None:
+            return variants
+        if isinstance(executable_object, str):
+            tokens = shlex.split(executable_object)
+            if tokens:
+                variants.append(tokens)
+            return variants
+        for entry in executable_object:
+            if not entry:
+                continue
+            tokens = shlex.split(entry)
+            if tokens:
+                variants.append(tokens)
+        return variants
+
+    def _default_executable_tokens(self) -> list[str]:
+        if not self._executable_object_variants:
+            return []
+        return self._executable_object_variants[0]
+
+    def _iter_executable_variants(self) -> list[list[str]]:
+        if not self._executable_object_variants:
+            return []
+        return self._executable_object_variants
+
     @abstractmethod
     def verify_function(
         self,
@@ -100,6 +131,7 @@ class Verifier(ABC):
         struct: StructInfo,
         struct_code: str,
         struct_dependencies_code: dict[str, str],
+        idiomatic_name: Optional[str] = None,
     ) -> tuple[VerifyResult, Optional[str]]:
         structs = {struct.name: struct_code}
         structs.update(struct_dependencies_code)
@@ -365,6 +397,14 @@ extern "C" {{
 /* __START_TRANSLATION__ */
 {remained_code}
 '''
+        try:
+            rust_code = rust_ast_parser.dedup_items(rust_code)
+        except Exception as exc:
+            logger.warning(
+                "Failed to deduplicate embedded Rust code for %s: %s",
+                name,
+                exc,
+            )
         utils.create_rust_proj(
             rust_code, name, self.embed_test_rust_dir, is_lib=True)
 
@@ -387,97 +427,112 @@ extern "C" {{
             f.write(c_code_removed)
 
         compiler = utils.get_compiler()
-        output_path = os.path.join(self.embed_test_c_dir, name)
         source_path = os.path.join(self.embed_test_c_dir, f'{name}.c')
 
-        executable_objects = shlex.split(self.executable_object) if self.executable_object else []
-        extra_compile_command = shlex.split(extra_compile_command) if self.extra_compile_command else []
+        extra_compile_args = shlex.split(self.extra_compile_command) if self.extra_compile_command else []
+        executable_variants = self._iter_executable_variants()
+        if not executable_variants:
+            executable_variants = [[]]
+        multi_variant = len(executable_variants) > 1
+
         link_flags = [
             f'-L{self.embed_test_rust_dir}/target/debug',
             '-lm',
             f'-l{name}',
         ]
 
-        if self.processed_compile_commands:
-            commands = process_commands_to_compile(self.processed_compile_commands, output_path, source_path)
-            # assuming the last command is the linking command
-            # TODO: check if it is a linking command?
-            commands[-1].extend(executable_objects)
-            commands[-1].extend(link_flags)
-            for command in commands:
-                to_check = False
-                if is_compile_command(command):
-                    to_check = True
-                logger.debug("Running compile command: %s", command)
-                res = subprocess.run(command)
-                if to_check and res.returncode != 0:
+        for index, executable_objects in enumerate(executable_variants):
+            variant_suffix = f"_{index}" if multi_variant else ""
+            output_path = os.path.join(self.embed_test_c_dir, f"{name}{variant_suffix}")
+
+            if self.processed_compile_commands:
+                commands = process_commands_to_compile(
+                    self.processed_compile_commands,
+                    output_path,
+                    source_path,
+                )
+                # assuming the last command is the linking command
+                # TODO: check if it is a linking command?
+                commands[-1].extend(executable_objects)
+                commands[-1].extend(link_flags)
+                commands[-1].extend(extra_compile_args)
+                for command in commands:
+                    to_check = False
+                    if is_compile_command(command):
+                        to_check = True
+                    logger.debug("Running compile command: %s", command)
+                    res = subprocess.run(command)
+                    if to_check and res.returncode != 0:
+                        raise RuntimeError(
+                            f"Error: Failed to compile C code for function {name}")
+
+            else:
+                c_compile_cmd = [
+                    compiler,
+                    '-o', output_path,
+                    source_path,
+                    *executable_objects,
+                    *link_flags,
+                    *extra_compile_args,
+                ]
+
+                # compile C code
+                logger.debug("Compiling C harness: %s", c_compile_cmd)
+                res = subprocess.run(c_compile_cmd)
+                if res.returncode != 0:
                     raise RuntimeError(
                         f"Error: Failed to compile C code for function {name}")
-
-        else:
-            c_compile_cmd = [
-                compiler,
-                '-o', output_path,
-                source_path,
-                *executable_objects,
-                *link_flags,
-                *extra_compile_command,
-            ]
-
-            # compile C code
-            logger.debug("Compiling C harness: %s", c_compile_cmd)
-            res = subprocess.run(c_compile_cmd)
-            if res.returncode != 0:
-                raise RuntimeError(
-                    f"Error: Failed to compile C code for function {name}")
-        # run tests
-        result = self._run_tests_with_rust(f'{self.embed_test_c_dir}/{name}')
-        if result[0] != VerifyResult.SUCCESS:
-            failed_test_number = result[2]
-            assert failed_test_number is not None
-            if self.no_feedback:
-                return (result[0], result[1])
-            # rerun with feedback from `trace_fn`
-            logger.error(
-                "Failed to run tests for function %s, rerunning with feedback",
-                name,
-            )
-            if idiomatic:
-                rust_code = rust_ast_parser.add_attr_to_function(
-                    rust_code, f'{name}_idiomatic', "#[sactor_proc_macros::trace_fn]")
-            else:
-                rust_code = rust_ast_parser.add_attr_to_function(
-                    rust_code, name, "#[sactor_proc_macros::trace_fn]")
-            utils.create_rust_proj(
-                rust_code, name, self.embed_test_rust_dir, is_lib=True, proc_macro=True)
-            res = subprocess.run(rust_compile_cmd, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE)
-            if res.returncode != 0:
+            # run tests
+            result = self._run_tests_with_rust(output_path)
+            if result[0] != VerifyResult.SUCCESS:
+                failed_test_number = result[2]
+                assert failed_test_number is not None
+                if self.no_feedback:
+                    return (result[0], result[1])
+                # rerun with feedback from `trace_fn`
                 logger.error(
-                    "Failed to compile Rust code for function %s during feedback rerun",
+                    "Failed to run tests for function %s, rerunning with feedback",
                     name,
                 )
-                logger.error("%s", res.stderr.decode())
-                raise RuntimeError(
-                    f"Failed to compile Rust code for function {name}")
+                if idiomatic:
+                    rust_code = rust_ast_parser.add_attr_to_function(
+                        rust_code, f'{name}_idiomatic', "#[sactor_proc_macros::trace_fn]")
+                else:
+                    rust_code = rust_ast_parser.add_attr_to_function(
+                        rust_code, name, "#[sactor_proc_macros::trace_fn]")
+                utils.create_rust_proj(
+                    rust_code, name, self.embed_test_rust_dir, is_lib=True, proc_macro=True)
+                res = subprocess.run(rust_compile_cmd, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE)
+                if res.returncode != 0:
+                    logger.error(
+                        "Failed to compile Rust code for function %s during feedback rerun",
+                        name,
+                    )
+                    logger.error("%s", res.stderr.decode())
+                    raise RuntimeError(
+                        f"Failed to compile Rust code for function {name}")
 
-            previous_result = result
+                previous_result = result
 
-            # TODO: improve feedback: 1. pointers not printable 2. main function doesn't have valid feedback
-            result = self._run_tests_with_rust(
-                f'{self.embed_test_c_dir}/{name}', failed_test_number, valgrind=True)
+                # TODO: improve feedback: 1. pointers not printable 2. main function doesn't have valid feedback
+                result = self._run_tests_with_rust(
+                    output_path,
+                    failed_test_number,
+                    valgrind=True,
+                )
 
-            if result[0] == VerifyResult.FEEDBACK:
-                feedback = f'''
+                if result[0] == VerifyResult.FEEDBACK:
+                    feedback = f'''
 --------Begin Original Output--------
 {previous_result[1]}
 --------End Original Output--------
 --------Begin Feedback--------
 {result[1]}
 --------End Feedback--------'''
-                return (result[0], feedback)
-            else:
-                # No feedback, return the original error message
-                return (result[0], previous_result[1])
+                    return (result[0], feedback)
+                else:
+                    # No feedback, return the original error message
+                    return (result[0], previous_result[1])
 
         return (VerifyResult.SUCCESS, None)

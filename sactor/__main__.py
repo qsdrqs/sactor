@@ -97,8 +97,9 @@ def parse_translate(parser):
         '--executable-object',
         '-e',
         type=str,
+        action='append',
         default=None,
-        help='The path to the executable object file, required and only required for library targets'
+        help='Path to an executable object file or link argument; may be specified multiple times for library targets'
     )
 
     parser.add_argument(
@@ -271,9 +272,16 @@ def parse_generate_tests(parser):
 
 def translate(parser, args):
     is_executable = args.type == 'bin'
-    if not is_executable:
-        if args.executable_object is None:
-            parser.error('Executable object must be provided for library targets')
+    executable_object = args.executable_object
+    if isinstance(executable_object, list):
+        executable_object = [item for item in executable_object if item]
+        if len(executable_object) == 1:
+            executable_object = executable_object[0]
+        elif len(executable_object) == 0:
+            executable_object = None
+
+    if not is_executable and not executable_object:
+        parser.error('Executable object must be provided for library targets')
 
     config = utils.try_load_config(args.config_file)
     result_dir = args.result_dir if args.result_dir else os.path.join(os.getcwd(), "sactor_result")
@@ -290,7 +298,7 @@ def translate(parser, args):
         llm_stat=args.llm_stat,
         extra_compile_command=args.extra_compile_command,
         is_executable=is_executable,
-        executable_object=args.executable_object,
+        executable_object=executable_object,
         all_compile_commands=args.all_compile_commands,
         compile_commands_file=args.compile_commands_file
     )

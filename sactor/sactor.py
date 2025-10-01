@@ -69,7 +69,9 @@ class Sactor:
         self.executable_object = executable_object
 
         self.compile_commands_file = compile_commands_file
-        if not is_executable and executable_object is None:
+        exec_obj_missing = executable_object is None or (
+            isinstance(executable_object, list) and len(executable_object) == 0)
+        if not is_executable and exec_obj_missing:
             raise ValueError(
                 "executable_object must be provided for library translation")
 
@@ -209,7 +211,10 @@ class Sactor:
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
+                ready, blockers = translator.check_dependencies(struct, lambda s: s.dependencies)
+                if not ready:
+                    if blockers:
+                        translator.mark_dependency_block("struct", struct.name, blockers)
                     continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
@@ -217,8 +222,17 @@ class Sactor:
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
-                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
+                struct_ready, struct_blockers = translator.check_dependencies(
+                    function, lambda s: s.struct_dependencies)
+                func_ready, func_blockers = translator.check_dependencies(
+                    function, lambda s: s.function_dependencies)
+                if not struct_ready or not func_ready:
+                    blockers = []
+                    if struct_blockers:
+                        blockers.extend(struct_blockers)
+                    if func_blockers:
+                        blockers.extend(func_blockers)
+                    translator.mark_dependency_block("function", function.name, blockers)
                     continue
                 result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
@@ -255,7 +269,10 @@ class Sactor:
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
-                if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies):
+                ready, blockers = translator.check_dependencies(struct, lambda s: s.dependencies)
+                if not ready:
+                    if blockers:
+                        translator.mark_dependency_block("struct", struct.name, blockers)
                     continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
@@ -263,8 +280,17 @@ class Sactor:
 
         for function_pairs in self.function_order:
             for function in function_pairs:
-                if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies) \
-                    or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies):
+                struct_ready, struct_blockers = translator.check_dependencies(
+                    function, lambda s: s.struct_dependencies)
+                func_ready, func_blockers = translator.check_dependencies(
+                    function, lambda s: s.function_dependencies)
+                if not struct_ready or not func_ready:
+                    blockers = []
+                    if struct_blockers:
+                        blockers.extend(struct_blockers)
+                    if func_blockers:
+                        blockers.extend(func_blockers)
+                    translator.mark_dependency_block("function", function.name, blockers)
                     continue
                 result = translator.translate_function(function)
 
