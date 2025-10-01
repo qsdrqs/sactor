@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+from typing import NamedTuple, Optional
 
 from clang import cindex
 from clang.cindex import Cursor, Index, TranslationUnit
@@ -13,6 +14,12 @@ from .c_parser import CParser
 
 
 logger = sactor_logging.get_logger(__name__)
+
+
+class _TypedefEdit(NamedTuple):
+    start: int
+    end: int
+    text: str
 
 def _remove_static_decorator_impl(node: Cursor, source_code: str) -> str:
     code_lines = source_code.split("\n")
@@ -198,186 +205,34 @@ def preprocess_source_code(input_file, commands: list[list[str]]) -> str:
     compile_flags = utils.get_compile_flags_from_commands(commands)
     include_flags = list(filter(lambda s: s.startswith("-I"), compile_flags))
     unfolded_file = unfold_typedefs(expanded_file, include_flags)
-    return unfolded_file
+    cleaned_file = remove_inline_specifiers(unfolded_file, compile_flags)
+    return cleaned_file
 
 
-def unfold_typedefs(input_file, compile_flags: list[str]=[]):
+def unfold_typedefs(input_file, compile_flags: list[str] = []):
     c_parser = CParser(input_file, omit_error=True, extra_args=compile_flags)
     type_aliases = c_parser._type_alias
 
     text_str, data_bytes, b2s, s2b = utils.load_text_with_mappings(input_file)
     content = text_str
 
-    # Remove/replace typedef declarations using libclang
     typedef_nodes = c_parser.get_typedef_nodes()
-
-    # Sort nodes by position in reverse order to avoid offset issues when removing
     typedef_nodes.sort(key=lambda n: n.extent.start.offset, reverse=True)
 
     for node in typedef_nodes:
+        if not node.location or not node.location.file:
+            continue
         if not os.path.samefile(node.location.file.name, input_file):
             continue
-        struct_child = None
-        enum_child = None
-        for child in node.get_children():
-            if child.kind == cindex.CursorKind.STRUCT_DECL or child.kind == cindex.CursorKind.UNION_DECL:
-                struct_child = child
-                break
-            elif child.kind == cindex.CursorKind.ENUM_DECL:
-                enum_child = child
-                break
+        content = _rewrite_typedef_node(
+            node,
+            content,
+            data_bytes,
+            b2s,
+        )
 
-        _start_b = node.extent.start.offset
-        _end_b = node.extent.end.offset
-        _end_b = utils.scan_ws_semicolon_bytes(data_bytes, _end_b) # For removing trailing semicolon and whitespace
-        start_offset = utils.byte_to_str_index(b2s, _start_b)
-        end_offset = utils.byte_to_str_index(b2s, _end_b)
-
-        if struct_child:
-            _struct_start_b = struct_child.extent.start.offset
-            _struct_end_b = struct_child.extent.end.offset
-            struct_start = utils.byte_to_str_index(b2s, _struct_start_b)
-            struct_end = utils.byte_to_str_index(b2s, _struct_end_b)
-            typedef_name = node.spelling
-            struct_body = content[struct_start:struct_end]
-
-            is_union = (struct_child.kind == cindex.CursorKind.UNION_DECL)
-            kw = "union" if is_union else "struct"
-
-            brace_idx = struct_body.find("{")
-            if brace_idx != -1:
-                name_seg = struct_body[len(kw):brace_idx]
-                anonymous = name_seg.strip() == ""
-            else:
-                anonymous = True
-
-            if anonymous and typedef_name:
-                if brace_idx != -1:
-                    struct_text = f"{kw} {typedef_name} " + struct_body[brace_idx:] + ";"
-                else:
-                    struct_text = f"{kw} {typedef_name} {{}};"
-            else:
-                struct_text = struct_body + ";"
-
-            content = content[:start_offset] + struct_text + content[end_offset:]
-        elif enum_child:
-            _enum_start_b = enum_child.extent.start.offset
-            _enum_end_b = enum_child.extent.end.offset
-            enum_start = utils.byte_to_str_index(b2s, _enum_start_b)
-            enum_end = utils.byte_to_str_index(b2s, _enum_end_b)
-            typedef_name = node.spelling
-
-            # Handle anonymous enum typedef
-            if typedef_name:
-                enum_body = content[enum_start:enum_end]
-                if enum_body.startswith("enum"):
-                    enum_text = f"enum {typedef_name}" + enum_body[4:] + ";"
-                else:
-                    enum_text = f"enum {typedef_name} {enum_body};"
-            else:
-                enum_text = content[enum_start:enum_end] + ";"
-            content = content[:start_offset] + enum_text + content[end_offset:]
-        else:
-            underlying = node.underlying_typedef_type.get_canonical()
-            if not CParser.is_func_type(underlying):
-                content = content[:start_offset] + content[end_offset:]
-
-    # Replace type aliases using libclang analysis of the modified content
-    if type_aliases:
-        # Write modified content to a temporary file for re-parsing
-        tmp_dir = utils.get_temp_dir()
-        tmp_file_path = os.path.join(tmp_dir, 'temp_unfolded.c')
-        with open(tmp_file_path, 'w') as tmp_file:
-            tmp_file.write(content)
-        txt2, b2, b2s2, s2b2 = utils.load_text_with_mappings(tmp_file_path)
-        content = txt2
-
-        try:
-            # Re-parse the modified content
-            temp_parser = CParser(tmp_file_path, omit_error=True)
-
-            # Get all identifier tokens that match our type aliases
-            source_range = temp_parser.translation_unit.cursor.extent
-            tokens = list(temp_parser.translation_unit.get_tokens(
-                extent=source_range))
-
-            # Filter tokens to only those in the main file
-            main_file_tokens = []
-            for token in tokens:
-                token_file = str(
-                    token.location.file) if token.location.file else ""
-                if tmp_file_path in token_file or token_file.endswith(tmp_file_path.split('/')[-1]):
-                    main_file_tokens.append(token)
-
-            # Collect replacements
-            replacements = []
-            for i, token in enumerate(main_file_tokens):
-                if (token.kind == cindex.TokenKind.IDENTIFIER and
-                        token.spelling in type_aliases):
-
-                    _tok_start_b = token.extent.start.offset
-                    _tok_end_b = token.extent.end.offset
-                    start_offset = utils.byte_to_str_index(b2s2, _tok_start_b)
-                    end_offset = utils.byte_to_str_index(b2s2, _tok_end_b)
-
-                    # Make sure the token text actually matches
-                    if (start_offset < len(content) and
-                        end_offset <= len(content) and
-                            content[start_offset:end_offset] == token.spelling):
-
-                        replacement = type_aliases[token.spelling]
-
-                        # Check if we need to handle "struct alias" vs "alias" carefully
-                        if replacement.startswith('struct '):
-                            # Look at the previous token to see if it's already "struct"
-                            prev_token = None
-                            if i > 0:
-                                prev_token = main_file_tokens[i - 1]
-
-                            if (prev_token and prev_token.kind == cindex.TokenKind.KEYWORD
-                                    and prev_token.spelling == "struct"):
-                                # Remove "struct " prefix (handling any amount of whitespace)
-                                struct_name = re.sub(
-                                    r'^struct\s+', '', replacement)
-                                replacements.append(
-                                    (start_offset, end_offset, struct_name))
-                            else:
-                                # Replace with full "struct name"
-                                replacements.append(
-                                    (start_offset, end_offset, replacement))
-                        elif replacement.startswith('enum '):
-                            # Look at the previous token to see if it's already "enum"
-                            prev_token = None
-                            if i > 0:
-                                prev_token = main_file_tokens[i - 1]
-
-                            if (prev_token and prev_token.kind == cindex.TokenKind.KEYWORD
-                                    and prev_token.spelling == "enum"):
-                                # Remove "enum " prefix (handling any amount of whitespace)
-                                enum_name = re.sub(
-                                    r'^enum\s+', '', replacement)
-                                replacements.append(
-                                    (start_offset, end_offset, enum_name))
-                            else:
-                                # Replace with full "enum name"
-                                replacements.append(
-                                    (start_offset, end_offset, replacement))
-                        else:
-                            # Simple replacement
-                            replacements.append(
-                                (start_offset, end_offset, replacement))
-
-            # Sort replacements by position in reverse order to avoid offset issues
-            replacements.sort(key=lambda x: x[0], reverse=True)
-
-            # Apply replacements
-            for start_offset, end_offset, replacement in replacements:
-                content = content[:start_offset] + \
-                    replacement + content[end_offset:]
-
-        finally:
-            # Clean up temporary file
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+    content = _expand_type_alias_tokens(content, type_aliases)
+    content = re.sub(r"\n{3,}", "\n\n", content)
 
     tmp_dir = utils.get_temp_dir()
     output_file = os.path.join(tmp_dir, 'unfolded_typedefs.c')
@@ -385,3 +240,324 @@ def unfold_typedefs(input_file, compile_flags: list[str]=[]):
         f.write(content)
 
     return output_file
+
+
+def _rewrite_typedef_node(
+    node: cindex.Cursor,
+    content: str,
+    data_bytes: bytes,
+    b2s: dict[int, int],
+) -> str:
+    struct_child: Optional[cindex.Cursor] = None
+    enum_child: Optional[cindex.Cursor] = None
+    for child in node.get_children():
+        if child.kind in (cindex.CursorKind.STRUCT_DECL, cindex.CursorKind.UNION_DECL):
+            struct_child = child
+            break
+        if child.kind == cindex.CursorKind.ENUM_DECL:
+            enum_child = child
+            break
+
+    start_b = node.extent.start.offset
+    end_b = utils.scan_ws_semicolon_bytes(data_bytes, node.extent.end.offset)
+    start = utils.byte_to_str_index(b2s, start_b)
+    end = utils.byte_to_str_index(b2s, end_b)
+
+    if struct_child:
+        replacement = _render_struct_union_typedef(node, struct_child, content, b2s)
+        return content[:start] + replacement + content[end:]
+
+    if enum_child:
+        replacement = _render_enum_typedef(node, enum_child, content, b2s)
+        return content[:start] + replacement + content[end:]
+
+    underlying = node.underlying_typedef_type.get_canonical()
+    if underlying.kind in {cindex.TypeKind.RECORD, cindex.TypeKind.ENUM}:
+        decl = underlying.get_declaration()
+        if decl is not None and decl.kind in (
+            cindex.CursorKind.STRUCT_DECL,
+            cindex.CursorKind.UNION_DECL,
+            cindex.CursorKind.ENUM_DECL,
+        ):
+            if decl.is_definition():
+                return content[:start] + content[end:]
+            keyword = {
+                cindex.CursorKind.STRUCT_DECL: "struct",
+                cindex.CursorKind.UNION_DECL: "union",
+                cindex.CursorKind.ENUM_DECL: "enum",
+            }[decl.kind]
+            name = decl.spelling or node.spelling
+            if name:
+                forward = f"{keyword} {name};"
+                return content[:start] + forward + content[end:]
+        return content[:start] + content[end:]
+    if CParser.is_func_type(underlying):
+        return content
+
+    return content[:start] + content[end:]
+
+
+def _render_struct_union_typedef(
+    node: cindex.Cursor,
+    struct_child: cindex.Cursor,
+    content: str,
+    b2s: dict[int, int],
+) -> str:
+    typedef_name = node.spelling
+    struct_start = utils.byte_to_str_index(b2s, struct_child.extent.start.offset)
+    struct_end = utils.byte_to_str_index(b2s, struct_child.extent.end.offset)
+    struct_body = content[struct_start:struct_end]
+
+    is_union = struct_child.kind == cindex.CursorKind.UNION_DECL
+    keyword = "union" if is_union else "struct"
+    brace_idx = struct_body.find("{")
+    anonymous = True
+    if brace_idx != -1:
+        name_segment = struct_body[len(keyword):brace_idx]
+        anonymous = name_segment.strip() == ""
+
+    struct_name = struct_child.spelling or ""
+    if anonymous and typedef_name:
+        if brace_idx != -1:
+            struct_text = f"{keyword} {typedef_name} " + struct_body[brace_idx:] + ";"
+        else:
+            struct_text = f"{keyword} {typedef_name} {{}};"
+        struct_name = typedef_name
+    else:
+        struct_text = struct_body + ";"
+        if not struct_name and typedef_name:
+            struct_name = typedef_name
+
+    return struct_text
+
+
+def _render_enum_typedef(
+    node: cindex.Cursor,
+    enum_child: cindex.Cursor,
+    content: str,
+    b2s: dict[int, int],
+) -> str:
+    typedef_name = node.spelling
+    enum_start = utils.byte_to_str_index(b2s, enum_child.extent.start.offset)
+    enum_end = utils.byte_to_str_index(b2s, enum_child.extent.end.offset)
+    enum_name = enum_child.spelling or typedef_name
+
+    enum_body = content[enum_start:enum_end]
+    if typedef_name:
+        if enum_body.startswith("enum"):
+            enum_text = f"enum {typedef_name}" + enum_body[4:] + ";"
+        else:
+            enum_text = f"enum {typedef_name} {enum_body};"
+    else:
+        enum_text = enum_body + ";"
+
+    return enum_text
+
+
+def _expand_type_alias_tokens(content: str, type_aliases: dict[str, str]) -> str:
+    if not type_aliases:
+        return content
+
+    prefix_lines = [f"typedef {target} {alias};" for alias, target in type_aliases.items()]
+    prefix = "\n".join(prefix_lines)
+    if prefix:
+        prefix += "\n\n"
+
+    tmp_dir = utils.get_temp_dir()
+    tmp_file_path = os.path.join(tmp_dir, 'temp_unfolded.c')
+    with open(tmp_file_path, 'w') as tmp_file:
+        tmp_file.write(prefix + content)
+
+    txt2, _b2, b2s, _s2b = utils.load_text_with_mappings(tmp_file_path)
+    content = txt2
+    prefix_len_chars = len(prefix)
+    prefix_len_bytes = len(prefix.encode('utf-8'))
+    tmp_file_abs = os.path.abspath(tmp_file_path)
+
+    try:
+        temp_parser = CParser(tmp_file_path, omit_error=True)
+        tokens = list(temp_parser.translation_unit.get_tokens(extent=temp_parser.translation_unit.cursor.extent))
+
+        replacements: list[_TypedefEdit] = []
+        visited_offsets: set[int] = set()
+
+        disallowed_cursor_kinds = {
+            cindex.CursorKind.MEMBER_REF_EXPR,
+            cindex.CursorKind.DECL_REF_EXPR,
+            cindex.CursorKind.CALL_EXPR,
+        }
+        allowed_cursor_kinds = {
+            cindex.CursorKind.TYPE_REF,
+            cindex.CursorKind.TYPEDEF_DECL,
+            cindex.CursorKind.PARM_DECL,
+            cindex.CursorKind.VAR_DECL,
+            cindex.CursorKind.FIELD_DECL,
+            cindex.CursorKind.FUNCTION_DECL,
+            cindex.CursorKind.STRUCT_DECL,
+            cindex.CursorKind.UNION_DECL,
+            cindex.CursorKind.ENUM_DECL,
+        }
+
+        def previous_token(index: int):
+            for j in range(index - 1, -1, -1):
+                tok = tokens[j]
+                if not tok.location or not tok.location.file:
+                    continue
+                if os.path.abspath(tok.location.file.name) != tmp_file_abs:
+                    continue
+                if tok.extent.start.offset < prefix_len_bytes:
+                    continue
+                return tok
+            return None
+
+        for idx, token in enumerate(tokens):
+            if token.kind != cindex.TokenKind.IDENTIFIER:
+                continue
+            alias = token.spelling
+            if alias not in type_aliases:
+                continue
+            if token.extent.start.offset < prefix_len_bytes:
+                continue
+            replacement_text = type_aliases[alias]
+            cursor = token.cursor
+            if cursor is None:
+                continue
+
+            prev_token = previous_token(idx)
+            if prev_token:
+                if prev_token.spelling in {"struct", "union", "enum"}:
+                    continue
+                if prev_token.spelling in {'.', '->'}:
+                    continue
+                if (
+                    prev_token.kind == cindex.TokenKind.IDENTIFIER
+                    and prev_token.spelling not in type_aliases
+                ):
+                    continue
+
+            special_context = prev_token and prev_token.spelling in {'const', 'sizeof'}
+
+            if cursor.kind in disallowed_cursor_kinds:
+                continue
+            if cursor.kind not in allowed_cursor_kinds and not special_context:
+                continue
+            if (
+                cursor.kind in {
+                    cindex.CursorKind.PARM_DECL,
+                    cindex.CursorKind.VAR_DECL,
+                    cindex.CursorKind.FIELD_DECL,
+                }
+                and cursor.spelling
+                and alias == cursor.spelling
+            ):
+                continue
+
+            token_start_b = token.extent.start.offset
+            if token_start_b in visited_offsets:
+                continue
+            visited_offsets.add(token_start_b)
+
+            token_end_b = token.extent.end.offset
+            start = utils.byte_to_str_index(b2s, token_start_b)
+            end = utils.byte_to_str_index(b2s, token_end_b)
+            if not (0 <= start <= end <= len(content)):
+                continue
+            if content[start:end] != token.spelling:
+                continue
+
+            replacements.append(_TypedefEdit(start, end, _format_alias_replacement(prev_token, replacement_text)))
+
+        replacements.sort(key=lambda edit: edit.start, reverse=True)
+        for edit in replacements:
+            content = content[:edit.start] + edit.text + content[edit.end:]
+
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if prefix_len_chars:
+        content = content[prefix_len_chars:]
+
+    return content
+
+
+def _format_alias_replacement(prev_token, replacement_text: str) -> str:
+    if not prev_token:
+        return replacement_text
+    if (
+        prev_token.kind == cindex.TokenKind.KEYWORD
+        and prev_token.spelling == 'struct'
+        and replacement_text.startswith('struct ')
+    ):
+        return re.sub(r'^struct\s+', '', replacement_text)
+    if (
+        prev_token.kind == cindex.TokenKind.KEYWORD
+        and prev_token.spelling == 'enum'
+        and replacement_text.startswith('enum ')
+    ):
+        return re.sub(r'^enum\s+', '', replacement_text)
+    return replacement_text
+
+def remove_inline_specifiers(input_file: str, compile_flags: list[str] | None = None) -> str:
+    """Remove `inline` specifiers from all function declarations/definitions in ``input_file``."""
+    compile_flags = compile_flags or []
+    main_file_path = os.path.abspath(input_file)
+
+    c_parser = CParser(input_file, omit_error=True, extra_args=compile_flags)
+    content, _, b2s, _ = utils.load_text_with_mappings(input_file)
+
+    spans_to_remove: list[tuple[int, int]] = []
+    seen_spans: set[tuple[int, int]] = set()
+
+    for cursor in c_parser.translation_unit.cursor.walk_preorder():
+        if cursor.kind != cindex.CursorKind.FUNCTION_DECL:
+            continue
+        if cursor.location is None or cursor.location.file is None:
+            continue
+
+        cursor_file_name = getattr(cursor.location.file, "name", None)
+        if not cursor_file_name:
+            continue
+        if os.path.abspath(cursor_file_name) != main_file_path:
+            continue
+
+        seen_lparen = False
+        for token in utils.cursor_get_tokens(cursor):
+            token_file = token.location.file
+            token_file_name = getattr(token_file, "name", None) if token_file else None
+            if not token_file_name:
+                continue
+            if os.path.abspath(token_file_name) != main_file_path:
+                continue
+
+            if token.spelling == '(':
+                seen_lparen = True
+
+            if seen_lparen:
+                continue
+
+            if token.kind == cindex.TokenKind.KEYWORD and token.spelling == 'inline':
+                start_b = token.extent.start.offset
+                end_b = token.extent.end.offset
+                start = utils.byte_to_str_index(b2s, start_b)
+                end = utils.byte_to_str_index(b2s, end_b)
+
+                while end < len(content) and content[end] in (' ', '\t'):
+                    end += 1
+
+                span = (start, end)
+                if span not in seen_spans:
+                    spans_to_remove.append(span)
+                    seen_spans.add(span)
+
+    if not spans_to_remove:
+        return input_file
+
+    spans_to_remove.sort(key=lambda item: item[0], reverse=True)
+
+    for start, end in spans_to_remove:
+        content = content[:start] + content[end:]
+
+    with open(input_file, 'w') as f:
+        f.write(content)
+
+    return input_file

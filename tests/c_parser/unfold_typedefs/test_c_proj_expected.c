@@ -26,7 +26,6 @@ typedef void (*cfsm_ProcessFunction)(struct cfsm_Ctx * fsm);
  *
  */
 
-
 /** The CFSM context data structure
 */
 struct cfsm_Ctx {

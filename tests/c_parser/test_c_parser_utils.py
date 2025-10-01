@@ -5,8 +5,12 @@ import shutil
 import pytest
 import glob
 
+from clang import cindex
+
 from sactor.c_parser import c_parser_utils
+from sactor.c_parser.c_parser import CParser
 from sactor.utils import read_file
+from sactor import utils as sactor_utils
 from tests import utils as test_utils
 
 
@@ -74,6 +78,51 @@ def test_expand_macro():
     finally:
         shutil.rmtree(tmpdir)
 
+
+def test_remove_inline_specifiers(tmp_path):
+    source = textwrap.dedent(
+        '''
+        static inline int sum(int a, int b) {
+            return a + b;
+        }
+
+        inline
+        int difference(int a, int b);
+
+        inline
+        int difference(int a, int b) {
+            return a - b;
+        }
+
+        int main(void) {
+            return sum(1, difference(2, 1));
+        }
+
+        // inline comment should remain inline
+        '''
+    ).lstrip()
+
+    c_file = tmp_path / "inline_example.c"
+    c_file.write_text(source)
+
+    out_path = c_parser_utils.remove_inline_specifiers(str(c_file))
+    assert out_path == str(c_file)
+
+    updated_content = c_file.read_text()
+    assert "static inline" not in updated_content
+    assert "\ninline\nint difference" not in updated_content
+    assert "// inline comment should remain inline" in updated_content
+
+    parser = CParser(str(c_file), omit_error=True)
+    for function in parser.get_functions():
+        has_inline_keyword = any(
+            token.kind == cindex.TokenKind.KEYWORD and token.spelling == 'inline'
+            for token in sactor_utils.cursor_get_tokens(function.node)
+        )
+        assert not has_inline_keyword
+
+    assert test_utils.can_compile(updated_content)
+
 cases = sorted(glob.glob("tests/c_parser/unfold_typedefs/*_original.c"))
 
 @pytest.mark.parametrize("original_file", cases)
@@ -90,4 +139,3 @@ def test_unfold_typedefs(original_file):
         assert actual_content == expected_content, "The unfolded code does not match the expected code."
     finally:
         shutil.rmtree(tmpdir)
-

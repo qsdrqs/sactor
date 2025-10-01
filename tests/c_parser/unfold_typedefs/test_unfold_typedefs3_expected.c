@@ -1,6 +1,5 @@
 #include <stdio.h>
 
-
 struct node_t {
     int data;
     struct node_t* next;
@@ -10,8 +9,6 @@ struct point {
     int x;
     int y;
 };
-
-
 
 void print_node(struct node_t* n) { printf("%d\n", n->data); }
 

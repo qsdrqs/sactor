@@ -1,7 +1,5 @@
 #include <stdio.h>
 
-
-
 typedef int (*operation_fn)(int a, int b);
 
 struct node {
