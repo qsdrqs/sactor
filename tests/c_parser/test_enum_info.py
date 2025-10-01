@@ -12,7 +12,14 @@ def _make_cursor(
 ):
     file_obj = SimpleNamespace(name=file_path)
     location = SimpleNamespace(file=file_obj, line=line, column=column)
-    return SimpleNamespace(spelling=spelling, location=location)
+    cursor = SimpleNamespace(spelling=spelling, location=location)
+
+    def _get_definition():
+        return None
+
+    cursor.get_definition = _get_definition
+    cursor.get_children = lambda: []
+    return cursor
 
 
 def test_sanitize_enum_name_preserves_valid_identifier():

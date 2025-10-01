@@ -1,3 +1,5 @@
+from collections import deque
+
 from clang import cindex
 
 from sactor import logging as sactor_logging, utils
@@ -210,6 +212,24 @@ class CParser:
                 type_aliases[used_struct_name] = original_struct_name
 
         struct_union.dependencies = list(used_structs)
+        struct_union.type_aliases = type_aliases
+
+        used_enums = self._collect_enum_dependencies(node)
+        enum_values = set()
+        enum_defs = set()
+        for used_enum in used_enums:
+            if isinstance(used_enum, EnumValueInfo):
+                enum_values.add(used_enum)
+                enum_defs.add(used_enum.definition)
+            else:
+                enum_defs.add(used_enum)
+
+        struct_union.enum_value_dependencies = list(
+            sorted(enum_values, key=lambda e: e.name)
+        )
+        struct_union.enum_dependencies = list(
+            sorted(enum_defs, key=lambda e: e.name)
+        )
 
     def _update_structs_unions(self):
         """
@@ -246,12 +266,19 @@ class CParser:
 
     def _get_all_used_structs(self) -> dict[str, StructInfo]:
         used = {}
-        for item in self.get_functions():
-            for item2 in item.struct_dependencies:
-                used[item2.name] = item2
-        for item in used.values():
-            for item2 in item.dependencies:
-                used[item2.name] = item2
+        queue = deque()
+        for function in self.get_functions():
+            for dependency in function.struct_dependencies:
+                if dependency.name not in used:
+                    used[dependency.name] = dependency
+                    queue.append(dependency)
+
+        while queue:
+            struct_union = queue.popleft()
+            for dependency in struct_union.dependencies:
+                if dependency.name not in used:
+                    used[dependency.name] = dependency
+                    queue.append(dependency)
         # TODO: global variable struct and enum dependencies
         # struct's enum dependencies
         # enum's struct dependencies

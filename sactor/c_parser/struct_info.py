@@ -5,12 +5,22 @@ from sactor.data_types import DataType
 
 
 class StructInfo:
-    def __init__(self, node, name, dependencies=None, type_aliases=None):
+    def __init__(
+        self,
+        node,
+        name,
+        dependencies=None,
+        type_aliases=None,
+        enum_value_dependencies=None,
+        enum_dependencies=None,
+    ):
         self.node: Cursor = node
         self.name: str = name
         self.location = f"{node.location.file}:{node.location.line}"
         self.dependencies: list[StructInfo] = dependencies if dependencies is not None else []
         self.type_aliases: dict[str, str] = type_aliases if type_aliases is not None else {}
+        self.enum_value_dependencies = enum_value_dependencies if enum_value_dependencies is not None else []
+        self.enum_dependencies = enum_dependencies if enum_dependencies is not None else []
         # determine datatype of struct
         if node.kind == cindex.CursorKind.STRUCT_DECL:
             self.data_type = DataType.STRUCT

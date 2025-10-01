@@ -1,5 +1,6 @@
 import os
 import re
+from clang import cindex
 from clang.cindex import Cursor
 
 
@@ -48,6 +49,13 @@ class EnumInfo:
         self.node: Cursor = node
         self.name: str = _sanitize_enum_name(node)
         self.location: str = f"{node.location.file.name}:{node.location.line}:{node.location.column}"
+        definition = node.get_definition()
+        if definition is None:
+            definition = node
+        self.enumerators: list[tuple[str, int]] = []
+        for child in definition.get_children():
+            if child.kind == cindex.CursorKind.ENUM_CONSTANT_DECL:
+                self.enumerators.append((child.spelling, child.enum_value))
 
     def __hash__(self):
         return hash(self.name) + hash(self.location)

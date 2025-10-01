@@ -171,6 +171,37 @@ static const unsigned short arr[4] = {
         assert g_var_code.strip() == expected_code.strip()
 
 
+def test_struct_enum_dependencies():
+    c_code = '''
+struct Foo {
+    enum { FOO_KIND_A = 0, FOO_KIND_B = 1 } kind;
+    int value;
+};
+
+int consume(struct Foo *foo) {
+    if (foo->kind == FOO_KIND_A) {
+        return foo->value;
+    }
+    return 0;
+}
+'''
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = f'{tmpdir}/struct_enum.c'
+        with open(file_path, 'w') as f:
+            f.write(c_code)
+
+        c_parser = CParser(file_path)
+        foo_info = c_parser.get_struct_info('Foo')
+
+        enum_names = [enum.name for enum in foo_info.enum_dependencies]
+        assert len(enum_names) == 1
+        assert enum_names[0].startswith('enum_')
+
+        parser_enum_names = [enum.name for enum in c_parser.get_enums()]
+        assert enum_names[0] in parser_enum_names
+
+
 def test_typedef():
     file_path = 'tests/c_examples/typedef/typedef_sample.c'
     c_parser = CParser(file_path)
