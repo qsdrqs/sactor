@@ -49,8 +49,26 @@ def test_get_struct_definition(code):
     struct_definition = rust_ast_parser.get_struct_definition(code, "Foo")
     assert (
         struct_definition
-        == 'use std::collections::HashMap;\nuse libc::c_int;\n'
-        "#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n"
+        == 'use std::collections::HashMap;\nuse libc::c_int;\n#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n'
+    )
+
+
+def test_get_struct_definition_includes_dependencies():
+    code = (
+        "use libc::FILE;\n"
+        "pub type uint32_t = u32;\n\n"
+        "#[repr(C)]\n"
+        "pub struct Bar {\n"
+        "    pub file: *mut FILE,\n"
+        "    pub len: uint32_t,\n"
+        "}\n"
+    )
+
+    struct_definition = rust_ast_parser.get_struct_definition(code, "Bar")
+    assert "use libc::FILE;" in struct_definition
+    assert "pub type uint32_t = u32;" in struct_definition
+    assert struct_definition.strip().endswith(
+        "pub struct Bar {\n    pub file: *mut FILE,\n    pub len: uint32_t,\n}"
     )
 
 
@@ -229,8 +247,7 @@ def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")
     assert (
         union_definition
-        == 'use std::collections::HashMap;\nuse libc::c_int;\n'
-        "union Bar {\n    a: i32,\n    b: i32,\n}\n"
+        == 'use std::collections::HashMap;\nuse libc::c_int;\nunion Bar {\n    a: i32,\n    b: i32,\n}\n'
     )
 
 def test_get_uses_code(code):
