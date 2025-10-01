@@ -4,12 +4,14 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use quote::{quote, ToTokens};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::mem;
 use syn::{
     parse::{Parse, ParseStream},
     parse_quote, parse_str,
     spanned::Spanned,
     token,
+    visit::{self, Visit},
     visit_mut::VisitMut,
     Abi, AttrStyle, Attribute, File, GenericArgument, LitStr, Meta, PathArguments, Result, Token,
 };
@@ -178,6 +180,123 @@ fn collect_struct_enum_union(items: &[syn::Item], acc: &mut Vec<(String, String)
             _ => {}
         }
     }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn dedup_items(source_code: &str) -> PyResult<String> {
+    let ast = parse_src(source_code)?;
+    Ok(dedup_ast(ast))
+}
+
+fn dedup_ast(ast: syn::File) -> String {
+    let mut seen_use: HashSet<String> = HashSet::new();
+    let mut seen_type: HashSet<String> = HashSet::new();
+    let mut seen_const: HashSet<String> = HashSet::new();
+    let mut seen_static: HashSet<String> = HashSet::new();
+    let mut seen_struct: HashSet<String> = HashSet::new();
+    let mut seen_enum: HashSet<String> = HashSet::new();
+    let mut seen_union: HashSet<String> = HashSet::new();
+
+    let mut use_idents: HashSet<String> = HashSet::new();
+    for item in ast.items.iter() {
+        if let syn::Item::Use(u) = item {
+            collect_use_idents(&u.tree, &mut use_idents);
+        }
+    }
+
+    let mut new_items = Vec::with_capacity(ast.items.len());
+
+    for item in ast.items.into_iter() {
+        let keep = match &item {
+            syn::Item::Use(u) => {
+                let key = quote!(#u).to_string();
+                seen_use.insert(key)
+            }
+            syn::Item::Type(t) => {
+                let key = t.ident.to_string();
+                if use_idents.contains(&key) && expected_stdint_target(&key).is_some() {
+                    false
+                } else {
+                    seen_type.insert(key)
+                }
+            }
+            syn::Item::Const(c) => {
+                let key = c.ident.to_string();
+                seen_const.insert(key)
+            }
+            syn::Item::Static(s) => {
+                let key = s.ident.to_string();
+                seen_static.insert(key)
+            }
+            syn::Item::Struct(s) => {
+                let key = s.ident.to_string();
+                seen_struct.insert(key)
+            }
+            syn::Item::Enum(e) => {
+                let key = e.ident.to_string();
+                seen_enum.insert(key)
+            }
+            syn::Item::Union(u) => {
+                let key = u.ident.to_string();
+                seen_union.insert(key)
+            }
+            _ => true,
+        };
+
+        if keep {
+            new_items.push(item);
+        }
+    }
+
+    let deduped = syn::File {
+        shebang: ast.shebang,
+        attrs: ast.attrs,
+        items: new_items,
+    };
+
+    prettyplease::unparse(&deduped)
+}
+
+fn collect_use_idents(tree: &syn::UseTree, acc: &mut HashSet<String>) {
+    match tree {
+        syn::UseTree::Name(name) => {
+            acc.insert(name.ident.to_string());
+        }
+        syn::UseTree::Rename(rename) => {
+            acc.insert(rename.rename.to_string());
+        }
+        syn::UseTree::Glob(_) => {}
+        syn::UseTree::Path(path) => {
+            collect_use_idents(&path.tree, acc);
+        }
+        syn::UseTree::Group(group) => {
+            for item in group.items.iter() {
+                collect_use_idents(item, acc);
+            }
+        }
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn strip_to_struct_items(source_code: &str) -> PyResult<String> {
+    let ast = parse_src(source_code)?;
+    let mut filtered: Vec<syn::Item> = Vec::new();
+    for item in ast.items.into_iter() {
+        match item {
+            syn::Item::Struct(_) | syn::Item::Union(_) => filtered.push(item),
+            _ => {}
+        }
+    }
+
+    let file = syn::File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: filtered,
+    };
+
+    Ok(prettyplease::unparse(&file))
 }
 
 #[gen_stub_pyfunction]
@@ -1196,6 +1315,8 @@ fn unidiomatic_function_cleanup(code: &str) -> PyResult<String> {
         }
     }
 
+    normalize_stdint_aliases(&mut ast);
+
     Ok(prettyplease::unparse(&ast))
 }
 
@@ -1211,7 +1332,308 @@ fn unidiomatic_types_cleanup(code: &str) -> PyResult<String> {
         }
     }
 
+    normalize_stdint_aliases(&mut ast);
+
     Ok(prettyplease::unparse(&ast))
+}
+
+const STDINT_ALIAS_TARGETS: &[(&str, &str)] = &[
+    ("int8_t", "i8"),
+    ("int16_t", "i16"),
+    ("int32_t", "i32"),
+    ("int64_t", "i64"),
+    ("uint8_t", "u8"),
+    ("uint16_t", "u16"),
+    ("uint32_t", "u32"),
+    ("uint64_t", "u64"),
+];
+
+fn expected_stdint_target(name: &str) -> Option<&'static str> {
+    STDINT_ALIAS_TARGETS
+        .iter()
+        .find(|(alias, _)| alias == &name)
+        .map(|(_, target)| *target)
+}
+
+fn should_strip_stdint_alias(item: &syn::ItemType) -> Option<String> {
+    let name = item.ident.to_string();
+    let expected = expected_stdint_target(&name)?;
+
+    if let syn::Type::Path(type_path) = item.ty.as_ref() {
+        if type_path.qself.is_none()
+            && type_path.path.segments.len() == 1
+            && type_path.path.segments[0].ident == expected
+            && type_path.path.segments[0].arguments.is_empty()
+        {
+            return Some(name);
+        }
+    }
+
+    None
+}
+
+fn normalize_stdint_aliases(ast: &mut syn::File) {
+    let mut removed_aliases: Vec<String> = Vec::new();
+    let original_items = mem::take(&mut ast.items);
+    let mut new_items = Vec::with_capacity(original_items.len());
+
+    for item in original_items {
+        if let syn::Item::Type(type_item) = &item {
+            if let Some(name) = should_strip_stdint_alias(type_item) {
+                removed_aliases.push(name);
+                continue;
+            }
+        }
+        new_items.push(item);
+    }
+
+    removed_aliases.sort();
+    removed_aliases.dedup();
+
+    let mut needed: BTreeSet<String> = removed_aliases.into_iter().collect();
+    let usages = collect_stdint_names(&new_items);
+    needed.extend(usages);
+
+    if needed.is_empty() {
+        ast.items = new_items;
+        return;
+    }
+
+    let needed_vec: Vec<String> = needed.into_iter().collect();
+    ensure_libc_imports(&mut new_items, &needed_vec);
+
+    ast.items = new_items;
+}
+
+fn ensure_libc_imports(items: &mut Vec<syn::Item>, aliases: &[String]) {
+    if aliases.is_empty() {
+        return;
+    }
+
+    let mut needed: BTreeSet<String> = aliases.iter().cloned().collect();
+
+    for item in items.iter_mut() {
+        if let syn::Item::Use(item_use) = item {
+            ensure_aliases_in_use_tree(&mut item_use.tree, &mut needed, false);
+            if needed.is_empty() {
+                break;
+            }
+        }
+    }
+
+    if needed.is_empty() {
+        return;
+    }
+
+    let group_items: Vec<syn::UseTree> = needed
+        .iter()
+        .map(|name| {
+            syn::UseTree::Name(syn::UseName {
+                ident: syn::Ident::new(name, proc_macro2::Span::call_site()),
+            })
+        })
+        .collect();
+
+    let new_use = syn::Item::Use(syn::ItemUse {
+        attrs: Vec::new(),
+        vis: syn::Visibility::Inherited,
+        use_token: Token![use](proc_macro2::Span::call_site()),
+        leading_colon: None,
+        tree: syn::UseTree::Path(syn::UsePath {
+            ident: syn::Ident::new("libc", proc_macro2::Span::call_site()),
+            colon2_token: Token![::](proc_macro2::Span::call_site()),
+            tree: Box::new(syn::UseTree::Group(syn::UseGroup {
+                brace_token: syn::token::Brace::default(),
+                items: vec_to_punctuated(group_items),
+            })),
+        }),
+        semi_token: Token![;](proc_macro2::Span::call_site()),
+    });
+
+    // Insert the new use after the last existing use declaration to keep code tidy.
+    let insertion_index = items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| match item {
+            syn::Item::Use(_) => Some(idx + 1),
+            _ => None,
+        })
+        .last()
+        .unwrap_or(0);
+
+    items.insert(insertion_index, new_use);
+    needed.clear();
+}
+
+fn collect_stdint_names(items: &[syn::Item]) -> BTreeSet<String> {
+    let mut collector = StdintUsageCollector {
+        names: BTreeSet::new(),
+    };
+
+    for item in items {
+        collector.visit_item(item);
+    }
+
+    collector.names
+}
+
+struct StdintUsageCollector {
+    names: BTreeSet<String>,
+}
+
+impl<'ast> Visit<'ast> for StdintUsageCollector {
+    fn visit_path(&mut self, path: &'ast syn::Path) {
+        if path.leading_colon.is_none() && path.segments.len() == 1 {
+            let ident = &path.segments[0].ident;
+            let ident_str = ident.to_string();
+            if expected_stdint_target(&ident_str).is_some() {
+                self.names.insert(ident_str);
+            }
+        }
+
+        visit::visit_path(self, path);
+    }
+}
+
+fn ensure_aliases_in_use_tree(
+    tree: &mut syn::UseTree,
+    needed: &mut BTreeSet<String>,
+    in_libc: bool,
+) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let next_in_libc = in_libc || path.ident == "libc";
+            ensure_aliases_in_use_tree(&mut path.tree, needed, next_in_libc);
+        }
+        syn::UseTree::Group(group) => {
+            if in_libc {
+                ensure_aliases_in_libc_group(group, needed);
+            } else {
+                for item in group.items.iter_mut() {
+                    ensure_aliases_in_use_tree(item, needed, false);
+                    if needed.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+        syn::UseTree::Name(name) => {
+            if !in_libc {
+                return;
+            }
+
+            let ident_str = name.ident.to_string();
+            needed.remove(&ident_str);
+
+            if needed.is_empty() {
+                return;
+            }
+
+            let mut items_vec = Vec::with_capacity(1 + needed.len());
+            items_vec.push(syn::UseTree::Name(name.clone()));
+
+            let extras: Vec<String> = needed.iter().cloned().collect();
+            for alias in extras.iter() {
+                let ident = syn::Ident::new(alias, proc_macro2::Span::call_site());
+                items_vec.push(syn::UseTree::Name(syn::UseName { ident }));
+                needed.remove(alias);
+            }
+
+            *tree = syn::UseTree::Group(syn::UseGroup {
+                brace_token: syn::token::Brace::default(),
+                items: vec_to_punctuated(items_vec),
+            });
+        }
+        syn::UseTree::Rename(rename) => {
+            if in_libc {
+                needed.remove(&rename.ident.to_string());
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            if in_libc {
+                needed.clear();
+            }
+        }
+    }
+}
+
+fn ensure_aliases_in_libc_group(group: &mut syn::UseGroup, needed: &mut BTreeSet<String>) {
+    let mut existing: BTreeSet<String> = BTreeSet::new();
+
+    let mut has_glob = false;
+    for item in group.items.iter() {
+        collect_libc_names(item, true, &mut existing, &mut has_glob);
+        if has_glob {
+            needed.clear();
+            return;
+        }
+    }
+
+    let additions: Vec<String> = needed
+        .iter()
+        .filter(|alias| !existing.contains(*alias))
+        .cloned()
+        .collect();
+
+    if additions.is_empty() {
+        return;
+    }
+
+    for alias in additions.iter() {
+        let ident = syn::Ident::new(alias, proc_macro2::Span::call_site());
+        group.items.push(syn::UseTree::Name(syn::UseName { ident }));
+        needed.remove(alias);
+    }
+}
+
+fn collect_libc_names(
+    tree: &syn::UseTree,
+    in_libc: bool,
+    acc: &mut BTreeSet<String>,
+    has_glob: &mut bool,
+) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let next_in_libc = in_libc || path.ident == "libc";
+            collect_libc_names(&path.tree, next_in_libc, acc, has_glob);
+        }
+        syn::UseTree::Group(group) => {
+            for item in group.items.iter() {
+                collect_libc_names(item, in_libc, acc, has_glob);
+                if *has_glob {
+                    break;
+                }
+            }
+        }
+        syn::UseTree::Name(name) => {
+            if in_libc {
+                acc.insert(name.ident.to_string());
+            }
+        }
+        syn::UseTree::Rename(rename) => {
+            if in_libc {
+                acc.insert(rename.ident.to_string());
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            if in_libc {
+                *has_glob = true;
+            }
+        }
+    }
+}
+
+fn vec_to_punctuated(
+    trees: Vec<syn::UseTree>,
+) -> syn::punctuated::Punctuated<syn::UseTree, syn::token::Comma> {
+    let mut punctuated = syn::punctuated::Punctuated::new();
+    for (idx, tree) in trees.into_iter().enumerate() {
+        if idx > 0 {
+            punctuated.push_punct(Token![,](proc_macro2::Span::call_site()));
+        }
+        punctuated.push(tree);
+    }
+    punctuated
 }
 
 #[gen_stub_pyfunction]
@@ -1329,6 +1751,8 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_function_definition, m)?)?;
     m.add_function(wrap_pyfunction!(get_static_item_definition, m)?)?;
     m.add_function(wrap_pyfunction!(expand_use_aliases, m)?)?;
+    m.add_function(wrap_pyfunction!(dedup_items, m)?)?;
+    m.add_function(wrap_pyfunction!(strip_to_struct_items, m)?)?;
     m.add_function(wrap_pyfunction!(get_value_type_name, m)?)?;
 
     #[allow(clippy::unsafe_removed_from_name)]
