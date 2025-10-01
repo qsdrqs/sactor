@@ -11,12 +11,16 @@ def test_run_minimal_prefers_llm(monkeypatch):
     block = "c0.num = 42;"
     recorded = []
 
-    monkeypatch.setattr(tester, "_generate_llm_fill_block", lambda code, name: (block, True))
+    monkeypatch.setattr(
+        tester, "_generate_llm_fill_block", lambda code, name, idiom: (block, True)
+    )
     monkeypatch.setattr(tester, "_render_sample_blocks", lambda name: [])
     monkeypatch.setattr(
         tester,
         "_materialize_lib_rs",
-        lambda code, name, fill, compares: (recorded.append((fill[:], compares[:])) or "// stub"),
+        lambda code, name, idiom, fill, compares: (
+            recorded.append((fill[:], compares[:])) or "// stub"
+        ),
     )
     monkeypatch.setattr(tester, "_run_cargo", lambda workdir: (True, "ok"))
 
@@ -32,10 +36,12 @@ def test_run_minimal_fallback_to_zero(monkeypatch):
     block = "c0.num = 7;"
     recorded = []
 
-    monkeypatch.setattr(tester, "_generate_llm_fill_block", lambda code, name: (block, True))
+    monkeypatch.setattr(
+        tester, "_generate_llm_fill_block", lambda code, name, idiom: (block, True)
+    )
     monkeypatch.setattr(tester, "_render_sample_blocks", lambda name: [])
 
-    def fake_materialize(code, name, fill, compares):
+    def fake_materialize(code, name, idiom, fill, compares):
         recorded.append((fill[:], compares[:]))
         return "// stub"
 
@@ -63,12 +69,16 @@ def test_run_minimal_uses_samples_when_no_llm(monkeypatch):
     sample_block = "c0.num = 5;"
     recorded = []
 
-    monkeypatch.setattr(tester, "_generate_llm_fill_block", lambda code, name: (None, False))
+    monkeypatch.setattr(
+        tester, "_generate_llm_fill_block", lambda code, name, idiom: (None, False)
+    )
     monkeypatch.setattr(tester, "_render_sample_blocks", lambda name: [sample_block])
     monkeypatch.setattr(
         tester,
         "_materialize_lib_rs",
-        lambda code, name, fill, compares: (recorded.append((fill[:], compares[:])) or "// stub"),
+        lambda code, name, idiom, fill, compares: (
+            recorded.append((fill[:], compares[:])) or "// stub"
+        ),
     )
     monkeypatch.setattr(tester, "_run_cargo", lambda workdir: (True, "ok"))
 
@@ -77,6 +87,13 @@ def test_run_minimal_uses_samples_when_no_llm(monkeypatch):
     assert ok
     assert snippet == "ok"
     assert recorded == [([sample_block], [])]
+
+
+def test_gen_tests_respects_idiomatic_name():
+    tester = StructRoundTripTester()
+    code = tester._gen_tests("node", "Node", [], [])
+    assert "Cnode_to_Node_mut" in code
+    assert "Node_to_Cnode_mut" in code
 
 
 def test_collect_compare_fields(tmp_path):
@@ -109,7 +126,7 @@ def test_collect_compare_fields(tmp_path):
         {"path": "bytes.len", "mode": "by_value"},
     ]
 
-    compare_block = tester._render_compare_block("Foo", compare_fields)
+    compare_block = tester._render_compare_block("Foo", "Foo", compare_fields)
     assert "let actual_r: &'static mut Foo" in compare_block
     assert 'assert_eq!(&(expected_r.value), &(actual_r.value),' in compare_block
     assert 'assert_eq!((expected_r.bytes).len(), (actual_r.bytes).len()' in compare_block
@@ -245,8 +262,10 @@ c0.flag = true;
 
     original_materialize = StructRoundTripTester._materialize_lib_rs
 
-    def capture_materialize(self, code, struct_name, fill_blocks, compare_fields):
-        lib = original_materialize(self, code, struct_name, fill_blocks, compare_fields)
+    def capture_materialize(self, code, struct_name, idiomatic_name, fill_blocks, compare_fields):
+        lib = original_materialize(
+            self, code, struct_name, idiomatic_name, fill_blocks, compare_fields
+        )
         generated["lib"] = lib
         return lib
 
@@ -383,8 +402,10 @@ c0.flag = true;
 
     original_materialize = StructRoundTripTester._materialize_lib_rs
 
-    def capture_materialize(self, code, struct_name, fill_blocks, compare_fields):
-        lib = original_materialize(self, code, struct_name, fill_blocks, compare_fields)
+    def capture_materialize(self, code, struct_name, idiomatic_name, fill_blocks, compare_fields):
+        lib = original_materialize(
+            self, code, struct_name, idiomatic_name, fill_blocks, compare_fields
+        )
         captured["lib"] = lib
         return lib
 
@@ -433,8 +454,10 @@ pub unsafe fn CFoo_to_Foo_mut(input: *mut CFoo) -> &'static mut Foo {
 
     original_materialize = StructRoundTripTester._materialize_lib_rs
 
-    def capture_materialize(self, code, struct_name, fill_blocks, compare_fields):
-        lib = original_materialize(self, code, struct_name, fill_blocks, compare_fields)
+    def capture_materialize(self, code, struct_name, idiomatic_name, fill_blocks, compare_fields):
+        lib = original_materialize(
+            self, code, struct_name, idiomatic_name, fill_blocks, compare_fields
+        )
         captured["lib"] = lib
         return lib
 

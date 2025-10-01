@@ -36,6 +36,7 @@ class StructRoundTripTester:
         combined_code: str,
         struct_name: str,
         *,
+        idiomatic_name: Optional[str] = None,
         allow_fallback: bool = True,
     ) -> tuple[bool, str]:
         """Return (ok, combined_output_snippet).
@@ -69,13 +70,17 @@ class StructRoundTripTester:
 
             attempts: List[Tuple[str, bool, str]] = []
 
-            llm_block, _ = self._generate_llm_fill_block(combined_code, struct_name)
+            idiom_name = idiomatic_name or struct_name
+
+            llm_block, _ = self._generate_llm_fill_block(
+                combined_code, struct_name, idiom_name
+            )
             sample_blocks = self._render_sample_blocks(struct_name)
             compare_fields = self._collect_compare_fields(struct_name)
 
             def attempt(fill_blocks: List[str]) -> Tuple[bool, str]:
                 lib_rs = self._materialize_lib_rs(
-                    combined_code, struct_name, fill_blocks, compare_fields
+                    combined_code, struct_name, idiom_name, fill_blocks, compare_fields
                 )
                 with open(os.path.join(td, "src", "lib.rs"), "w") as f:
                     f.write(lib_rs)
@@ -112,11 +117,11 @@ class StructRoundTripTester:
         self,
         code: str,
         struct_name: str,
+        idiomatic_name: str,
         fill_blocks: List[str],
         compare_fields: List[dict],
     ) -> str:
-        s = struct_name
-        tests_body = self._gen_tests(struct_name, fill_blocks, compare_fields)
+        tests_body = self._gen_tests(struct_name, idiomatic_name, fill_blocks, compare_fields)
         tests = f"""
 #![allow(dead_code, unused_imports)]
 // === BEGIN: combined code from verifier ===
@@ -150,7 +155,12 @@ mod tests {{
         snippet = out[-4000:]
         return ok, snippet
 
-    def _generate_llm_fill_block(self, combined_code: str, struct_name: str) -> Tuple[Optional[str], bool]:
+    def _generate_llm_fill_block(
+        self,
+        combined_code: str,
+        struct_name: str,
+        idiomatic_name: str,
+    ) -> Tuple[Optional[str], bool]:
         if self.llm is None:
             return None, False
 
@@ -298,20 +308,22 @@ Return the statements between these tags, without backticks:
     def _gen_tests(
         self,
         struct_name: str,
+        idiomatic_name: str,
         fill_blocks: List[str],
         compare_fields: List[dict],
     ) -> str:
-        s = struct_name
+        c = struct_name
+        i = idiomatic_name
         if not fill_blocks:
             body = textwrap.dedent(
                 f"""
                 #[test]
                 fn rt_c_rust_c_min() {{
                     unsafe {{
-                        let mut c0: C{s} = core::mem::zeroed();
-                        let p0 = &mut c0 as *mut C{s};
-                        let r: &'static mut {s} = C{s}_to_{s}_mut(p0);
-                        let p1: *mut C{s} = {s}_to_C{s}_mut(r);
+                        let mut c0: C{c} = core::mem::zeroed();
+                        let p0 = &mut c0 as *mut C{c};
+                        let r: &'static mut {i} = C{c}_to_{i}_mut(p0);
+                        let p1: *mut C{c} = {i}_to_C{c}_mut(r);
                         assert!(!p1.is_null());
                         assert_ne!(p1 as usize, p0 as usize);
                     }}
@@ -324,12 +336,16 @@ Return the statements between these tags, without backticks:
         for idx, block in enumerate(fill_blocks):
             fill_section = self._indent_block(block.strip("\n"), 8) if block.strip() else ""
             snapshot_section = (
-                self._indent_block(self._render_expected_snapshot_block(struct_name), 8)
+                self._indent_block(
+                    self._render_expected_snapshot_block(struct_name, idiomatic_name), 8
+                )
                 if compare_fields
                 else ""
             )
             compare_section = (
-                self._indent_block(self._render_compare_block(struct_name, compare_fields), 8)
+                self._indent_block(
+                    self._render_compare_block(struct_name, idiomatic_name, compare_fields), 8
+                )
                 if compare_fields
                 else ""
             )
@@ -339,12 +355,12 @@ Return the statements between these tags, without backticks:
                 #[test]
                 fn rt_generated_{idx}() {{
                     unsafe {{
-                        let mut c0: C{s} = core::mem::zeroed();
+                        let mut c0: C{c} = core::mem::zeroed();
 {fill_section}
 {snapshot_section}
-                        let p0 = &mut c0 as *mut C{s};
-                        let r: &'static mut {s} = C{s}_to_{s}_mut(p0);
-                        let p1: *mut C{s} = {s}_to_C{s}_mut(r);
+                        let p0 = &mut c0 as *mut C{c};
+                        let r: &'static mut {i} = C{c}_to_{i}_mut(p0);
+                        let p1: *mut C{c} = {i}_to_C{c}_mut(r);
                         assert!(!p1.is_null());
                         assert_ne!(p1 as usize, p0 as usize);
 {compare_section}
@@ -437,7 +453,11 @@ Return the statements between these tags, without backticks:
         lines = code.splitlines()
         return "\n".join(f"{pad}{line}" if line else "" for line in lines)
 
-    def _render_expected_snapshot_block(self, struct_name: str) -> str:
+    def _render_expected_snapshot_block(
+        self,
+        struct_name: str,
+        idiomatic_name: str,
+    ) -> str:
         return textwrap.dedent(
             f"""
             let mut expected_c = core::mem::MaybeUninit::<C{struct_name}>::uninit();
@@ -448,20 +468,21 @@ Return the statements between these tags, without backticks:
             );
             let mut expected_c = expected_c.assume_init();
             let expected_ptr: *mut C{struct_name} = &mut expected_c as *mut C{struct_name};
-            let expected_r: &'static mut {struct_name} = C{struct_name}_to_{struct_name}_mut(expected_ptr);
+            let expected_r: &'static mut {idiomatic_name} = C{struct_name}_to_{idiomatic_name}_mut(expected_ptr);
             """
         ).strip("\n")
 
     def _render_compare_block(
         self,
         struct_name: str,
+        idiomatic_name: str,
         compare_fields: List[dict],
     ) -> str:
         if not compare_fields:
             return ""
         lines: List[str] = []
         lines.append(
-            f"let actual_r: &'static mut {struct_name} = C{struct_name}_to_{struct_name}_mut(p1);"
+            f"let actual_r: &'static mut {idiomatic_name} = C{struct_name}_to_{idiomatic_name}_mut(p1);"
         )
         for entry in compare_fields:
             path = entry.get("path", "")

@@ -52,6 +52,7 @@ def test_struct_harness_max_attempts_reports_last_error(tmp_path):
         unidiomatic_struct_code="",
         idiomatic_struct_code="",
         struct_dependencies=[],
+        idiomatic_struct_name="Student",
         verify_result=(VerifyResult.COMPILE_ERROR, "struct compile log"),
         attempts=verifier.max_attempts,
     )

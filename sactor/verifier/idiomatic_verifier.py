@@ -55,12 +55,43 @@ class IdiomaticVerifier(Verifier):
             self.unidiomatic_result_path = unidiomatic_result_path
         else:
             self.unidiomatic_result_path = self.result_path
+        self._idiomatic_struct_name_cache: dict[str, str] = {}
+
+    def _coach_struct_compile_error(
+        self,
+        struct_name: str,
+        idiomatic_name: str,
+        error_text: Optional[str],
+    ) -> Optional[str]:
+        if not error_text:
+            return error_text
+
+        lowered = error_text.lower()
+        hints: list[str] = []
+
+        if "cannot find function" in lowered and "_to_c" in lowered:
+            hints.append(
+                f"- Ensure the repr(C) struct remains `C{struct_name}` and both helpers exist with exact casing: `unsafe fn C{struct_name}_to_{idiomatic_name}_mut(...)` and `unsafe fn {idiomatic_name}_to_C{struct_name}_mut(...)`."
+            )
+        if "cannot find type `uint" in lowered or "consider importing this type alias" in lowered:
+            hints.append(
+                "- Import the missing typedef from `libc` (e.g. `use libc::uint32_t;`) or map it to the Rust primitive (`u32`, `u8`, ...)."
+            )
+
+        if not hints:
+            return error_text
+
+        guidance = "\n\n=== SACTOR hint ===\n" + "\n".join(hints)
+        if guidance in error_text:
+            return error_text
+        return error_text + guidance
 
     def _ensure_struct_harness_available(
         self,
         struct_info: StructInfo,
         visited: Optional[set[str]] = None,
         idiomatic_override: Optional[str] = None,
+        idiomatic_name: Optional[str] = None,
     ) -> tuple[VerifyResult, Optional[str]]:
         """Make sure the given struct's harness exists on disk.
 
@@ -85,7 +116,11 @@ class IdiomaticVerifier(Verifier):
             # Skip self references to avoid infinite recursion.
             if dependency.name == struct_info.name:
                 continue
-            result = self._ensure_struct_harness_available(dependency, visited)
+            result = self._ensure_struct_harness_available(
+                dependency,
+                visited,
+                idiomatic_name=self._resolve_idiomatic_struct_name(dependency.name),
+            )
             if result[0] != VerifyResult.SUCCESS:
                 return result
 
@@ -118,11 +153,16 @@ class IdiomaticVerifier(Verifier):
             with open(idiomatic_path) as f:
                 idiomatic_code = f.read()
 
+        resolved_idiomatic_name = idiomatic_name or self._resolve_idiomatic_struct_name(
+            struct_info.name
+        )
+
         return self._struct_generate_test_harness(
             struct_info.name,
             unidiomatic_code,
             idiomatic_code,
             struct_info.dependencies,
+            resolved_idiomatic_name,
         )
 
     def _hydrate_struct_harness(self, struct_name: str) -> bool:
@@ -158,6 +198,52 @@ class IdiomaticVerifier(Verifier):
             ),
             harness_code,
         )
+
+    def _resolve_idiomatic_struct_name(self, struct_name: str) -> str:
+        cached = self._idiomatic_struct_name_cache.get(struct_name)
+        if cached:
+            return cached
+
+        idiomatic_name: Optional[str] = None
+        spec_path = os.path.join(
+            self.result_path,
+            "translated_code_idiomatic",
+            "specs",
+            "structs",
+            f"{struct_name}.json",
+        )
+        if os.path.exists(spec_path):
+            try:
+                with open(spec_path, "r") as _sf:
+                    spec_obj = json.load(_sf)
+                candidate = spec_obj.get("i_type")
+                if isinstance(candidate, str) and candidate.strip():
+                    idiomatic_name = candidate.strip()
+            except Exception:
+                idiomatic_name = None
+
+        if not idiomatic_name:
+            mapping_path = os.path.join(
+                self.result_path,
+                "translated_code_idiomatic",
+                "specs",
+                "struct_name_map.json",
+            )
+            if os.path.exists(mapping_path):
+                try:
+                    with open(mapping_path, "r") as _mf:
+                        mapping_data = json.load(_mf)
+                    candidate = mapping_data.get(struct_name)
+                    if isinstance(candidate, str) and candidate.strip():
+                        idiomatic_name = candidate.strip()
+                except Exception:
+                    idiomatic_name = None
+
+        if not idiomatic_name:
+            idiomatic_name = struct_name
+
+        self._idiomatic_struct_name_cache[struct_name] = idiomatic_name
+        return idiomatic_name
 
     # generate test harness for the function
 
@@ -225,6 +311,11 @@ class IdiomaticVerifier(Verifier):
             DataType.FUNCTION
         )
         convert_back_prompt = ""
+        struct_idiomatic_name_map = {
+            struct_name: self._resolve_idiomatic_struct_name(struct_name)
+            for struct_name in struct_signature_dependency_names
+        }
+
         if struct_signature_dependency_names:
             convert_back_prompt = "You need to covert mutable reference back and **COPY** the content of C structs to the input mutable pointers, as all convertion functions are at **DIFFERENT** memory locations"
         prompt = f'''
@@ -259,10 +350,11 @@ They will be provided by the verifier, **DO NOT** implement or add template code
 ```rust
 '''
             for struct_name in struct_signature_dependency_names:
+                idiom_name = struct_idiomatic_name_map.get(struct_name, struct_name)
                 prompt += f'''
-// {struct_name} <-> C{struct_name}
-unsafe fn {struct_name}_to_C{struct_name}_mut(input: &mut {struct_name}) -> *mut C{struct_name}; // Convert the idiomatic struct to the C struct at a **DIFFERENT** memory location
-unsafe fn C{struct_name}_to_{struct_name}_mut(input: *mut C{struct_name}) -> &'static mut {struct_name}; // Convert the C struct to the idiomatic struct at a **DIFFERENT** memory location
+// {idiom_name} <-> C{struct_name}
+unsafe fn {idiom_name}_to_C{struct_name}_mut(input: &mut {idiom_name}) -> *mut C{struct_name}; // Convert the idiomatic struct to the C struct at a **DIFFERENT** memory location
+unsafe fn C{struct_name}_to_{idiom_name}_mut(input: *mut C{struct_name}) -> &'static mut {idiom_name}; // Convert the C struct to the idiomatic struct at a **DIFFERENT** memory location
 '''
             prompt += "```\n"
 
@@ -347,6 +439,7 @@ Analyze the error messages, think about the possible reasons, and try to avoid t
                 original_signature_renamed,
                 list(struct_signature_dependency_names),
                 func_spec_path,
+                struct_idiomatic_name_map,
             )
         except Exception as e:
             logger.error("Spec-driven function harness failed: %s", e)
@@ -525,6 +618,7 @@ Output only the final function in this format:
         unidiomatic_struct_code: str,
         idiomatic_struct_code: str,
         struct_dependencies: list[StructInfo],
+        idiomatic_struct_name: str,
         verify_result: tuple[VerifyResult, Optional[str]] = (
             VerifyResult.SUCCESS, None),
         error_translation=None,
@@ -564,11 +658,11 @@ Output only the final function in this format:
             "structs",
             f"{struct_name}.json",
         )
-        function_result = None
+        harness_result = None
         struct_spec_hints = None
+        struct_spec_placeholder_notes: list[str] = []
         try:
-            # TZ: why named as `function_result`?
-            function_result = generate_struct_harness_from_spec_file(
+            harness_result = generate_struct_harness_from_spec_file(
                 struct_name,
                 idiomatic_struct_code,
                 unidiomatic_struct_code_renamed,
@@ -579,7 +673,15 @@ Output only the final function in this format:
                     with open(spec_path, 'r') as _sf:
                         _spec_obj = json.load(_sf)
                     _notes = []
-                    for _f in _spec_obj.get('fields', []):
+                    _spec_fields = _spec_obj.get('fields', []) if isinstance(_spec_obj, dict) else []
+                    available_len_fields: set[str] = set()
+                    for _f in _spec_fields:
+                        if not isinstance(_f, dict):
+                            continue
+                        u_name = (_f.get('u_field') or {}).get('name')
+                        if isinstance(u_name, str) and u_name.strip():
+                            available_len_fields.add(u_name.strip())
+                    for _f in _spec_fields:
                         if not isinstance(_f, dict):
                             continue
                         note = _f.get('llm_note')
@@ -587,6 +689,36 @@ Output only the final function in this format:
                             u = (_f.get('u_field') or {}).get('name', '')
                             i = (_f.get('i_field') or {}).get('name', '')
                             _notes.append(f"- {u} -> {i}: {note.strip()}")
+                        u_meta = _f.get('u_field') or {}
+                        shape_meta = u_meta.get('shape') if isinstance(u_meta, dict) else None
+                        ptr_meta = shape_meta.get('ptr') if isinstance(shape_meta, dict) else None
+                        if isinstance(ptr_meta, dict):
+                            len_from = ptr_meta.get('len_from')
+                            if isinstance(len_from, str):
+                                candidate = len_from.strip()
+                                lower = candidate.lower()
+                                if not candidate:
+                                    struct_spec_placeholder_notes.append(
+                                        f"- Field '{u_meta.get('name', 'unknown')}' has empty len_from; specify a field name, expression, or len_const."
+                                    )
+                                elif '?' in candidate or lower in {"todo", "tbd", "placeholder"}:
+                                    struct_spec_placeholder_notes.append(
+                                        f"- Field '{u_meta.get('name', 'unknown')}' len_from uses placeholder '{candidate}'. Replace it with a concrete length expression."
+                                    )
+                                else:
+                                    base_name = candidate.split('.', 1)[0]
+                                    if (candidate not in available_len_fields
+                                            and base_name not in available_len_fields):
+                                        struct_spec_placeholder_notes.append(
+                                            f"- Field '{u_meta.get('name', 'unknown')}' len_from references unknown field '{candidate}'."
+                                        )
+                            elif isinstance(len_from, (int, float)):
+                                # acceptable constant, nothing to do
+                                pass
+                            elif len_from is None and ptr_meta.get('len_const') is None:
+                                struct_spec_placeholder_notes.append(
+                                    f"- Field '{u_meta.get('name', 'unknown')}' is a slice without len_from/len_const; provide one."
+                                )
                     if _notes:
                         struct_spec_hints = "\n".join(_notes)
                 except Exception:
@@ -598,7 +730,7 @@ Output only the final function in this format:
                 e,
             )
 
-        if function_result is None:
+        if harness_result is None:
             error_message = (
                 "Error: Spec-driven struct harness generation failed; "
                 "no fallback template is allowed."
@@ -609,7 +741,7 @@ Output only the final function in this format:
                 error_message,
             )
 
-        if 'TODO:' in function_result:
+        if 'TODO:' in harness_result:
             prompt = f'''
 We have an initial spec-driven struct converters with TODOs. Finish all TODOs and ensure it compiles.
 Idiomatic struct:
@@ -623,7 +755,7 @@ Unidiomatic (repr C) struct:
 {('Spec hints (from SPEC.llm_note):\n' + struct_spec_hints + '\n') if struct_spec_hints else ''}
 Current converters:
 ```rust
-{function_result}
+{harness_result}
 ```
 Output only the two functions in this format:
 ----FUNCTION----
@@ -665,6 +797,7 @@ Output only the two functions in this format:
                             unidiomatic_dependency_code,
                             idiomatic_dependency_code,
                             dependency.dependencies,
+                            self._resolve_idiomatic_struct_name(dependency_name),
                         )
                         if result[0] != VerifyResult.SUCCESS:
                             return result
@@ -673,7 +806,7 @@ Output only the two functions in this format:
 
             try:
                 llm_result = utils.parse_llm_result(result, "function")
-                function_result = llm_result["function"]
+                harness_result = llm_result["function"]
             except Exception:
                 error_message = (
                     "Error: Failed to parse the result from LLM, result is not "
@@ -687,28 +820,59 @@ Output only the two functions in this format:
                     unidiomatic_struct_code,
                     idiomatic_struct_code,
                     struct_dependencies,
+                    idiomatic_struct_name,
                     (VerifyResult.COMPILE_ERROR, error_message),
                     error_translation=result,
                     attempts=attempts+1,
                 )
 
-        # check if the functions all available
+        # Check whether the required conversion functions exist, but defer
+        # surfacing the error until after we have tried to compile the harness
+        # so we can emit real compiler diagnostics when possible.
+        required_funcs = [
+            f"{idiomatic_struct_name}_to_C{struct_name}_mut",
+            f"C{struct_name}_to_{idiomatic_struct_name}_mut",
+        ]
+        missing_funcs: list[str] = []
+        signature_parse_failed = False
         try:
-            rust_ast_parser.get_func_signatures(function_result)[
-                f"{struct_name}_to_C{struct_name}_mut"]
-            rust_ast_parser.get_func_signatures(function_result)[
-                f"C{struct_name}_to_{struct_name}_mut"]
-        except:
-            error_message = "Error: The transformation functions are not complete"
-            logger.error("%s", error_message)
-            return self._struct_generate_test_harness(
-                struct_name,
-                unidiomatic_struct_code,
-                idiomatic_struct_code,
-                struct_dependencies,
-                (VerifyResult.COMPILE_ERROR, error_message),
-                attempts=attempts+1
-            )
+            sigs = rust_ast_parser.get_func_signatures(harness_result)
+        except Exception:
+            signature_parse_failed = True
+            missing_funcs = required_funcs.copy()
+        else:
+            lower_name_map: dict[str, list[str]] = {}
+            for name in sigs.keys():
+                lower_name_map.setdefault(name.lower(), []).append(name)
+
+            renamed = False
+            for fn_name in required_funcs:
+                if fn_name in sigs:
+                    continue
+                candidates = lower_name_map.get(fn_name.lower(), [])
+                if len(candidates) == 1:
+                    existing_name = candidates[0]
+                    if existing_name != fn_name:
+                        try:
+                            harness_result = rust_ast_parser.rename_function(
+                                harness_result,
+                                existing_name,
+                                fn_name,
+                            )
+                            renamed = True
+                        except Exception:
+                            missing_funcs.append(fn_name)
+                    else:
+                        missing_funcs.append(fn_name)
+                else:
+                    missing_funcs.append(fn_name)
+
+            if renamed:
+                sigs = rust_ast_parser.get_func_signatures(harness_result)
+
+            for fn_name in required_funcs:
+                if fn_name not in sigs and fn_name not in missing_funcs:
+                    missing_funcs.append(fn_name)
 
         combine_structs = {}
         for dependency in struct_dependencies:
@@ -729,20 +893,64 @@ Output only the two functions in this format:
         save_code = '\n'.join([
             idiomatic_struct_code,
             unidiomatic_struct_code_renamed,
-            function_result
+            harness_result
         ])
         combine_structs[struct_name] = save_code
         combiner = PartialCombiner({}, combine_structs)
-        result, combined_code = combiner.combine()
+        try:
+            result, combined_code = combiner.combine()
+        except Exception as e:
+            base_error = f"Spec-driven struct harness parsing failed: {e}"
+            if struct_spec_placeholder_notes:
+                notes = "\n".join(struct_spec_placeholder_notes)
+                base_error += f"\nPotential SPEC fixes:\n{notes}"
+            logger.error(
+                "Struct %s harness combine failed before compilation: %s",
+                struct_name,
+                base_error,
+            )
+            return (
+                VerifyResult.COMPILE_ERROR,
+                base_error,
+            )
         if result != CombineResult.SUCCESS or combined_code is None:
             raise ValueError(
                 f"Failed to combine the struct {struct_name}")
 
         result = self.try_compile_rust_code(combined_code)
 
+        if result[0] == VerifyResult.SUCCESS and missing_funcs:
+            if signature_parse_failed:
+                logger.error(
+                    "Struct %s harness converters failed signature parsing; retrying with LLM fix",
+                    struct_name,
+                )
+            error_message = (
+                "Error: The transformation functions are not complete. Missing: "
+                + ", ".join(missing_funcs)
+            )
+            logger.error("%s", error_message)
+            return self._struct_generate_test_harness(
+                struct_name,
+                unidiomatic_struct_code,
+                idiomatic_struct_code,
+                struct_dependencies,
+                idiomatic_struct_name,
+                (VerifyResult.COMPILE_ERROR, error_message),
+                attempts=attempts+1,
+            )
+
         if result[0] != VerifyResult.SUCCESS:
+            coached = self._coach_struct_compile_error(
+                struct_name,
+                idiomatic_struct_name,
+                result[1],
+            )
+            if coached != result[1]:
+                result = (result[0], coached)
+
             # Try LLM fix in-place if we have an initial spec-driven/LLM harness
-            if function_result is not None:
+            if harness_result is not None:
                 fix_prompt = f'''
 The following struct converters failed to compile. Fix compile errors and provide a working version. Do not add unrelated code.
 Idiomatic struct:
@@ -755,7 +963,7 @@ Unidiomatic (repr C) struct:
 ```
 Converters:
 ```rust
-{function_result}
+{harness_result}
 ```
 Compiler errors:
 ```
@@ -790,8 +998,9 @@ Output only the two functions in this format:
                 unidiomatic_struct_code,
                 idiomatic_struct_code,
                 struct_dependencies,
+                idiomatic_struct_name,
                 result,
-                function_result,
+                harness_result,
                 attempts=attempts+1
             )
 
@@ -806,7 +1015,11 @@ Output only the two functions in this format:
                     "structs",
                 ),
             )
-            ok, snippet = tester.run_minimal(combined_code, struct_name)
+            ok, snippet = tester.run_minimal(
+                combined_code,
+                struct_name,
+                idiomatic_name=idiomatic_struct_name,
+            )
         except Exception as e:
             ok = False
             snippet = f"selftest runtime error: {e}"
@@ -1008,14 +1221,28 @@ Output only the two functions in this format:
         struct: StructInfo,
         struct_code: str,
         struct_dependencies_code: dict[str, str],
+        idiomatic_name: Optional[str] = None,
     ) -> tuple[VerifyResult, Optional[str]]:
-        result = super().verify_struct(struct, struct_code, struct_dependencies_code)
+        result = super().verify_struct(
+            struct,
+            struct_code,
+            struct_dependencies_code,
+            idiomatic_name=idiomatic_name,
+        )
         if result[0] != VerifyResult.SUCCESS:
+            coached = self._coach_struct_compile_error(
+                struct.name,
+                idiomatic_name or self._resolve_idiomatic_struct_name(struct.name),
+                result[1],
+            )
+            if coached != result[1]:
+                return (result[0], coached)
             return result
 
         harness_result = self._ensure_struct_harness_available(
             struct,
             idiomatic_override=struct_code,
+            idiomatic_name=idiomatic_name,
         )
         if harness_result[0] != VerifyResult.SUCCESS:
             return harness_result

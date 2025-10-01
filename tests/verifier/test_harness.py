@@ -1,4 +1,5 @@
 from functools import partial
+from textwrap import dedent
 from unittest.mock import patch
 
 import pytest
@@ -64,7 +65,8 @@ def test_struct_harness(llm, config):
         "Course",
         unidiomatic_structs_code['Course'],
         idiomatic_structs_code['Course'],
-        []
+        [],
+        "Course",
     )
     assert result[0] == VerifyResult.SUCCESS
 
@@ -74,5 +76,82 @@ def test_struct_harness(llm, config):
         "Student",
         unidiomatic_structs_code['Student'],
         idiomatic_structs_code['Student'],
-        [course]
+        [course],
+        "Student",
     )
+
+
+def test_struct_harness_case_insensitive_converters(monkeypatch, tmp_path, config):
+    test_cmd = tmp_path / "test_cmd.json"
+    test_cmd.write_text("[]")
+
+    build_path = tmp_path / "build"
+    struct_dir = build_path / "struct_test_harness"
+    struct_dir.mkdir(parents=True)
+
+    result_path = tmp_path / "result"
+    (result_path / "translated_code_idiomatic" / "structs").mkdir(parents=True)
+    (result_path / "translated_code_idiomatic" / "specs" / "structs").mkdir(parents=True)
+    (result_path / "test_harness" / "structs").mkdir(parents=True)
+
+    harness_template = dedent(
+        """
+        pub unsafe fn CNode_to_Node_mut(c: *mut Cnode) -> Node {
+            let c_ref = unsafe { &*c };
+            Node { value: c_ref.value }
+        }
+
+        pub unsafe fn Node_to_CNode_mut(node: *mut Node) -> *mut Cnode {
+            let node_ref = unsafe { &*node };
+            let boxed = Box::new(Cnode { value: node_ref.value });
+            Box::into_raw(boxed)
+        }
+        """
+    ).strip()
+
+    monkeypatch.setattr(
+        "sactor.verifier.idiomatic_verifier.generate_struct_harness_from_spec_file",
+        lambda *args, **kwargs: harness_template,
+    )
+
+    compiled_payloads: list[str] = []
+
+    def fake_compile(self, code, executable=False):
+        compiled_payloads.append(code)
+        assert "Cnode_to_Node_mut" in code
+        assert "Node_to_Cnode_mut" in code
+        return (VerifyResult.SUCCESS, None)
+
+    monkeypatch.setattr(IdiomaticVerifier, "try_compile_rust_code", fake_compile)
+    monkeypatch.setattr(
+        "sactor.verifier.idiomatic_verifier.StructRoundTripTester.run_minimal",
+        lambda self, combined_code, struct_name, idiomatic_name: (True, ""),
+    )
+
+    class _SilentLLM:
+        def query(self, prompt):  # pragma: no cover - should not be used
+            raise AssertionError("LLM should not be invoked in case fix test")
+
+    verifier = IdiomaticVerifier(
+        str(test_cmd),
+        llm=_SilentLLM(),
+        config=config,
+        build_path=str(build_path),
+        result_path=str(result_path),
+        unidiomatic_result_path=str(result_path),
+    )
+
+    idiomatic_struct = "pub struct Node { pub value: i32 }\n"
+    unidiomatic_struct = "#[repr(C)] pub struct node { pub value: i32 }\n"
+
+    status, message = verifier._struct_generate_test_harness(
+        "node",
+        unidiomatic_struct,
+        idiomatic_struct,
+        [],
+        "Node",
+    )
+
+    assert status == VerifyResult.SUCCESS
+    assert message is None
+    assert compiled_payloads
