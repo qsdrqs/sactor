@@ -1,11 +1,13 @@
 import json, subprocess
 import os
 from abc import ABC, abstractmethod
-from typing import Optional
+from collections import defaultdict
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sactor import logging as sactor_logging
 from sactor import utils
-from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
+from sactor.c_parser import (CParser, EnumInfo, FunctionInfo, GlobalVarInfo,
+                             StructInfo)
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
@@ -30,6 +32,8 @@ class Translator(ABC):
         self.failure_info_path = os.path.join(
             self.result_path, "general_failure_info.json")
         self._failure_info_backup_prepared = False
+        self.translation_status: Dict[str, Dict[str, str]] = defaultdict(dict)
+        self._dependency_cache: Dict[Tuple[str, str], str] = {}
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         res = self._translate_struct_impl(struct_union)
@@ -92,6 +96,9 @@ class Translator(ABC):
             "translation": error_translation
         })
         self.failure_info[item]['status'] = "failure"
+        item_type = self.failure_info[item].get("type")
+        if item_type:
+            self._set_translation_status(item_type, item, "failure")
 
     def init_failure_info(self, type, item):
         if item not in self.failure_info:
@@ -100,6 +107,8 @@ class Translator(ABC):
                 "errors": [],
                 "status": "untranslated"
             }
+        if type and item not in self.translation_status[type]:
+            self.translation_status[type][item] = "pending"
 
     def save_failure_info(self, path):
         if self.failure_info == {}:
@@ -122,11 +131,113 @@ class Translator(ABC):
         self._failure_info_backup_prepared = True
 
     def has_dependencies_all_translated(self, cursor, dependencies_mapping):
-        for dep in dependencies_mapping(cursor):
-            result = subprocess.run(["find", self.result_path, "-name", f'{dep.name}.rs'], capture_output=True, text=True)
-            if len(result.stdout.strip()) == 0:
-                return False
-        return True
+        ready, _ = self.check_dependencies(cursor, dependencies_mapping)
+        return ready
+
+    def check_dependencies(self, cursor, dependencies_mapping) -> tuple[bool, list[dict]]:
+        blockers: List[dict] = []
+        deps = dependencies_mapping(cursor)
+        for dep in deps:
+            dep_name = getattr(dep, "name", None)
+            if not dep_name:
+                continue
+            dep_type = self._resolve_dependency_type(dep)
+            status = self._get_translation_status(dep_type, dep_name)
+            if status == "success":
+                continue
+            if status in {"failure", "blocked"}:
+                blockers.append({
+                    "type": dep_type,
+                    "name": dep_name,
+                    "status": status,
+                })
+                continue
+            if self._dependency_artifact_exists(dep_type, dep_name):
+                self._set_translation_status(dep_type, dep_name, "success")
+                continue
+            blockers.append({
+                "type": dep_type,
+                "name": dep_name,
+                "status": status or "missing",
+            })
+        return len(blockers) == 0, blockers
+
+    def mark_dependency_block(self, item_type: str, item_name: str, blockers: Sequence[dict]):
+        if not blockers:
+            return
+        self.init_failure_info(item_type, item_name)
+        any_failed = any(
+            blocker.get("status") in {"failure", "blocked"}
+            for blocker in blockers
+        )
+        status_label = "blocked_by_failed_dependency" if any_failed else "waiting_for_dependency"
+        self.failure_info[item_name]['status'] = status_label
+        formatted = [{
+            "type": blocker.get("type"),
+            "name": blocker.get("name"),
+            "status": blocker.get("status"),
+        } for blocker in blockers]
+        self.failure_info[item_name]['blockers'] = formatted
+        self._set_translation_status(item_type, item_name, "blocked")
+
+    def mark_translation_success(self, item_type: str, item_name: str):
+        self._set_translation_status(item_type, item_name, "success")
+        if item_name in self.failure_info:
+            self.failure_info[item_name]['status'] = "success"
+
+    def _resolve_dependency_type(self, dep) -> str:
+        if isinstance(dep, StructInfo):
+            return "struct"
+        if isinstance(dep, FunctionInfo):
+            return "function"
+        if isinstance(dep, GlobalVarInfo):
+            return "global_var"
+        if isinstance(dep, EnumInfo):
+            return "enum"
+        return "unknown"
+
+    def _set_translation_status(self, item_type: str, item_name: str, status: str):
+        if not item_type:
+            return
+        self.translation_status[item_type][item_name] = status
+
+    def _get_translation_status(self, item_type: str, item_name: str) -> Optional[str]:
+        if not item_type:
+            return None
+        return self.translation_status.get(item_type, {}).get(item_name)
+
+    def _dependency_artifact_exists(self, item_type: str, item_name: str) -> bool:
+        if not item_name:
+            return False
+        candidate_paths: List[str] = []
+        path_attr_map = {
+            "struct": "translated_struct_path",
+            "function": "translated_function_path",
+            "enum": "translated_enum_path",
+            "global_var": "translated_global_var_path",
+        }
+        attr = path_attr_map.get(item_type)
+        if attr and hasattr(self, attr):
+            base_path = getattr(self, attr)
+            if base_path:
+                candidate_paths.append(os.path.join(base_path, f"{item_name}.rs"))
+        for candidate in candidate_paths:
+            if os.path.exists(candidate):
+                return True
+        cache_key = (item_type, item_name)
+        cached = self._dependency_cache.get(cache_key)
+        if cached == "exists":
+            return True
+        if cached == "missing":
+            return False
+        result = subprocess.run(
+            ["find", self.result_path, "-name", f"{item_name}.rs"],
+            capture_output=True,
+            text=True,
+        )
+        found = len(result.stdout.strip()) > 0
+        self._dependency_cache[cache_key] = "exists" if found else "missing"
+        return found
 
     def print_result_summary(self, title: str):
         def count_success(ctype: str) -> int:

@@ -1,4 +1,4 @@
-import os, json
+import os, json, re
 from ctypes import c_buffer
 from typing import Any, Optional, override
 
@@ -70,6 +70,41 @@ class UnidiomaticTranslator(Translator):
             processed_compile_commands=processed_compile_commands,
         )
 
+
+    def _enum_code_from_c2rust(self, enum: EnumInfo) -> Optional[str]:
+        enumerators = getattr(enum, "enumerators", [])
+        if not enumerators:
+            return None
+
+        alias_name = None
+        for name, _ in enumerators:
+            pattern = rf"pub const {re.escape(name)}\s*:\s*([A-Za-z0-9_]+)\s*="
+            match = re.search(pattern, self.c2rust_translation)
+            if match:
+                alias_name = match.group(1).strip()
+                break
+
+        if alias_name is None:
+            return None
+
+        alias_pattern = rf"pub type {re.escape(alias_name)}\s*=\s*([^;]+);"
+        alias_match = re.search(alias_pattern, self.c2rust_translation)
+        if not alias_match:
+            return None
+        alias_line = f"pub type {alias_name} = {alias_match.group(1).strip()};"
+
+        const_lines: list[str] = []
+        for name, _ in enumerators:
+            const_pattern = rf"pub const {re.escape(name)}\s*:\s*{re.escape(alias_name)}\s*=\s*([^;]+);"
+            const_match = re.search(const_pattern, self.c2rust_translation)
+            if not const_match:
+                return None
+            const_lines.append(
+                f"pub const {name}: {alias_name} = {const_match.group(1).strip()};"
+            )
+
+        return "\n".join([alias_line, *const_lines])
+
     @override
     def _translate_enum_impl(
         self,
@@ -86,7 +121,7 @@ class UnidiomaticTranslator(Translator):
         if os.path.exists(enum_save_path):
             logger.info("Enum %s already translated", enum.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[enum.name]['status'] = "success"
+            self.mark_translation_success("enum", enum.name)
             return TranslateResult.SUCCESS
         if attempts > self.max_attempts - 1:
             logger.error(
@@ -181,10 +216,25 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
 
             self.failure_info[enum.name]['status'] = "fallback_c2rust"
+            self._set_translation_status("enum", enum.name, "success")
             utils.save_code(enum_save_path, enum_result)
             return TranslateResult.SUCCESS
 
         logger.info("Translating enum: %s (attempts: %d)", enum.name, attempts)
+
+        c2rust_enum = self._enum_code_from_c2rust(enum)
+        if c2rust_enum:
+            try:
+                result = self.verifier.try_compile_rust_code(c2rust_enum)
+            except Exception as e:
+                logger.warning(
+                    "Failed to compile c2rust-derived enum %s: %s", enum.name, e)
+                result = (VerifyResult.COMPILE_ERROR, str(e))
+            if result[0] == VerifyResult.SUCCESS:
+                self.failure_info[enum.name]['status'] = "c2rust"
+                self._set_translation_status("enum", enum.name, "success")
+                utils.save_code(enum_save_path, c2rust_enum)
+                return TranslateResult.SUCCESS
 
         code_of_enum = self.c_parser.extract_enum_definition_code(enum.name)
         prompt = f'''
@@ -275,6 +325,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         enum_result = rust_ast_parser.unidiomatic_types_cleanup(
             enum_result)
+        self.mark_translation_success("enum", enum.name)
         utils.save_code(enum_save_path, enum_result)
         return TranslateResult.SUCCESS
 
@@ -344,7 +395,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     )
             global_var_result = rust_ast_parser.unidiomatic_types_cleanup(
                 global_var_result)
-            self.failure_info[global_var.name]['status'] = "success"
+            self.mark_translation_success("global_var", global_var.name)
             utils.save_code(global_var_save_path, global_var_result)
             return TranslateResult.SUCCESS
 
@@ -353,7 +404,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if os.path.exists(global_var_save_path):
             logger.info("Global variable %s already translated", global_var.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[global_var.name]['status'] = "success"
+            self.mark_translation_success("global_var", global_var.name)
             return TranslateResult.SUCCESS
 
         used_enum_values = getattr(global_var, "enum_value_dependencies", [])
@@ -528,10 +579,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         struct_path = os.path.join(self.translated_struct_path, struct_union.name + ".rs")
         if os.path.exists(struct_path):
             logger.info("Struct/Union %s already translated", struct_union.name)
-            self.failure_info[struct_union.name]['status'] = "success"
+            self.mark_translation_success("struct", struct_union.name)
             return TranslateResult.SUCCESS
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
+
+        enum_dependencies = {}
+        for enum_val in getattr(struct_union, "enum_value_dependencies", []):
+            enum_dependencies[enum_val.definition.name] = enum_val.definition
+        for enum_def in getattr(struct_union, "enum_dependencies", []):
+            enum_dependencies[enum_def.name] = enum_def
+        for enum_def in enum_dependencies.values():
+            self._translate_enum_impl(enum_def)
 
         match struct_union.data_type:
             case DataType.STRUCT:
@@ -548,8 +607,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # add Debug trait for struct/union
         rust_s_u = rust_ast_parser.add_derive_to_struct_union(
             rust_s_u, struct_union.name, "Debug")
+        rust_s_u = rust_ast_parser.unidiomatic_types_cleanup(rust_s_u)
 
-        self.failure_info[struct_union.name]['status'] = "success"
+        self.mark_translation_success("struct", struct_union.name)
         # Save the translated struct/union
         utils.save_code(
             f'{self.translated_struct_path}/{struct_union.name}.rs', rust_s_u)
@@ -590,8 +650,11 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         for func_dep in function_dependencies:
             structs_in_function.extend(func_dep.struct_dependencies)
 
-        code_of_structs: dict[str, str] = {}
+        code_of_structs_full: dict[str, str] = {}
+        code_of_structs_prompt: dict[str, str] = {}
         visited_structs: set[str] = set()
+        code_of_enum: dict[Any, str] = {}
+        used_enum_names: list[str] = []
         for struct in structs_in_function:
             all_structs = self.c_parser.retrieve_all_struct_dependencies(struct)
             for struct_name in all_structs:
@@ -609,8 +672,44 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     raise RuntimeError(
                         f"Error: Struct {struct_name} translation failed.")
                 code_of_struct = utils.read_file(struct_path)
-                code_of_structs[struct_name] = code_of_struct
+                try:
+                    code_of_struct = rust_ast_parser.unidiomatic_types_cleanup(
+                        code_of_struct
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to normalize struct %s code: %s",
+                        struct_name,
+                        exc,
+                    )
+                code_of_structs_full[struct_name] = code_of_struct
+                try:
+                    prompt_snippet = rust_ast_parser.strip_to_struct_items(
+                        code_of_struct
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to strip struct prompt for %s: %s",
+                        struct_name,
+                        exc,
+                    )
+                    prompt_snippet = code_of_struct
+                code_of_structs_prompt[struct_name] = prompt_snippet
                 visited_structs.add(struct_name)
+
+                struct_info = self.c_parser.get_struct_info(struct_name)
+                collected_enum_defs = list(getattr(struct_info, "enum_dependencies", []))
+                for enum_val in getattr(struct_info, "enum_value_dependencies", []):
+                    collected_enum_defs.append(enum_val.definition)
+
+                for enum_def in collected_enum_defs:
+                    if enum_def not in code_of_enum:
+                        self._translate_enum_impl(enum_def)
+                        code_path = os.path.join(
+                            self.translated_enum_path, enum_def.name + ".rs")
+                        code_of_enum[enum_def] = read_file(code_path)
+                    if enum_def.name not in used_enum_names:
+                        used_enum_names.append(enum_def.name)
 
         used_global_vars: dict[str, str] = {}
         used_global_vars_only_type_and_names: dict[str, str] = {}
@@ -651,29 +750,31 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         used_enum_values: list[EnumValueInfo] = function.enum_values_dependencies
         used_enum_definitions = function.enum_dependencies
-        code_of_enum: dict[Any, str] = {}
-        used_enum_names: list[str] = []
         if len(used_enum_values) > 0 or len(used_enum_definitions) > 0:
             enum_definitions = set()
             for enum in used_enum_values:
-                used_enum_names.append(enum.name)
+                if enum.name not in used_enum_names:
+                    used_enum_names.append(enum.name)
                 enum_definitions.add(enum.definition)
 
             for enum_def in used_enum_definitions:
-                used_enum_names.append(enum_def.name)
+                if enum_def.name not in used_enum_names:
+                    used_enum_names.append(enum_def.name)
                 enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
-                self._translate_enum_impl(enum_def)
-                code_path = os.path.join(
-                    self.translated_enum_path, enum_def.name + ".rs")
-                code_of_enum[enum_def] = read_file(code_path)
+                if enum_def not in code_of_enum:
+                    self._translate_enum_impl(enum_def)
+                    code_path = os.path.join(
+                        self.translated_enum_path, enum_def.name + ".rs")
+                    code_of_enum[enum_def] = read_file(code_path)
 
         context: dict[str, Any] = {
             "function_dependencies": function_dependencies,
             "function_dependency_signatures": function_depedency_signatures,
             "function_dependency_uses": function_dependency_uses,
-            "code_of_structs": code_of_structs,
+            "code_of_structs_full": code_of_structs_full,
+            "code_of_structs_prompt": code_of_structs_prompt,
             "used_global_vars": used_global_vars,
             "used_global_vars_only_type_and_names": used_global_vars_only_type_and_names,
             "used_stdio": used_stdio,
@@ -700,7 +801,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if os.path.exists(function_save_path):
             logger.info("Function %s already translated", function.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[function.name]['status'] = "success"
+            self.mark_translation_success("function", function.name)
             return TranslateResult.SUCCESS
 
         prepare_status, func_ctx = self._prepare_function_context(function)
@@ -710,7 +811,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         function_dependencies = func_ctx["function_dependencies"]
         function_depedency_signatures: list[str] = func_ctx["function_dependency_signatures"]
         function_dependency_uses: list[str] = func_ctx["function_dependency_uses"]
-        code_of_structs: dict[str, str] = func_ctx["code_of_structs"]
+        code_of_structs_full: dict[str, str] = func_ctx["code_of_structs_full"]
+        code_of_structs_prompt: dict[str, str] = func_ctx["code_of_structs_prompt"]
         used_global_vars: dict[str, str] = func_ctx["used_global_vars"]
         used_global_vars_only_type_and_names: dict[str, str] = func_ctx["used_global_vars_only_type_and_names"]
         used_stdio: list[str] = func_ctx["used_stdio"]
@@ -775,7 +877,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                             f"Error: Function signature not found in the translated code for function `{function.name}`. Got functions: {list(function_result_sigs.keys())}, check if you have the correct function name., you should **NOT** change the camel case to snake case and vice versa.")
                         return (VerifyResult.COMPILE_ERROR, error_message), processed_code
 
-                data_type_code = code_of_structs | used_global_vars | code_of_enum | {
+                data_type_code = code_of_structs_full | used_global_vars | code_of_enum | {
                     "stdio": used_stdio_code}
                 verification = self.verifier.verify_function(
                     function,
@@ -868,6 +970,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             function_result = rust_ast_parser.unidiomatic_function_cleanup(
                 function_result)
             self.failure_info[function.name]["status"] = "fallback_c2rust"
+            self._set_translation_status("function", function.name, "success")
             utils.save_code(function_save_path, function_result)
             return TranslateResult.SUCCESS
 
@@ -892,8 +995,8 @@ For other return values, you can use `std::process::exit()` to return the value.
 For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
 '''
 
-        if len(code_of_structs) > 0:
-            joint_code_of_structs = '\n'.join(code_of_structs.values())
+        if len(code_of_structs_prompt) > 0:
+            joint_code_of_structs = '\n'.join(code_of_structs_prompt.values())
             prompt += f'''
 The function uses the following structs/unions, which are already translated as (you should **NOT** define them in your translation, as the system will automatically define them. But you can use these structs or unions):
 ```rust
@@ -1175,7 +1278,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         logger.debug("Translated function %s:", function.name)
         logger.debug("%s", function_result)
 
-        data_type_code = code_of_structs | used_global_vars | code_of_enum | {
+        data_type_code = code_of_structs_full | used_global_vars | code_of_enum | {
             "stdio": used_stdio_code}
         # add error handling because here can raise exceptions
         result = self.verifier.verify_function(
@@ -1210,6 +1313,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         function_result = rust_ast_parser.unidiomatic_function_cleanup(
             function_result)
-        self.failure_info[function.name]["status"] = "success"
+        self.mark_translation_success("function", function.name)
         utils.save_code(function_save_path, function_result)
         return TranslateResult.SUCCESS

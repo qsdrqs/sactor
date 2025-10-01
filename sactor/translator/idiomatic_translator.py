@@ -90,6 +90,10 @@ class IdiomaticTranslator(Translator):
             self.specs_base_path, "function_name_map.json"
         )
         self._function_name_map_cache: Optional[dict[str, str]] = None
+        self._struct_name_map_path = os.path.join(
+            self.specs_base_path, "struct_name_map.json"
+        )
+        self._struct_name_map_cache: Optional[dict[str, str]] = None
         self._spec_schema_text: Optional[str] = None
 
     def _get_spec_schema_text(self) -> str:
@@ -115,6 +119,20 @@ class IdiomaticTranslator(Translator):
                     mapping = {}
             self._function_name_map_cache = mapping
         return self._function_name_map_cache
+
+    def _load_struct_name_map(self) -> dict[str, str]:
+        if self._struct_name_map_cache is None:
+            mapping: dict[str, str] = {}
+            if os.path.exists(self._struct_name_map_path):
+                try:
+                    with open(self._struct_name_map_path, "r") as _mf:
+                        mapping = json.load(_mf)
+                    if not isinstance(mapping, dict):
+                        mapping = {}
+                except Exception:
+                    mapping = {}
+            self._struct_name_map_cache = mapping
+        return self._struct_name_map_cache
 
     def _get_spec_idiomatic_name(self, function_name: str) -> Optional[str]:
         spec_path = os.path.join(
@@ -185,7 +203,7 @@ class IdiomaticTranslator(Translator):
         if os.path.exists(enum_save_path):
             logger.info("Enum %s already translated", enum.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[enum.name]['status'] = "success"
+            self.mark_translation_success("enum", enum.name)
             return TranslateResult.SUCCESS
         if attempts > self.max_attempts - 1:
             logger.error(
@@ -307,7 +325,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if os.path.exists(global_var_save_path):
             logger.info("Global variable %s already translated", global_var.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[global_var.name]['status'] = "success"
+            self.mark_translation_success("global_var", global_var.name)
             return TranslateResult.SUCCESS
 
         used_enum_values = getattr(global_var, "enum_value_dependencies", [])
@@ -459,7 +477,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=global_var_result,
                 attempts=attempts + 1
             )
-        self.failure_info[global_var.name]['status'] = "success"
+        self.mark_translation_success("global_var", global_var.name)
         utils.save_code(global_var_save_path, global_var_result)
         return TranslateResult.SUCCESS
 
@@ -481,7 +499,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if os.path.exists(struct_save_path):
             logger.info("Struct %s already translated", struct_union.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[struct_union.name]['status'] = "success"
+            self.mark_translation_success("struct", struct_union.name)
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
@@ -524,6 +542,25 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             dependencies_code[dependency_name] = read_file(struct_path)
         joined_dependencies_code = '\n'.join(dependencies_code.values())
 
+        enum_dependency_defs: dict[str, EnumInfo] = {}
+        for enum_val in getattr(struct_union, "enum_value_dependencies", []):
+            enum_dependency_defs[enum_val.definition.name] = enum_val.definition
+        for enum_def in getattr(struct_union, "enum_dependencies", []):
+            enum_dependency_defs[enum_def.name] = enum_def
+
+        enum_dependency_code: dict[str, str] = {}
+        if enum_dependency_defs:
+            for enum_def in enum_dependency_defs.values():
+                self._translate_enum_impl(enum_def)
+                enum_path = os.path.join(
+                    self.translated_enum_path, enum_def.name + ".rs")
+                enum_dependency_code[enum_def.name] = read_file(enum_path)
+            logger.debug(
+                "Struct %s includes enum dependencies: %s",
+                struct_union.name,
+                list(enum_dependency_code.keys()),
+            )
+
         # Translate the struct
         prompt = f'''
 Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
@@ -561,6 +598,20 @@ The struct uses the following structs/unions, which are already translated as (y
 {joined_dependencies_code}
 ```
 '''
+        if len(enum_dependency_code) > 0:
+            joined_enum_names = '\n'.join(enum_dependency_code.keys())
+            joined_enum_code = '\n'.join(enum_dependency_code.values())
+            prompt += f'''
+The struct uses the following enums or type aliases. They are already translated and will be provided automatically; you should **NOT** redefine them:
+```c
+{joined_enum_names}
+```
+In Rust they are available as:
+```rust
+{joined_enum_code}
+```
+Refer to these definitions directly in your translation.
+'''
         used_type_aliases = struct_union.type_aliases
         if len(used_type_aliases) > 0:
             used_type_aliases_kv_pairs = [
@@ -585,6 +636,14 @@ Output the translated struct into this format (wrap with the following tags):
 ----END STRUCT----
 
 Also output a minimal JSON spec that maps the unidiomatic Rust layout to the idiomatic Rust struct.
+If you rename the idiomatic type, set the `i_type` field accordingly (still set it even if unchanged).
+
+Naming guardrails (do not skip):
+- The repr(C) type must stay exactly `C{struct_union.name}` (same casing as the original C identifier). Never CamelCase or otherwise rename the C-side type.
+- Do not re-declare the repr(C) struct; assume `pub struct C{struct_union.name}` already exists in the compiled crate and only reference it.
+- Do not emit conversion functions nor reference the repr(C) alias (e.g. `C{struct_union.name}`) directly; keep the output strictly to the idiomatic Rust type and any pure-Rust helper methods. The verifier will synthesize the bridging code.
+- If you rename the idiomatic type, the converters must be emitted exactly as `unsafe fn C{struct_union.name}_to_<idiomatic_name>_mut(...)` and `unsafe fn <idiomatic_name>_to_C{struct_union.name}_mut(...)`.
+- When the C layout uses typedefs such as `uint32_t` or `uint8_t`, either import them from `libc` or map them to the corresponding Rust primitives (e.g. `u32`, `u8`). The generated code must compile without missing typedefs.
 Full JSON Schema for the SPEC (do not output the schema; output only an instance that conforms to it):
 ```json
 {_schema_text}
@@ -594,6 +653,7 @@ Format:
 ```json
 {{
   "struct_name": "{struct_union.name}",
+  "i_type": "<Idiomatic type name (use the same as struct_name if unchanged)>",
   "fields": [
     {{
       "u_field": {{
@@ -634,6 +694,7 @@ pub struct A {{
 ```json
 {{
   "struct_name": "A",
+  "i_type": "A",
   "fields": [
     {{ "u_field": {{"name": "num",  "type": "u32",             "shape": "scalar" }},
        "i_field": {{"name": "num",  "type": "u32"}} }},
@@ -665,6 +726,7 @@ pub struct Outer {{ pub id: u32, pub inner: Inner, pub val: u32 }}
 ```json
 {{
   "struct_name": "Outer",
+  "i_type": "Outer",
   "fields": [
     {{ "u_field": {{"name": "id",       "type": "u32",            "shape": "scalar" }},
        "i_field": {{"name": "id",       "type": "u32" }} }},
@@ -693,6 +755,7 @@ pub struct S {{ pub name: Option<String> }}
 ```json
 {{
   "struct_name": "S",
+  "i_type": "S",
   "fields": [
     {{ "u_field": {{"name": "name", "type": "*const c_char", "shape": {{ "ptr": {{ "kind": "cstring", "null": "nullable" }} }} }},
        "i_field": {{"name": "name", "type": "Option<String>" }} }}
@@ -721,6 +784,22 @@ Analyzing the error messages, think about the possible reasons, and try to avoid
 The error message may be cause your translation includes other structs (maybe the dependencies).
 Remember, you should only provide the translation for the struct and necessary `use` statements. The system will automatically include the dependencies in the final translation.
 '''
+
+            # Detect naming / typedef regressions and steer the retry aggressively.
+            lowered_error = verify_result[1].lower()
+            if "cannot find function" in lowered_error and "_to_c" in lowered_error:
+                prompt += f"""
+The compiler could not find one or more conversion helpers (e.g. `C{struct_union.name}_to_<idiomatic>_mut`).
+Double-check that you:
+- Kept the repr(C) struct named exactly `C{struct_union.name}`;
+- Emitted both converters with that exact casing: `unsafe fn C{struct_union.name}_to_<Idiomatic>_mut(...)` and `unsafe fn <Idiomatic>_to_C{struct_union.name}_mut(...)`;
+- Called those helpers when handling nested structs or optional pointers.
+Never CamelCase `C{struct_union.name}`.
+"""
+            if "cannot find type `uint" in lowered_error or "consider importing this type alias" in lowered_error:
+                prompt += """
+One of the C typedefs such as `uint32_t`/`uint8_t` was left dangling. Either `use libc::<the typedef>` or map it to the canonical Rust primitive (`u32`, `u8`, etc.). Do not leave bare typedef names that Rust does not know about.
+"""
 
         elif verify_result[0] == VerifyResult.TEST_ERROR:
             prompt += f'''
@@ -785,23 +864,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
         struct_result = llm_result["struct"]
 
-        # add Debug trait for struct/union
-        try:
-            struct_result = rust_ast_parser.add_derive_to_struct_union(
-                struct_result, struct_union.name, "Debug")
-        except Exception as e:
-            error_message = f"Error: Failed to add Debug trait to the struct: {e}, please check if the struct has a correct syntax"
-            logger.error("%s", error_message)
-            self.append_failure_info(
-                struct_union.name, "COMPILE_ERROR", error_message, llm_raw
-            )
-            return self._translate_struct_impl(
-                struct_union,
-                verify_result=(VerifyResult.COMPILE_ERROR, error_message),
-                error_translation=llm_raw,
-                attempts=attempts+1
-            )
-
         # Stage SPEC output before verification so harness generation can pick it up after success
         spec_tmp_dir: Optional[str] = None
         spec_tmp_path: Optional[str] = None
@@ -812,6 +874,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         )
         spec_pre_saved = False
         spec_valid = False
+        spec_obj_parsed: Optional[dict] = None
+        spec_validation_error: Optional[str] = None
         try:
             raw_struct_spec = extract_spec_block(llm_raw)
             if raw_struct_spec:
@@ -819,6 +883,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 ok, msg = validate_basic_struct_spec(
                     spec_obj, struct_union.name)
                 if ok:
+                    spec_obj_parsed = spec_obj
                     spec_tmp_dir = utils.get_temp_dir()
                     tmp_stage_base = os.path.join(spec_tmp_dir, "spec_stage")
                     save_spec(tmp_stage_base, "struct",
@@ -842,20 +907,24 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         logger.error("Struct spec pre-save failed: %s", e)
                 else:
                     logger.error("Struct spec validation failed: %s", msg)
+                    spec_validation_error = msg
                     spec_valid = False
             else:
                 logger.warning(
                     "Struct %s: SPEC block not found in LLM output",
                     struct_union.name,
                 )
+                spec_validation_error = "SPEC block missing in LLM output"
                 spec_valid = False
         except Exception as e:
             logger.warning("Struct spec staging skipped: %s", e)
+            spec_validation_error = str(e)
 
         if not spec_valid:
             if spec_tmp_dir:
                 shutil.rmtree(spec_tmp_dir, ignore_errors=True)
-            error_message = "Struct SPEC missing or invalid; retrying translation"
+            error_detail = spec_validation_error or "Struct SPEC missing or invalid"
+            error_message = f"Struct SPEC invalid: {error_detail}"
             logger.error("%s", error_message)
             self.append_failure_info(
                 struct_union.name,
@@ -871,10 +940,63 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_spec=raw_struct_spec,
             )
 
+        # Determine idiomatic type name and ensure Debug derive for struct-like outputs
+        idiomatic_struct_name = struct_union.name
+        idiomatic_kind = "struct"
+        if spec_obj_parsed:
+            candidate = spec_obj_parsed.get("i_type")
+            if isinstance(candidate, str) and candidate.strip():
+                idiomatic_struct_name = candidate.strip()
+            kind_candidate = spec_obj_parsed.get("i_kind")
+            if isinstance(kind_candidate, str) and kind_candidate.strip():
+                idiomatic_kind = kind_candidate.strip().lower()
+        else:
+            cached = self._load_struct_name_map().get(struct_union.name)
+            if isinstance(cached, str) and cached.strip():
+                idiomatic_struct_name = cached.strip()
+
+        if idiomatic_struct_name == "":
+            idiomatic_struct_name = struct_union.name
+
+        if idiomatic_kind != "enum":
+            derive_applied = False
+            candidate_order = []
+            for cand in (idiomatic_struct_name, struct_union.name):
+                if cand not in candidate_order:
+                    candidate_order.append(cand)
+            for candidate in candidate_order:
+                try:
+                    struct_result = rust_ast_parser.add_derive_to_struct_union(
+                        struct_result, candidate, "Debug")
+                    derive_applied = True
+                    idiomatic_struct_name = candidate
+                    break
+                except Exception:
+                    continue
+            if not derive_applied:
+                error_message = (
+                    "Error: Failed to add Debug trait to the struct; please check if the struct has a valid definition"
+                )
+                logger.error("%s", error_message)
+                self.append_failure_info(
+                    struct_union.name, "COMPILE_ERROR", error_message, llm_raw
+                )
+                return self._translate_struct_impl(
+                    struct_union,
+                    verify_result=(VerifyResult.COMPILE_ERROR, error_message),
+                    error_translation=llm_raw,
+                    attempts=attempts+1
+                )
+
+        all_dependency_code: dict[str, str] = {}
+        all_dependency_code.update(dependencies_code)
+        all_dependency_code.update(enum_dependency_code)
+
         result = self.verifier.verify_struct(
             struct_union,
             struct_result,
-            dependencies_code
+            all_dependency_code,
+            idiomatic_name=idiomatic_struct_name,
         )
         if result[0] == VerifyResult.COMPILE_ERROR:
             if spec_tmp_dir:
@@ -946,7 +1068,28 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if spec_tmp_dir:
             shutil.rmtree(spec_tmp_dir, ignore_errors=True)
 
+        # Update idiomatic name mapping (best-effort)
+        if idiomatic_struct_name:
+            try:
+                mapping_dir = os.path.join(final_spec_base, "specs")
+                os.makedirs(mapping_dir, exist_ok=True)
+                mapping_path = self._struct_name_map_path
+                mapping_data = {}
+                if os.path.exists(mapping_path):
+                    with open(mapping_path, "r") as _mf:
+                        try:
+                            mapping_data = json.load(_mf)
+                        except Exception:
+                            mapping_data = {}
+                mapping_data[struct_union.name] = idiomatic_struct_name
+                with open(mapping_path, "w") as _mf:
+                    json.dump(mapping_data, _mf, indent=2)
+                self._struct_name_map_cache = mapping_data
+            except Exception as e:
+                logger.warning("Struct name mapping update skipped: %s", e)
+
         # Save the results
+        self.mark_translation_success("struct", struct_union.name)
         utils.save_code(struct_save_path, struct_result)
 
         return TranslateResult.SUCCESS
@@ -969,7 +1112,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if os.path.exists(function_save_path):
             logger.info("Function %s already translated", function.name)
             # Mark as success for this run so the new failure_info.json is populated
-            self.failure_info[function.name]['status'] = "success"
+            self.mark_translation_success("function", function.name)
             return TranslateResult.SUCCESS
 
         if attempts > self.max_attempts - 1:
@@ -1638,6 +1781,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 logger.warning("Function name mapping update skipped: %s", e)
 
         # save code
+        self.mark_translation_success("function", function.name)
         utils.save_code(
             f"{self.translated_function_path}/{function.name}.rs", function_result)
 
