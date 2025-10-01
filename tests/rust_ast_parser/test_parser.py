@@ -65,6 +65,22 @@ def test_get_enum_definition_errors_for_missing_enum():
         rust_ast_parser.get_enum_definition("pub enum Foo {}", "Bar")
 
 
+def test_list_struct_enum_union_collects_nested_items():
+    code = """
+    pub struct Root;
+
+    mod inner {
+        pub enum Kind { A }
+        pub union Bits { v: u32 }
+    }
+    """
+
+    items = rust_ast_parser.list_struct_enum_union(code)
+    assert ("Root", "struct") in items
+    assert ("Kind", "enum") in items
+    assert ("Bits", "union") in items
+
+
 def test_get_struct_field_types(code):
     expected = {
         "a": "i32",

@@ -164,6 +164,31 @@ fn get_enum_definition(source_code: &str, enum_name: &str) -> PyResult<String> {
     )))
 }
 
+fn collect_struct_enum_union(items: &[syn::Item], acc: &mut Vec<(String, String)>) {
+    for item in items {
+        match item {
+            syn::Item::Struct(s) => acc.push((s.ident.to_string(), "struct".to_string())),
+            syn::Item::Enum(e) => acc.push((e.ident.to_string(), "enum".to_string())),
+            syn::Item::Union(u) => acc.push((u.ident.to_string(), "union".to_string())),
+            syn::Item::Mod(m) => {
+                if let Some((_, inner_items)) = &m.content {
+                    collect_struct_enum_union(inner_items, acc);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn list_struct_enum_union(source_code: &str) -> PyResult<Vec<(String, String)>> {
+    let ast = parse_src(source_code)?;
+    let mut items = Vec::new();
+    collect_struct_enum_union(&ast.items, &mut items);
+    Ok(items)
+}
+
 #[gen_stub_pyfunction]
 #[pyfunction(signature = (source_code, struct_name=None))]
 fn get_struct_field_types(
@@ -1286,6 +1311,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_func_signatures, m)?)?;
     m.add_function(wrap_pyfunction!(get_struct_definition, m)?)?;
     m.add_function(wrap_pyfunction!(get_enum_definition, m)?)?;
+    m.add_function(wrap_pyfunction!(list_struct_enum_union, m)?)?;
     m.add_function(wrap_pyfunction!(get_struct_field_types, m)?)?;
     m.add_function(wrap_pyfunction!(parse_type_traits, m)?)?;
     m.add_function(wrap_pyfunction!(parse_function_signature, m)?)?;
