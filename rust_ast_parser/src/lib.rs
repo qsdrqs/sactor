@@ -110,17 +110,27 @@ fn get_func_signatures(source_code: &str) -> PyResult<HashMap<String, String>> {
 #[pyfunction]
 fn get_struct_definition(source_code: &str, struct_name: &str) -> PyResult<String> {
     let ast = parse_src(source_code)?;
+    let mut prefix_items: Vec<syn::Item> = Vec::new();
 
     for item in ast.items.iter() {
         if let syn::Item::Struct(s) = item {
             if s.ident == struct_name {
+                let mut items = prefix_items;
+                items.push(syn::Item::Struct(s.clone()));
                 let file = syn::File {
                     shebang: None,
                     attrs: vec![],
-                    items: vec![syn::Item::Struct(s.clone())],
+                    items,
                 };
                 return Ok(prettyplease::unparse(&file));
             }
+        }
+
+        match item {
+            syn::Item::Use(_) | syn::Item::Type(_) | syn::Item::Const(_) => {
+                prefix_items.push(item.clone())
+            }
+            _ => {}
         }
     }
 
@@ -577,17 +587,27 @@ fn get_static_item_definition(source_code: &str, item_name: &str) -> PyResult<St
 #[pyfunction]
 fn get_union_definition(source_code: &str, union_name: &str) -> PyResult<String> {
     let ast = parse_src(source_code)?;
+    let mut prefix_items: Vec<syn::Item> = Vec::new();
 
     for item in ast.items.iter() {
         if let syn::Item::Union(s) = item {
             if s.ident == union_name {
+                let mut items = prefix_items;
+                items.push(syn::Item::Union(s.clone()));
                 let file = syn::File {
                     shebang: None,
                     attrs: vec![],
-                    items: vec![syn::Item::Union(s.clone())],
+                    items,
                 };
                 return Ok(prettyplease::unparse(&file));
             }
+        }
+
+        match item {
+            syn::Item::Use(_) | syn::Item::Type(_) | syn::Item::Const(_) => {
+                prefix_items.push(item.clone())
+            }
+            _ => {}
         }
     }
 

@@ -47,7 +47,11 @@ def test_get_func_signatures(code):
 
 def test_get_struct_definition(code):
     struct_definition = rust_ast_parser.get_struct_definition(code, "Foo")
-    assert struct_definition == '#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n'
+    assert (
+        struct_definition
+        == 'use std::collections::HashMap;\nuse libc::c_int;\n'
+        "#[derive(Copy, Clone)]\nstruct Foo {\n    a: i32,\n    b: i32,\n    self_ptr: *const Foo,\n}\n"
+    )
 
 
 def test_get_enum_definition_returns_pretty_source():
@@ -207,7 +211,11 @@ def test_get_function_definition_errors_for_missing_function(code):
 
 def test_get_union_definition(code):
     union_definition = rust_ast_parser.get_union_definition(code, "Bar")
-    assert union_definition == 'union Bar {\n    a: i32,\n    b: i32,\n}\n'
+    assert (
+        union_definition
+        == 'use std::collections::HashMap;\nuse libc::c_int;\n'
+        "union Bar {\n    a: i32,\n    b: i32,\n}\n"
+    )
 
 def test_get_uses_code(code):
     uses_code = rust_ast_parser.get_uses_code(code)
