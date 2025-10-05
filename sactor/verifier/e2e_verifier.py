@@ -52,39 +52,50 @@ class E2EVerifier(Verifier):
             test_error = self._run_tests(
                 os.path.join(self.build_attempt_path, "target", "debug", "build_attempt"))
         else:
-            if self.executable_object is None:
+            # Library case: we must link provided object files against the built Rust lib
+            executable_variants = self._iter_executable_variants()
+            if not executable_variants:
                 raise ValueError(
                     "executable_object must be provided for library code")
 
-            executable_objects = shlex.split(self.executable_object)
-            link_flags = [f'-L{self.build_attempt_path}/target/debug',
+            link_flags = [
+                f'-L{self.build_attempt_path}/target/debug',
                 '-lbuild_attempt',
-                '-lm']
-            program_combiner_path = os.path.join(
-                self.build_path, "program_combiner")
+                '-lm',
+            ]
+            program_combiner_path = os.path.join(self.build_path, "program_combiner")
             os.makedirs(program_combiner_path, exist_ok=True)
             compiler = utils.get_compiler()
-
-            # make sure executable_objects in front of -l
-            c_compile_cmd = [
-                compiler,
-                '-o',
-                os.path.join(program_combiner_path, "combined"),
-                *executable_objects,
-                *link_flags
-            ]
-            if self.extra_compile_command:
-                c_compile_cmd.extend(self.extra_compile_command)
-
-            logger.debug("Compiling combined program with command: %s", c_compile_cmd)
-            res = subprocess.run(c_compile_cmd)
-            if res.returncode != 0:
-                raise RuntimeError(
-                    f"Error: Failed to compile C code for testing the combined code")
-
             env = utils.patched_env("LD_LIBRARY_PATH", f"{self.build_attempt_path}/target/debug")
-            test_error = self._run_tests(
-                os.path.join(program_combiner_path, "combined"), env=env)
+
+            extra_compile_args = shlex.split(self.extra_compile_command) if self.extra_compile_command else []
+
+            last_result: tuple[VerifyResult, Optional[str]] = (VerifyResult.SUCCESS, None)
+            for index, executable_objects in enumerate(executable_variants):
+                # Always use the same output path; variants are run serially
+                output_path = os.path.join(program_combiner_path, "combined")
+
+                # Build a combined binary with the variant-specific objects first, then our lib flags
+                c_link_cmd = [
+                    compiler,
+                    '-o', output_path,
+                    *executable_objects,
+                    *link_flags,
+                    *extra_compile_args,
+                ]
+                logger.debug("Compiling combined program (variant %s): %s", index, c_link_cmd)
+                res = subprocess.run(c_link_cmd)
+                if res.returncode != 0:
+                    raise RuntimeError("Error: Failed to compile combined program for variant %s" % index)
+
+                logger.debug("Running E2E tests for variant %s", index)
+                last_result = self._run_tests(output_path, env=env)
+                if last_result[0] != VerifyResult.SUCCESS:
+                    logger.error("E2E tests failed for variant %s", index)
+                    return last_result[:2]
+
+            # All variants passed
+            test_error = last_result
 
         if test_error[0] != VerifyResult.SUCCESS:
             logger.error("Failed to run tests for the combined code")

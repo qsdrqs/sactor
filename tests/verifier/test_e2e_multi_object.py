@@ -53,4 +53,5 @@ def test_e2e_verifier_runs_each_executable(tmp_path, monkeypatch, e2e_config):
     assert len(calls) == 2
     assert os.path.basename(calls[0]).startswith("combined")
     assert os.path.basename(calls[1]).startswith("combined")
-    assert calls[0] != calls[1]
+    # New design: reuse the same output name for each variant
+    assert os.path.basename(calls[0]) == os.path.basename(calls[1])
