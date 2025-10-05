@@ -12,18 +12,13 @@ logger = sactor_logging.get_logger(__name__)
 
 
 class StructRoundTripTester:
-    """Create a temp Rust crate containing the combined code and a minimal
-    U->I->U (Unidiomatic->Idiomatic->Unidiomatic) roundtrip test for the target
-    struct, then run `cargo test`.
+    """Build a temp Rust crate with the combined code and run a minimal
+    U->I->U->I roundtrip test for one struct via `cargo test`.
 
-    Assumptions:
-    - `combined_code` contains: idiomatic `{Struct}`, unidiomatic `C{Struct}`,
-      and both converters:
-        unsafe fn {Struct}_to_C{Struct}_mut(&mut {Struct}) -> *mut C{Struct}
-        unsafe fn C{Struct}_to_{Struct}_mut(*mut C{Struct}) -> &'static mut {Struct}
-    - We exercise the roundtrip starting from a zeroed unidiomatic (C{{Struct}})
-      value. This avoids constructing idiomatic values that could be UB to
-      zero-initialize.
+    The test compares idiomatic views (expected vs actual) on fields marked in
+    the SPEC (by_value/by_slice), and always asserts the returned C pointer is
+    non-null and not equal to the input pointer. Fill data is taken from LLM,
+    then samples, else a zeroed-only fallback.
     """
 
     def __init__(self, cargo_bin: str = "cargo", llm=None, spec_root: Optional[str] = None):
@@ -39,12 +34,14 @@ class StructRoundTripTester:
         idiomatic_name: Optional[str] = None,
         allow_fallback: bool = True,
     ) -> tuple[bool, str]:
-        """Return (ok, combined_output_snippet).
+        """Returns a pair `(ok, output_snippet)` from running `cargo test` on
+        the generated crate.
 
-        When `allow_fallback` is False, the first attempted harness result (LLM or
-        samples, whichever runs) is returned immediately without trying the
-        zeroed smoke fallback. Primarily used by tests that want to observe the
-        initial failure.
+        Attempt order is LLM fill -> sample fills -> zeroed fallback. The first
+        successful attempt short-circuits unless `allow_fallback` is False, in
+        which case we return after the first attempt (LLM or samples) even if it
+        fails. The returned snippet is the trailing portion of stdout/stderr for
+        the last attempt (or a labeled combination if all attempts fail).
         """
         if os.environ.get("SACTOR_DISABLE_SELFTEST") == "1":
             return True, "selftest disabled by SACTOR_DISABLE_SELFTEST"
