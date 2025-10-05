@@ -468,8 +468,26 @@ Directly use these enums in your translation and do **NOT** redefine them.
             global_var.name,
             attempts,
         )
-        if global_var.is_const:
-            code_of_global_var = self.c_parser.extract_global_var_definition_code(
+        # Prefer translating a definition when present (even if not const),
+        # otherwise fall back to an extern declaration.
+        # We detect a definition heuristically by checking if the extracted
+        # code snippet contains an initializer ('='). This covers patterns like
+        # `T GLOBAL = { ... };` which must be defined on the Rust side
+        # since the original C definition moves into Rust.
+        code_of_global_var_def = None
+        try:
+            code_of_global_var_def = self.c_parser.extract_global_var_definition_code(
+                global_var.name)
+        except Exception:
+            code_of_global_var_def = None
+
+        has_initializer = False
+        if code_of_global_var_def is not None:
+            # crude but effective: check for '=' in the definition span
+            has_initializer = '=' in code_of_global_var_def
+
+        if global_var.is_const or has_initializer:
+            code_of_global_var = code_of_global_var_def or self.c_parser.extract_global_var_definition_code(
                 global_var.name)
             if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
                 result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)

@@ -238,7 +238,31 @@ class Sactor:
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
+        # Ensure any referenced global vars have been materialized on disk
+        self._ensure_global_vars_translated(translator)
         return final_result, translator
+
+    def _ensure_global_vars_translated(self, translator: Translator) -> None:
+        try:
+            globals_list = self.c_parser.get_global_vars()
+        except Exception:
+            globals_list = []
+        for gv in globals_list:
+            # Skip if file exists already
+            path = os.path.join(
+                translator.result_path,
+                "translated_code_unidiomatic",
+                "global_vars",
+                f"{gv.name}.rs",
+            )
+            if os.path.exists(path):
+                continue
+            # Best-effort generation via translator's implementation
+            try:
+                translator._translate_global_vars_impl(gv)
+            except Exception:
+                # Do not fail the whole pipeline; combiner may still work if unused
+                logger.warning("Failed to backfill global var %s", gv.name)
 
     def _new_idiomatic_translator(self):
         if self.c2rust_translation is None:
@@ -297,4 +321,6 @@ class Sactor:
                 if result != TranslateResult.SUCCESS:
                     final_result = result
 
+        # Ensure any referenced global vars have been materialized on disk
+        self._ensure_global_vars_translated(translator)
         return final_result, translator
