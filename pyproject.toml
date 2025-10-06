@@ -3,7 +3,7 @@ name = "sactor"
 version = "0.1.0"
 description = "Structure-Aware C to Rust Translator"
 authors = [
-    { name = "Tianyang Zhou", email = "qsdrqs@gmail.com" }
+    { name = "Anonymous", email = "Anonymous@gmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.9"

@@ -28,8 +28,13 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 # Install C2Rust from source (pinned to v0.20.0)
 RUN cargo install c2rust --version 0.20.0
 
+
+# Abort here because the following step will fail due to anonymous requirement
+RUN exit 1
+
+
 # Install Crown fork from sactor branch
-RUN git clone -b sactor https://github.com/qsdrqs/crown.git /opt/crown && \
+RUN git clone -b sactor https://github.com/Anonymous/crown.git /opt/crown && \
     cd /opt/crown && \
     cargo build --release && \
     ln -s /opt/crown/target/release/crown /usr/local/bin/crown

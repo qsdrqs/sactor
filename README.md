@@ -14,7 +14,7 @@ the benefits of Rust's safety and performance guarantees.
 - rustup
 - uv (https://github.com/astral-sh/uv)
 - C2Rust (https://github.com/immunant/c2rust, tested on version 0.20.0)
-- Crown fork on `sactor` branch (https://github.com/qsdrqs/crown/tree/sactor)
+- Crown fork on `sactor` branch (https://github.com/Anonymous/crown/tree/sactor) (Due to the anonymous requirement, we cannot provide correct link here.)
 - valgrind (for testing)
 
 ## Installation
