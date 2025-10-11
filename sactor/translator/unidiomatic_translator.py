@@ -985,8 +985,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 else:
                     break
 
-            function_result = rust_ast_parser.unidiomatic_function_cleanup(
-                function_result)
             self.failure_info[function.name]["status"] = "fallback_c2rust"
             self._set_translation_status("function", function.name, "success")
             utils.save_code(function_save_path, function_result)

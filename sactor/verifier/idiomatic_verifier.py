@@ -81,7 +81,7 @@ class IdiomaticVerifier(Verifier):
         if not hints:
             return error_text
 
-        guidance = "\n\n=== SACTOR hint ===\n" + "\n".join(hints)
+        guidance = "\n\n=== HINT ===\n" + "\n".join(hints)
         if guidance in error_text:
             return error_text
         return error_text + guidance

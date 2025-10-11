@@ -2,7 +2,7 @@
 max_translation_attempts = 6
 max_verifier_harness_attempts = 6
 # If true, use c2rust translation results when the unidiomatic translator fails
-unidiomatic_fallback_c2rust = true
+unidiomatic_fallback_c2rust = false
 unidiomatic_fallback_c2rust_fix_attempts = 6
 timeout_seconds = 60 # timeout for the execution of generated code
 system_message = '''
