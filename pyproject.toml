@@ -28,6 +28,7 @@ build-backend = "maturin"
 
 [tool.setuptools]
 packages = ["sactor"]
+include-package-data = true
 
 [tool.uv]
 package = true
@@ -44,6 +45,14 @@ manifest-path = "rust_ast_parser/Cargo.toml"
 include = [
   { path = "rust-toolchain.toml", format = "sdist" }
 ]
+
+[tool.setuptools.package-data]
+"sactor._resources" = [
+    "sactor.default.toml",
+    "sactor_proc_macros/Cargo.toml",
+    "sactor_proc_macros/src/*.rs",
+]
+"sactor.verifier.spec" = ["schema.json"]
 
 [dependency-groups]
 dev = [
