@@ -121,14 +121,13 @@ class Translator(ABC):
             return
         # write into json format
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        utils.try_backup_file(path)
         with open(path, 'w') as f:
             json.dump(self.failure_info, f, indent=4)
 
     def has_dependencies_all_translated(self, cursor, dependencies_mapping, ty="function"):
         ty_dir = ty + "s"
-        result_path = os.path.join(self.result_path, self.base_name, ty_dir, f'{dep.name}.rs')
         for dep in dependencies_mapping(cursor):
+            result_path = os.path.join(self.result_path, self.base_name, ty_dir, f'{dep.name}.rs')
             if not os.path.isfile(result_path):
                 return False
         return True
