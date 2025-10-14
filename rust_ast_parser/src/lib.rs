@@ -10,8 +10,9 @@ use syn::{
     parse_quote, parse_str,
     spanned::Spanned,
     token,
-    visit_mut::VisitMut,
+    visit_mut::{self, VisitMut},
     TypePath,
+    PatIdent, ItemStatic,
     Abi, AttrStyle, Attribute, File, LitStr, Meta, Result, Token,
 };
 use libc::*;
@@ -867,6 +868,48 @@ fn unidiomatic_types_cleanup(code: &str) -> PyResult<String> {
     Ok(prettyplease::unparse(&ast))
 }
 
+/// The mut-remover: walks the AST and clears `mut` when the bound ident matches `name`.
+struct RemoveMut {
+    name: String,
+}
+
+impl RemoveMut {
+    fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+impl VisitMut for RemoveMut {
+    fn visit_pat_ident_mut(&mut self, node: &mut PatIdent) {
+        // If this pattern is a direct identifier binding with the target name, remove `mut`.
+        if node.ident == self.name {
+            node.mutability = None;
+        }
+        // Recurse into subpatterns if any (usually none for simple PatIdent).
+        visit_mut::visit_pat_ident_mut(self, node);
+    }
+
+    fn visit_item_static_mut(&mut self, node: &mut ItemStatic) {
+        if node.ident == self.name {
+            node.mutability = syn::StaticMutability::None; // removes the `mut`
+        }
+        visit_mut::visit_item_static_mut(self, node);
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn remove_mut_from_type_specifiers(code: &str, var_name: &str) -> PyResult<String> {
+    let mut file: File = parse_src(code)?;
+    let mut remover = RemoveMut::new(var_name);
+    visit_mut::visit_file_mut(&mut remover, &mut file);
+
+    // Pretty-print. Use prettyplease for nicer formatting; otherwise use tokens.
+    let formatted = prettyplease::unparse(&file);
+    Ok(formatted)
+}
+
+
 #[gen_stub_pyfunction]
 #[pyfunction]
 fn get_value_type_name(code: &str, value: &str) -> PyResult<String> {
@@ -978,7 +1021,7 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_use_aliases, m)?)?;
     m.add_function(wrap_pyfunction!(get_value_type_name, m)?)?;
     m.add_function(wrap_pyfunction!(replace_libc_numeric_types_to_rust_primitive_types, m)?)?;
-
+    m.add_function(wrap_pyfunction!(remove_mut_from_type_specifiers, m)?)?;
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;
     Ok(())

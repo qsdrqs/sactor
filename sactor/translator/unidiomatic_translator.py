@@ -191,6 +191,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             self.translated_global_var_path, global_var.name + ".rs")
 
         def return_result(global_var_result, verification=True):
+            #remove mut from the binding pattern. Sometimes c2rust translates C `const` variables into Rust `static mut` variables, which is wrong
+            if global_var.is_const:
+                global_var_result = rust_ast_parser.remove_mut_from_type_specifiers(global_var_result, global_var.name)
             # check the global variable name, allow const global variable to have different name
             if global_var.name not in global_var_result and not global_var.is_const:
                 if global_var_result.lower().find(global_var.name.lower()) != -1:
