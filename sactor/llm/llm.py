@@ -8,6 +8,7 @@ from litellm import Router
 
 from sactor import utils
 
+MAX_INPUT_TOKEN_LEN = 20480
 
 class LLM:
     def __init__(self, config, encoding=None, system_msg=None):
@@ -70,9 +71,9 @@ class LLM:
 
     def query(self, prompt, model=None, override_system_message=None) -> str:
         input_tokens = self.enc.encode(prompt)
-        if len(input_tokens) > 20480:
-            print(f"Input is too long: {len(prompt)}")
-            return ""
+        if len(input_tokens) > MAX_INPUT_TOKEN_LEN:
+            print(f"Input is too long: {len(prompt)} in length. Input is truncated to first {MAX_INPUT_TOKEN_LEN} tokens.")
+            prompt = self.enc.decode(input_tokens[:MAX_INPUT_TOKEN_LEN-2]) + " ..."
         utils.print_red(prompt)
         old_system_msg = None
         if override_system_message is not None:
