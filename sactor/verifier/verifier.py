@@ -185,21 +185,19 @@ class Verifier(ABC):
             if valgrind:
                 cmd = valgrind_cmd + cmd
             try:
-                res = subprocess.run(
-                    cmd,
-                    env=env,
-                    cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=timeout,
-                )
+                res = utils.run_command_with_limit(
+                        cmd=cmd,
+                        time_limit_sec=timeout,
+                        cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
+                        env=env
+                    )
             except subprocess.TimeoutExpired as e:
                 return (VerifyResult.TEST_TIMEOUT, f'Failed to run test due to timeout: {e}', i)
-            print(res.stdout.decode())
-            print(res.stderr.decode())
+            print(res.stdout)
+            print(res.stderr)
             if res.returncode != 0:
-                stdout = res.stdout.decode()
-                stderr = res.stderr.decode()
+                stdout = res.stdout
+                stderr = res.stderr
                 feedback = self._collect_feedback(stdout + stderr)
                 if feedback != "":
                     return (VerifyResult.FEEDBACK, feedback, i)
