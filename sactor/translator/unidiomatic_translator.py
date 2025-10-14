@@ -85,6 +85,7 @@ class UnidiomaticTranslator(Translator):
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating enum: {enum.name} (attempts: {attempts})")
         self.init_failure_info("enum", enum.name)
+        self.failure_info_set_attempts(enum.name, attempts + 1)
 
         code_of_enum = self.c_parser.extract_enum_definition_code(enum.name)
         prompt = f'''
@@ -249,6 +250,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
 
         self.init_failure_info("global_var", global_var.name)
+        self.failure_info_set_attempts(global_var.name, attempts + 1)
         if global_var.is_const:
             code_of_global_var = self.c_parser.extract_global_var_definition_code(
                 global_var.name)
@@ -355,6 +357,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         self.init_failure_info("struct", struct_union.name)
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
+        
+        self.failure_info_set_attempts(struct_union.name, attempts + 1)
 
         match struct_union.data_type:
             case DataType.STRUCT:
@@ -401,6 +405,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print(f"Translating function: {function.name} (attempts: {attempts})")
 
         self.init_failure_info("function", function.name)
+        self.failure_info_set_attempts(function.name, attempts + 1)
 
         function_dependencies = function.function_dependencies
         function_name_dependencies = [f.name for f in function_dependencies]
@@ -500,6 +505,7 @@ The function uses the following type aliases, which are defined as:
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
+            self.failure_info_add_attempts_element(global_var.name, "global_var")
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res
@@ -563,6 +569,7 @@ You should **NOT** declare or define them in your translation, as the system wil
                 enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
+                self.failure_info_add_attempts_element(enum_def.name, "enum")
                 self._translate_enum_impl(enum_def)
                 code_of_enum[enum_def] = read_file(os.path.join(self.translated_enum_path, enum_def.name + ".rs"))
 

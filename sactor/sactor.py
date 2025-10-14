@@ -143,8 +143,7 @@ class Sactor:
         if not self.unidiomatic_only:
             result, idiomatic_translator = self._run_idiomatic_translation()
             # Collect failure info
-            idiomatic_translator.save_failure_info(os.path.join(
-                self.result_dir, "idiomatic_failure_info.json"))
+            idiomatic_translator.save_failure_info(idiomatic_translator.failure_info_path)
             if result != TranslateResult.SUCCESS:
                 self.llm.statistic(self.llm_stat)
                 raise ValueError(
@@ -189,6 +188,12 @@ class Sactor:
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
                 if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies, ty="struct"):
+                    translator.init_failure_info("struct", struct.name)
+                    translator.append_failure_info(
+                        struct.name, 
+                        "DEPENDENCY_ERROR", 
+                        f"Not all dependencies are translated. Dependencies are: {str(struct.dependencies)}",
+                        "")                    
                     continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
@@ -198,6 +203,13 @@ class Sactor:
             for function in function_pairs:
                 if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies, ty="struct") \
                     or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies, ty="function"):
+                    translator.init_failure_info("function", function.name)
+                    translator.append_failure_info(
+                        function.name, 
+                        "DEPENDENCY_ERROR", 
+                        (f"Not all dependencies are translated. Function dependencies are: {str(function.function_dependencies)}\n"
+                         f"Struct dependencies are: {str(function.struct_dependencies)}"),
+                         "")                    
                     continue
                 result = translator.translate_function(function)
                 if result != TranslateResult.SUCCESS:
@@ -235,6 +247,12 @@ class Sactor:
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
                 if not translator.has_dependencies_all_translated(struct, lambda s: s.dependencies, ty="struct"):
+                    translator.init_failure_info("struct", struct.name)
+                    translator.append_failure_info(
+                        struct.name, 
+                        "DEPENDENCY_ERROR", 
+                        f"Not all dependencies are translated. Dependencies are: {str(struct.dependencies)}",
+                        "")
                     continue
                 result = translator.translate_struct(struct)
                 if result != TranslateResult.SUCCESS:
@@ -244,6 +262,13 @@ class Sactor:
             for function in function_pairs:
                 if not translator.has_dependencies_all_translated(function, lambda s: s.struct_dependencies, ty="struct") \
                     or not translator.has_dependencies_all_translated(function, lambda s: s.function_dependencies, ty="function"):
+                    translator.init_failure_info("function", function.name)
+                    translator.append_failure_info(
+                        function.name, 
+                        "DEPENDENCY_ERROR", 
+                        (f"Not all dependencies are translated. Function dependencies are: {str(function.function_dependencies)}\n"
+                         f"Struct dependencies are: {str(function.struct_dependencies)}"),
+                         "")
                     continue
                 result = translator.translate_function(function)
 

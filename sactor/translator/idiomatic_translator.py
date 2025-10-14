@@ -99,6 +99,7 @@ class IdiomaticTranslator(Translator):
                 f"Error: Failed to translate enum {enum.name} after {self.max_attempts} attempts")
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         print(f"Translating enum: {enum.name} (attempts: {attempts})")
+        self.failure_info_set_attempts(enum.name, attempts + 1)
 
         if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
             msg = f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet"
@@ -260,6 +261,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             f"Translating global variable: {global_var.name} (attempts: {attempts})")
 
         self.init_failure_info("global_var", global_var.name)
+        self.failure_info_set_attempts(global_var.name, attempts + 1)
+
         if global_var.is_const:
             global_var_name = global_var.name
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
@@ -416,6 +419,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             f"Translating struct: {struct_union.name} (attempts: {attempts})")
 
         self.init_failure_info("struct", struct_union.name)
+        self.failure_info_set_attempts(struct_union.name, attempts + 1)
 
         # Get unidiomatic translation code
         struct_path = os.path.join(
@@ -649,6 +653,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         print(f"Translating function: {function.name} (attempts: {attempts})")
 
         self.init_failure_info("function", function.name)
+        self.failure_info_set_attempts(function.name, attempts + 1)
 
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
@@ -794,6 +799,7 @@ The function uses the following const global variables, whose types and names ar
                 enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
+                self.failure_info_add_attempts_element(enum_def.name, "enum")
                 self._translate_enum_impl(enum_def)
                 with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
                     code_of_enum[enum_def] = file.read()
