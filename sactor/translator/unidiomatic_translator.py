@@ -269,7 +269,7 @@ The global variable is:
 '''
             if global_var.is_array:
                 prompt += f'''
-The global variable is an array with size {global_var.array_size}. Use `static mut` to bypass the Rust's mutability rules if necessary.
+The global variable is an array with size {global_var.array_size}. Use `static` as the specifier in Rust.
 '''
         else:
             code_of_global_var = global_var.get_decl()
