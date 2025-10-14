@@ -691,8 +691,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
                 # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
                 # including the value will break the LLM.
-                # TODO: It may trigger a bug, for example, `static a: &str = "=2"`;. Strictly speaking this need to be done through a Rust parser.
-                type_and_name = f"{code_of_global_var.rsplit("=")[0]};"
+                # Use Rust parser to properly extract type and name, avoiding issues with values containing special characters
+                try:
+                    type_and_name = rust_ast_parser.get_value_type_name(code_of_global_var, global_var.name)
+                except Exception as e:
+                    # Fallback to old method if parsing fails
+                    print(f"Failed to parse global variable {global_var.name} with Rust parser: {e}. Using fallback method.")
+                    type_and_name = f"{code_of_global_var.rsplit('=')[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
                 used_global_vars_only_type_and_names[global_var.name] = type_and_name
 
@@ -1054,10 +1059,10 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 function.name, "COMPILE_ERROR", str(e), function_result
             )
             # TODO: assign a new error code instead of compile_error?
-            result = (VerifyResult.COMPILE_ERROR, str(e))
+            result2 = (VerifyResult.COMPILE_ERROR, str(e))
             return self._translate_function_impl(
                 function,
-                result,
+                result2,
                 error_translation=function_result,
                 attempts=attempts+1
             )
