@@ -38,13 +38,34 @@ fn get_error_context(source: &str, error: &syn::Error) -> String {
 }
 
 fn parse_src(source_code: &str) -> PyResult<File> {
-   parse_str(source_code).map_err(|e| {
-       let msg = format!("Error: {:?}\nContext:\n{}",
-           e,
-           get_error_context(source_code, &e)
-       );
-       pyo3::exceptions::PySyntaxError::new_err(msg)
-   })
+    use std::panic;
+    // parse_str may panic. We need to convert panic to Err
+    let res = panic::catch_unwind(|| {
+        parse_str(source_code).map_err(|e| {
+            let msg = format!("Error: {:?}\nContext:\n{}",
+                e,
+                get_error_context(source_code, &e)
+            );
+            pyo3::exceptions::PySyntaxError::new_err(msg)
+        })
+    });
+    match res {
+        Ok(inner_res) => inner_res,
+        Err(e) => {
+            if let Some(msg) = e.downcast_ref::<&str>() {
+                Err(format!("Error when parsing Rust: {}", msg))
+            }
+            else if let Some(msg) = e.downcast_ref::<String>() {
+                Err(format!("Error when parsing Rust: {}", msg))
+            }
+            else {
+                Err("Error when parsing Rust.".to_string())
+            }.map_err(|msg| {
+                pyo3::exceptions::PySyntaxError::new_err(msg)
+            })
+        }
+    }
+    
 }
 
 // Expose a function to C
@@ -367,16 +388,35 @@ impl syn::visit_mut::VisitMut for UseAliasExpander {
 #[gen_stub_pyfunction]
 #[pyfunction]
 fn expand_use_aliases(code: &str) -> PyResult<String> {
-    let mut ast = parse_src(code)?;
-    let mut expander = UseAliasExpander::new();
+    use std::panic;
+    let res = panic::catch_unwind(|| {
+        let mut ast: File = parse_src(code)?;
+        let mut expander = UseAliasExpander::new();
+        // First pass: collect all aliases
+        expander.collect_aliases(&ast);
 
-    // First pass: collect all aliases
-    expander.collect_aliases(&ast);
+        // Second pass: expand all usages
+        expander.visit_file_mut(&mut ast);
 
-    // Second pass: expand all usages
-    expander.visit_file_mut(&mut ast);
+        Ok(prettyplease::unparse(&ast))
+    });
+    match res {
+        Ok(inner_res) => inner_res,
+        Err(e) => {
+            if let Some(msg) = e.downcast_ref::<&str>() {
+                Err(format!("Error when expand_use_aliases: {}", msg))
+            }
+            else if let Some(msg) = e.downcast_ref::<String>() {
+                Err(format!("Error when expand_use_aliases: {}", msg))
+            }
+            else {
+                Err("Error when expand_use_aliases.".to_string())
+            }.map_err(|msg| {
+                pyo3::exceptions::PySyntaxError::new_err(msg)
+            })
+        }
+    }
 
-    Ok(prettyplease::unparse(&ast))
 }
 
 #[gen_stub_pyfunction]
