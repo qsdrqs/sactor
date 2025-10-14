@@ -68,6 +68,11 @@ class Sactor:
                 "executable_object must be provided for library translation")
 
         self.config = utils.try_load_config(self.config_file)
+        # save the config in the result dir. Sensitive info is removed from the saved config
+        safe_config = utils.remove_keys_from_collection(self.config)
+        os.makedirs(self.result_dir, exist_ok=True)
+        with open(os.path.join(self.result_dir, "config.json"), "w") as f:
+            json.dump(safe_config, f, indent=4)
 
         # Check necessary requirements
         missing_requirements = thirdparty.check_all_requirements()

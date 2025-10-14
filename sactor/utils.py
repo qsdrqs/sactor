@@ -462,3 +462,30 @@ def read_file_lines(path: str) -> List[str]:
         raise FileNotFoundError(f"Could not find file {path}")
     with open(path, "r") as f:
         return f.readlines()
+
+def remove_keys_from_collection(src: dict | list, blacklist: set[str] | None = None) -> dict | list:
+    blacklist = set() if not blacklist else blacklist
+    blacklist.add("key")
+    if type(src) == dict:
+        result = {}
+        for key, value in src.items():
+            keep = True
+            for banned in blacklist:
+                if banned in key:
+                    keep = False
+                    break
+            if keep:
+                ty_value = type(value)
+                if ty_value == dict or ty_value == list:
+                    value = remove_keys_from_collection(value, blacklist)
+                result[key] = value
+    elif type(src) == list:
+        result = []
+        for item in src:
+            ty = type(item)
+            if ty == dict or ty == list:
+                item = remove_keys_from_collection(item, blacklist)
+            result.append(item)
+    else:
+        raise TypeError("Type must be dict or list")
+    return result
