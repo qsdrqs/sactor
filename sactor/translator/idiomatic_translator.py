@@ -32,6 +32,7 @@ class IdiomaticTranslator(Translator):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        continue_run_when_incomplete=False
     ):
         super().__init__(
             llm=llm,
@@ -48,6 +49,8 @@ class IdiomaticTranslator(Translator):
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_idiomatic"
         self.base_name = base_name
+        
+        self.continue_run_when_incomplete = continue_run_when_incomplete
 
         self.translated_struct_path = os.path.join(
             self.result_path, base_name, "structs")
@@ -98,8 +101,13 @@ class IdiomaticTranslator(Translator):
         print(f"Translating enum: {enum.name} (attempts: {attempts})")
 
         if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
-            raise RuntimeError(
-                f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet")
+            msg = f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet"
+            if self.continue_run_when_incomplete:
+                self.append_failure_info(enum.name, "NO_UNIDIOMATIC_CODE_ERROR", msg, "")
+                print(msg)
+                return TranslateResult.NO_UNIDIOMATIC_CODE
+            else:
+                raise RuntimeError(msg)
         code_of_enum = read_file(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs")
         prompt = f'''
 Translate the following unidiomatic Rust enum to idiomatic Rust. Try to avoid using raw pointers in the translation of the enum.
@@ -255,8 +263,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if global_var.is_const:
             global_var_name = global_var.name
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
-                raise RuntimeError(
-                    f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet")
+                msg = f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet"
+                if self.continue_run_when_incomplete:
+                    self.append_failure_info(
+                        global_var_name,
+                        "NO_UNIDIOMATIC_CODE_ERROR",
+                        msg,
+                        ""
+                        )
+                    print(msg)
+                    return TranslateResult.NO_UNIDIOMATIC_CODE
+                else:
+                    raise RuntimeError(msg)
             code_of_global_var = read_file(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs")
             if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
                 # use ast parser to change libc numeric types to Rust primitive types
@@ -403,8 +421,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         struct_path = os.path.join(
             self.unidiomatic_result_path, "translated_code_unidiomatic/structs", struct_union.name + ".rs")
         if not os.path.exists(struct_path):
-            raise RuntimeError(
-                f"Error: Struct {struct_union.name} is not translated into unidiomatic Rust yet")
+            msg = f"Error: Struct {struct_union.name} is not translated into unidiomatic Rust yet"
+            if self.continue_run_when_incomplete:
+                self.append_failure_info(
+                    struct_union.name,
+                    "NO_UNIDIOMATIC_CODE_ERROR",
+                    msg,
+                    ""
+                )
+                print(msg)
+                return TranslateResult.NO_UNIDIOMATIC_CODE
+            else:
+                raise RuntimeError(msg)
 
         unidiomatic_struct_code = read_file(struct_path)
 
@@ -649,6 +677,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
+            self.failure_info_add_attempts_element(global_var.name, "global_var")
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res
@@ -690,8 +719,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         unidiomatic_function_path = os.path.join(
             self.unidiomatic_result_path, "translated_code_unidiomatic/functions", function.name + ".rs")
         if not os.path.exists(unidiomatic_function_path):
-            raise RuntimeError(
-                f"Error: Function {function.name} is not translated into unidiomatic Rust yet")
+            msg = f"Error: Function {function.name} is not translated into unidiomatic Rust yet"
+            if self.continue_run_when_incomplete:
+                self.append_failure_info(
+                    function.name,
+                    "NO_UNIDIOMATIC_CODE_ERROR",
+                    msg,
+                    ""
+                )
+                print(msg)
+                return TranslateResult.NO_UNIDIOMATIC_CODE
+            else:
+                raise RuntimeError(msg)
 
         unidiomatic_function_code = read_file(unidiomatic_function_path)
 

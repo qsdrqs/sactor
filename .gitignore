@@ -5,6 +5,7 @@
 
 pyrightconfig.json
 __pycache__
+.vscode/launch.json
 
 /build
 /result
