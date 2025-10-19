@@ -1,9 +1,8 @@
-pub fn updateStudentInfo(student: &mut Student, newName: &str, newAge: i32) {
-    if newName.is_empty() {
-        println!("Invalid input parameters");
-        return;
+pub fn updateStudentInfo(student: &mut Student, new_name: Option<&str>, new_age: i32) {
+    if let Some(name) = new_name {
+        student.name = name.to_owned();
+        student.age = new_age;
+    } else {
+        eprintln!("Invalid input parameters");
     }
-
-    student.name = Some(newName.to_owned());
-    student.age = newAge;
 }

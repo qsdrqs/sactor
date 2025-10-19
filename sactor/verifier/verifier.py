@@ -6,6 +6,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from sactor import logging as sactor_logging
 from sactor import rust_ast_parser, utils
 from sactor.utils import is_compile_command, process_commands_to_compile, read_file, read_file_lines
 
@@ -14,6 +15,8 @@ from sactor.combiner.combiner import RustCode, merge_uses
 from sactor.combiner.partial_combiner import CombineResult, PartialCombiner
 
 from .verifier_types import VerifyResult
+
+logger = sactor_logging.get_logger(__name__)
 
 class Verifier(ABC):
     def __init__(
@@ -50,27 +53,35 @@ class Verifier(ABC):
             test_cmd = test_cmd.strip()
             test_cmd = json.loads(test_cmd)
             if not isinstance(test_cmd, list):
-                print(
-                    "Error: Invalid test command file, expected a list of dicts, can't find the list")
+                logger.error(
+                    "Invalid test command file %s: expected a list of dicts",
+                    test_cmd_path,
+                )
                 return False
             for cmd in test_cmd:
                 if not isinstance(cmd, dict):
-                    print(
-                        "Error: Invalid test command file, expected a list of dicts, found a non-dict element in list")
+                    logger.error(
+                        "Invalid test command file %s: non-dict element in list",
+                        test_cmd_path,
+                    )
                     return False
                 if 'command' not in cmd:
-                    print(
-                        "Error: Invalid test command file, expected a list of dicts, found a dict without 'command' key")
+                    logger.error(
+                        "Invalid test command file %s: dict without 'command' key",
+                        test_cmd_path,
+                    )
                     return False
                 command = cmd['command']
                 if not isinstance(command, str) and not isinstance(command, list):
-                    print(
-                        "Error: Invalid test command file, expected list or string for 'command'")
+                    logger.error(
+                        "Invalid test command file %s: 'command' must be list or string",
+                        test_cmd_path,
+                    )
                     return False
             return True
 
         except Exception as e:
-            print(f"Error: Invalid test command file {test_cmd_path}: {e}")
+            logger.error("Invalid test command file %s: %s", test_cmd_path, e)
             return False
 
     @abstractmethod
@@ -115,22 +126,22 @@ class Verifier(ABC):
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             # Rust code failed to format, unable to compile
-            print("Rust code failed to format")
+            logger.error("Rust code failed to format")
             return (VerifyResult.COMPILE_ERROR, result.stderr.decode())
 
         # Try to compile the Rust code
         cmd = ["cargo", "build", "--manifest-path",
                f"{self.build_attempt_path}/Cargo.toml"]
-        print(' '.join(cmd))
+        logger.debug("Compiling Rust project: %s", ' '.join(cmd))
         result = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             # Rust code failed to compile
-            print("Rust code failed to compile")
+            logger.error("Rust code failed to compile")
             return (VerifyResult.COMPILE_ERROR, result.stderr.decode())
         else:
             # Rust code compiled successfully
-            print("Rust code compiled successfully")
+            logger.info("Rust code compiled successfully")
             return (VerifyResult.SUCCESS, None)
 
     def try_compile_rust_code(self, rust_code, executable=False) -> tuple[VerifyResult, Optional[str]]:
@@ -181,7 +192,7 @@ class Verifier(ABC):
         for i, cmd in enumerate(test_cmds):
             if test_number is not None and i != test_number:
                 continue
-            print(cmd)
+            logger.debug("Running test command: %s", cmd)
             if valgrind:
                 cmd = valgrind_cmd + cmd
             try:
@@ -193,11 +204,14 @@ class Verifier(ABC):
                     )
             except subprocess.TimeoutExpired as e:
                 return (VerifyResult.TEST_TIMEOUT, f'Failed to run test due to timeout: {e}', i)
-            print(res.stdout)
-            print(res.stderr)
+            stdout = res.stdout
+            stderr = res.stderr
+            if stdout:
+                logger.debug("Test stdout: %s", stdout)
+            if stderr:
+                logger.debug("Test stderr: %s", stderr)
             if res.returncode != 0:
-                stdout = res.stdout
-                stderr = res.stderr
+
                 feedback = self._collect_feedback(stdout + stderr)
                 if feedback != "":
                     return (VerifyResult.FEEDBACK, feedback, i)
@@ -213,9 +227,7 @@ class Verifier(ABC):
     def _run_tests_with_rust(self, target, test_number=None, valgrind=False) -> tuple[VerifyResult, Optional[str], Optional[int]]:
         # get absolute path of the target
         target = os.path.abspath(target)
-        env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = os.path.abspath(
-            f"{self.embed_test_rust_dir}/target/debug")
+        env = utils.patched_env("LD_LIBRARY_PATH", f"{self.embed_test_rust_dir}/target/debug")
         return self._run_tests(target, env, test_number, valgrind)
 
     def _mutate_c_code(self, c_function: FunctionInfo, filename, prefix=False) -> str:
@@ -234,9 +246,9 @@ class Verifier(ABC):
                 function_dependency.name, source_code)
         # If the to-be-translated function is static, then it cannot be linked to the Rust definition.
         # So we remove the static attribute.
-        # This solution may trigger bugs if other linked object files have functions with the same name. 
+        # This solution may trigger bugs if other linked object files have functions with the same name.
         # The above code removing static in function dependencies may also trigger this bug.
-        # TODO: rename the to-be-translated function to a unique name using the current `prefix` argument & mechanism; 
+        # TODO: rename the to-be-translated function to a unique name using the current `prefix` argument & mechanism;
         #       after translation, name the Rust translated function with the original name, and remove its `pub` attribute.
         source_code = c_parser_utils.remove_function_static_decorator(c_function.name, source_code)
         lines = source_code.split("\n")
@@ -280,8 +292,7 @@ class Verifier(ABC):
             tokens = utils.cursor_get_tokens(var_node)
             token_spellings = [token.spelling for token in tokens]
             if len(token_spellings) == 0:
-                print(
-                    f'Error: Global variable is not declared: {var_node.spelling}')
+                logger.error('Global variable is not declared: %s', var_node.spelling)
             used_global_token_spellings.append(
                 (token_spellings, start_line, end_line))
         for token_spellings, start_line, end_line in used_global_token_spellings:
@@ -358,7 +369,7 @@ extern "C" {{
         # should succeed, omit output
         rust_compile_cmd = ["cargo", "build", "--manifest-path",
                             f"{self.embed_test_rust_dir}/Cargo.toml"]
-        print(" ".join(rust_compile_cmd))
+        logger.debug("Compiling embedded Rust crate: %s", " ".join(rust_compile_cmd))
         res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
         if res.returncode != 0:
@@ -394,10 +405,11 @@ extern "C" {{
                 to_check = False
                 if is_compile_command(command):
                     to_check = True
+                logger.debug("Running compile command: %s", command)
                 res = subprocess.run(command)
                 if to_check and res.returncode != 0:
                     raise RuntimeError(
-                        f"Error: Failed to compile C code for function {name}")              
+                        f"Error: Failed to compile C code for function {name}")
 
         else:
             c_compile_cmd = [
@@ -410,7 +422,7 @@ extern "C" {{
             ]
 
             # compile C code
-            print(c_compile_cmd)
+            logger.debug("Compiling C harness: %s", c_compile_cmd)
             res = subprocess.run(c_compile_cmd)
             if res.returncode != 0:
                 raise RuntimeError(
@@ -423,8 +435,10 @@ extern "C" {{
             if self.no_feedback:
                 return (result[0], result[1])
             # rerun with feedback from `trace_fn`
-            print(
-                f"Error: Failed to run tests for function {name}, rerun with feedback")
+            logger.error(
+                "Failed to run tests for function %s, rerunning with feedback",
+                name,
+            )
             if idiomatic:
                 rust_code = rust_ast_parser.add_attr_to_function(
                     rust_code, f'{name}_idiomatic', "#[sactor_proc_macros::trace_fn]")
@@ -436,8 +450,11 @@ extern "C" {{
             res = subprocess.run(rust_compile_cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
             if res.returncode != 0:
-                print(f"Error: Failed to compile Rust code for function {name}")
-                print(res.stderr.decode())
+                logger.error(
+                    "Failed to compile Rust code for function %s during feedback rerun",
+                    name,
+                )
+                logger.error("%s", res.stderr.decode())
                 raise RuntimeError(
                     f"Failed to compile Rust code for function {name}. Error messages from the Rust compiler:\n{res.stderr.decode()}")
 
@@ -461,4 +478,3 @@ extern "C" {{
                 return (result[0], previous_result[1])
 
         return (VerifyResult.SUCCESS, None)
-

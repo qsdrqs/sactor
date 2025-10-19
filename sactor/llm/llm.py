@@ -6,7 +6,10 @@ import tiktoken
 import litellm
 from litellm import Router
 
+from sactor import logging as sactor_logging
 from sactor import utils
+
+logger = sactor_logging.get_logger(__name__)
 
 MAX_INPUT_TOKEN_LEN = 20480
 
@@ -31,13 +34,21 @@ class LLM:
         litellm_config = config.get('litellm', {})
 
         # Debug logging
-        print(f"Default model: '{self.default_model}'")
+        logger.debug("Default model: '%s'", self.default_model)
         model_list = litellm_config.get('model_list', [])
-        print(f" Found {len(model_list)} models in config:")
+        logger.debug("Found %d models in config", len(model_list))
         for i, model_config in enumerate(model_list):
             model_name = model_config.get('model_name', 'MISSING')
             litellm_model = model_config.get('litellm_params', {}).get('model', 'MISSING')
-            print(f"  {i}: '{model_name}' -> '{litellm_model}'")
+            params = model_config.get('litellm_params', {})
+            logging_params = {}
+            for key, value in params.items():
+                for sensitive in ['api', 'token', 'secret']:
+                    if sensitive in key.lower():
+                        # NOTE: Human review is needed to ensure no sensitive info is logged
+                        value = '***REDACTED***'
+                logging_params[key] = value
+            logger.debug("Model mapping %d: '%s' -> '%s': %s", i, model_name, litellm_model, logging_params)
 
         # Create router with model list and settings
         self.router = Router(
@@ -72,9 +83,9 @@ class LLM:
     def query(self, prompt, model=None, override_system_message=None) -> str:
         input_tokens = self.enc.encode(prompt)
         if len(input_tokens) > MAX_INPUT_TOKEN_LEN:
-            print(f"Input is too long: {len(prompt)} in length. Input is truncated to first {MAX_INPUT_TOKEN_LEN} tokens.")
+            logger.warning("Input is too long: %d tokens, truncating to %d tokens", len(input_tokens), MAX_INPUT_TOKEN_LEN)
             prompt = self.enc.decode(input_tokens[:MAX_INPUT_TOKEN_LEN-2]) + " ..."
-        utils.print_red(prompt)
+        sactor_logging.log_llm_prompt(prompt)
         old_system_msg = None
         if override_system_message is not None:
             old_system_msg = self.system_msg
@@ -91,7 +102,7 @@ class LLM:
         self.costed_input_tokens.append(len(input_tokens))
         self.costed_output_tokens.append(len(output_tokens))
 
-        utils.print_green(response)
+        sactor_logging.log_llm_response(response)
 
         if override_system_message is not None and old_system_msg is not None:
             # Restore old message

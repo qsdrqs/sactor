@@ -3,12 +3,16 @@ import os
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from sactor import logging as sactor_logging
 from sactor import utils
 from sactor.c_parser import CParser, FunctionInfo, StructInfo, GlobalVarInfo, EnumInfo
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
 from .translator_types import TranslateResult
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class Translator(ABC):
@@ -25,6 +29,7 @@ class Translator(ABC):
                 utils.find_project_root(), 'result')
         self.failure_info_path = os.path.join(
             self.result_path, "general_failure_info.json")
+        self._failure_info_backup_prepared = False
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         self.failure_info_add_attempts_element(struct_union.name, "struct")
@@ -124,6 +129,18 @@ class Translator(ABC):
         with open(path, 'w') as f:
             json.dump(self.failure_info, f, indent=4)
 
+    def prepare_failure_info_backup(self):
+        if self._failure_info_backup_prepared:
+            return
+        dir_path = os.path.dirname(self.failure_info_path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+        if os.path.exists(self.failure_info_path):
+            utils.try_backup_file(self.failure_info_path)
+            # Start fresh for the new run; previous state lives in the backup.
+            self.failure_info = {}
+        self._failure_info_backup_prepared = True
+
     def has_dependencies_all_translated(self, cursor, dependencies_mapping, ty="function"):
         ty_dir = ty + "s"
         for dep in dependencies_mapping(cursor):
@@ -137,6 +154,14 @@ class Translator(ABC):
             v = sum([1 if v['type'] == ctype and v['status'] == 'success' else 0 for v in self.failure_info.values() ])
             return v
 
-        print(f"{title} translation result summary:")
-        print(f"Functions: successfully translated {count_success("function")} out of {len(self.c_parser.get_functions())} in total")
-        print(f"Structs or Unions: successfully translated {count_success("struct")} out of {len(self.c_parser.get_structs())} in total")
+        logger.info("%s translation result summary:", title)
+        logger.info(
+            "Functions: successfully translated %d out of %d in total",
+            count_success("function"),
+            len(self.c_parser.get_functions()),
+        )
+        logger.info(
+            "Structs or Unions: successfully translated %d out of %d in total",
+            count_success("struct"),
+            len(self.c_parser.get_structs()),
+        )

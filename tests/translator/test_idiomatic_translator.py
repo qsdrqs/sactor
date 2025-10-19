@@ -1,16 +1,20 @@
 import tempfile
-
-import pytest
 from functools import partial
 from unittest.mock import patch
 
+import pytest
+
+from sactor import utils
 from sactor.c_parser import CParser
+from sactor.llm import LLM, llm_factory
 from sactor.thirdparty.crown import Crown
 from sactor.translator import IdiomaticTranslator, TranslateResult
-from sactor.llm import LLM, llm_factory
-from sactor import utils
-from tests.utils import config
 from tests.mock_llm import llm_with_mock
+from tests.utils import config
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Pydantic serializer warnings:UserWarning"
+)
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
@@ -18,6 +22,7 @@ def mock_query_impl(prompt, model, original=None, llm_instance=None):
         with open('tests/translator/mocks/course_manage_idomatic_function') as f:
             return f.read()
     if prompt.find('''Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
+If the struct is designed as a cloneable struct, try to add/implement the `Clone` trait for the struct.
 ```rust
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -25,6 +30,7 @@ pub struct Student {''') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_student') as f:
             return f.read()
     if prompt.find('''Translate the following Rust struct to idiomatic Rust. Try to avoid using raw pointers in the translation of the struct.
+If the struct is designed as a cloneable struct, try to add/implement the `Clone` trait for the struct.
 ```rust
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]

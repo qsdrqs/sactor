@@ -1,6 +1,7 @@
 import os
 import json
 
+from sactor import logging as sactor_logging
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
 from sactor.c_parser.c_parser_utils import preprocess_source_code
@@ -11,6 +12,9 @@ from sactor.thirdparty import C2Rust, Crown
 from sactor.translator import (IdiomaticTranslator, TranslateResult,
                                Translator, UnidiomaticTranslator)
 from sactor.verifier import Verifier
+
+
+logger = sactor_logging.get_logger(__name__)
 
 
 class Sactor:
@@ -33,10 +37,21 @@ class Sactor:
         idiomatic_only=False,
         continue_run_when_incomplete=False
     ):
+        self.config_file = config_file
+        self.config = utils.try_load_config(self.config_file)
+        self.result_dir = os.path.join(
+            os.getcwd(), "sactor_result") if result_dir is None else result_dir
+
+        if not sactor_logging.is_configured():
+            sactor_logging.configure_logging(
+                self.config,
+                result_dir=self.result_dir,
+            )
+
         self.input_file = input_file
         if not Verifier.verify_test_cmd(test_cmd_path):
             raise ValueError("Invalid test command path or format")
-        
+
         self.all_compile_commands = all_compile_commands
         self.processed_compile_commands = utils.process_commands_to_list(
             self.all_compile_commands,
@@ -47,13 +62,9 @@ class Sactor:
         self.build_dir = os.path.join(
             utils.get_temp_dir(), "build") if build_dir is None else build_dir
 
-        self.result_dir = os.path.join(
-            os.getcwd(), "sactor_result") if result_dir is None else result_dir
-
         self.llm_stat = llm_stat if llm_stat is not None else os.path.join(
             self.result_dir, "llm_stat.json")
 
-        self.config_file = config_file
         self.no_verify = no_verify
         self.unidiomatic_only = unidiomatic_only
         self.extra_compile_command = extra_compile_command
@@ -67,7 +78,24 @@ class Sactor:
             raise ValueError(
                 "executable_object must be provided for library translation")
 
-        self.config = utils.try_load_config(self.config_file)
+
+        # Print configuration
+        logger.info("-------------SACTOR Configuration-------------")
+        logger.info("Input file: %s", self.input_file)
+        logger.info("Test command: %s", self.test_cmd_path)
+        logger.info("Is executable: %s", self.is_executable)
+        if not self.is_executable:
+            logger.info("Executable object: %s", self.executable_object)
+        logger.info("Build directory: %s", self.build_dir)
+        logger.info("Result directory: %s", self.result_dir)
+        logger.info("Config file: %s", self.config_file)
+        logger.info("No verify: %s", self.no_verify)
+        logger.info("Unidiomatic only: %s", self.unidiomatic_only)
+        logger.info("LLM statistics file: %s", self.llm_stat)
+        logger.info("Extra compile command: %s", self.extra_compile_command)
+        logger.info("All compile commands: %s", self.all_compile_commands)
+        logger.info("Compile commands file: %s", self.compile_commands_file)
+        logger.info("-------------End of Configuration-------------")
         # save the config in the result dir. Sensitive info is removed from the saved config
         safe_config = utils.remove_keys_from_collection(self.config)
         os.makedirs(self.result_dir, exist_ok=True)
@@ -100,8 +128,12 @@ class Sactor:
                 raise ValueError(
                     "Circular dependencies for structs is not supported yet")
 
-        print("Struct order: ", self.struct_order)
-        print("Function order: ", self.function_order)
+        logger.debug("Total structs: %d; order groups: %d",
+                     sum(len(group) for group in self.struct_order), len(self.struct_order))
+        logger.debug("Total functions: %d; order groups: %d",
+                        sum(len(group) for group in self.function_order), len(self.function_order))
+        logger.debug("Struct order: %s", self.struct_order)
+        logger.debug("Function order: %s", self.function_order)
         self.c2rust = C2Rust(self.input_file_preprocessed)
         self.combiner = ProgramCombiner(
             self.config,
@@ -183,12 +215,13 @@ class Sactor:
             processed_compile_commands=self.processed_compile_commands,
         )
         return translator
-    
+
 
 
 
     def _run_unidomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_unidiomatic_translator()
+        translator.prepare_failure_info_backup()
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:
@@ -248,6 +281,7 @@ class Sactor:
 
     def _run_idiomatic_translation(self) -> tuple[TranslateResult, Translator]:
         translator = self._new_idiomatic_translator()
+        translator.prepare_failure_info_backup()
         final_result = TranslateResult.SUCCESS
         for struct_pairs in self.struct_order:
             for struct in struct_pairs:

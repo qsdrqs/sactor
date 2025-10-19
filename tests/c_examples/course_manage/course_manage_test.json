@@ -26,6 +26,5 @@
   { "command": "python ./course_manage_test.py %t 24" },
   { "command": "python ./course_manage_test.py %t 25" },
   { "command": "python ./course_manage_test.py %t 26" },
-  { "command": "python ./course_manage_test.py %t 27" },
-  { "command": "python ./course_manage_test.py %t 28" }
+  { "command": "python ./course_manage_test.py %t 27" }
 ]

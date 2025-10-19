@@ -1,5 +1,6 @@
 from typing import Optional, override
 
+from sactor import logging as sactor_logging
 from sactor import rust_ast_parser
 from sactor.c_parser import FunctionInfo
 from sactor.combiner.combiner import RustCode, merge_uses
@@ -9,6 +10,8 @@ from .verifier_types import VerifyResult
 
 from ..combiner.rust_code import RustCode
 from ..combiner.combiner import Combiner
+
+logger = sactor_logging.get_logger(__name__)
 
 class UnidiomaticVerifier(Verifier):
     def __init__(
@@ -60,8 +63,9 @@ class UnidiomaticVerifier(Verifier):
         try:
             rust_ast_parser.get_standalone_uses_code_paths(function_code)
         except Exception as e:
-            print(
-                f"Error: Failed to get standalone uses code paths for function {function.name}")
+            logger.error(
+                "Failed to get standalone uses code paths for function %s", function.name
+            )
             return (VerifyResult.COMPILE_ERROR, str(e))
 
         # Run the tests
@@ -74,7 +78,7 @@ class UnidiomaticVerifier(Verifier):
         )
 
         if test_error[0] != VerifyResult.SUCCESS:
-            print(f"Error: Failed to run tests for function {function.name}")
+            logger.error("Failed to run tests for function %s", function.name)
             return test_error
 
         return (VerifyResult.SUCCESS, None)
@@ -113,4 +117,3 @@ extern "C" {{
 {remained_code}
 '''
         return self._try_compile_rust_code_impl(rust_code, executable)
-

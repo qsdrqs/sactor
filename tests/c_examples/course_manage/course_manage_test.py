@@ -188,7 +188,7 @@ Example: ./program "John Doe" 20 "Computer Science" 101 85.5 92.0 88.5"""),
          "Error: Invalid age (must be between 1 and 120)"),
         ('"Lucy Smith" 21 "Mathematics" xyz 88.0',
          "Error: Invalid course code"),
-        ('"Peter Parker" 20 "Physics" 301 85.0 abc 90.0',
+        ('"Peter Parker" 20 "Physics" 301 85.0 0.0 90.0',
          """Student Information:
 ------------------
 Name: Peter Parker

@@ -1,0 +1,38 @@
+{
+    "Course": {
+        "type": "struct",
+        "errors": [],
+        "status": "success"
+    },
+    "Student": {
+        "type": "struct",
+        "errors": [],
+        "status": "success"
+    },
+    "printUsage": {
+        "type": "function",
+        "errors": [],
+        "status": "success"
+    },
+    "updateStudentInfo": {
+        "type": "function",
+        "errors": [],
+        "status": "success"
+    },
+    "main": {
+        "type": "function",
+        "errors": [
+            {
+                "type": "TEST_ERROR",
+                "message": "Running tests...\n==================================================\n\u274c Test 20 failed!\n+ Error: Insufficient arguments\n  Usage: ./program <student_name> <age> <course_name> <course_code> <grade1> [grade2] [grade3] ...\n  Example: ./program \"John Doe\" 20 \"Computer Science\" 101 85.5 92.0 88.5\n- Error: Insufficient arguments\n",
+                "translation": "pub fn main() {\n    use std::env;\n    use std::process;\n    let args: Vec<String> = env::args().collect();\n    let argc = args.len();\n    if argc < 6 {\n        eprintln!(\"Error: Insufficient arguments\");\n        printUsage();\n        process::exit(1);\n    }\n    let student_name = &args[1];\n    let age: i32 = match args[2].parse() {\n        Ok(a) if (1..=120).contains(&a) => a,\n        _ => {\n            eprintln!(\"Error: Invalid age (must be between 1 and 120)\");\n            process::exit(1);\n        }\n    };\n    let course_name_in = &args[3];\n    let course_code: i32 = match args[4].parse() {\n        Ok(code) if code > 0 => code,\n        _ => {\n            eprintln!(\"Error: Invalid course code\");\n            process::exit(1);\n        }\n    };\n    let num_grades = argc - 5;\n    let mut grades: Vec<f32> = Vec::with_capacity(num_grades);\n    for i in 0..num_grades {\n        let s = &args[5 + i];\n        let g: f32 = match s.parse::<f32>() {\n            Ok(v) if (0.0..=100.0).contains(&v) => v,\n            Ok(v) => {\n                eprintln!(\"Error: Invalid grade {} (must be between 0 and 100)\", v);\n                process::exit(1);\n            }\n            Err(_) => {\n                eprintln!(\"Error: Invalid grade (must be between 0 and 100)\");\n                process::exit(1);\n            }\n        };\n        grades.push(g);\n    }\n    let course = Course {\n        course_name: course_name_in.clone(),\n        course_code,\n    };\n    let mut student = Student {\n        name: String::new(),\n        age: 0,\n        enrolled_course: course,\n        grades,\n    };\n    updateStudentInfo(&mut student, Some(student_name.as_str()), age);\n    println!(\"\\nStudent Information:\");\n    println!(\"------------------\");\n    println!(\"Name: {}\", student.name);\n    println!(\"Age: {}\", student.age);\n    println!(\n        \"Course: {} (Code: {})\", student.enrolled_course.course_name, student\n        .enrolled_course.course_code\n    );\n    print!(\"Grades: \");\n    for g in &student.grades {\n        print!(\"{:.1} \", g);\n    }\n    println!();\n    if !student.grades.is_empty() {\n        let sum: f32 = student.grades.iter().copied().sum();\n        println!(\"Average Grade: {:.2}\", sum / (student.grades.len() as f32));\n    }\n}\n"
+            },
+            {
+                "type": "TEST_ERROR",
+                "message": "Running tests...\n==================================================\n\u274c Test 24 failed!\n- Error: Invalid grade 105 (must be between 0 and 100)\n+ Error: Invalid grade 105.000000 (must be between 0 and 100)\n?                         +++++++\n\n",
+                "translation": "pub fn main() {\n    use std::env;\n    use std::io::{self, Write};\n    use std::process;\n    let args: Vec<String> = env::args().collect();\n    let argc = args.len();\n    if argc < 6 {\n        println!(\"Error: Insufficient arguments\");\n        printUsage();\n        let _ = io::stdout().flush();\n        process::exit(1);\n    }\n    let student_name = &args[1];\n    let age: i32 = match args[2].parse::<i32>() {\n        Ok(a) if (1..=120).contains(&a) => a,\n        _ => {\n            println!(\"Error: Invalid age (must be between 1 and 120)\");\n            let _ = io::stdout().flush();\n            process::exit(1);\n        }\n    };\n    let course_name_in = &args[3];\n    let course_code: i32 = match args[4].parse::<i32>() {\n        Ok(code) if code > 0 => code,\n        _ => {\n            println!(\"Error: Invalid course code\");\n            let _ = io::stdout().flush();\n            process::exit(1);\n        }\n    };\n    let num_grades = argc - 5;\n    let mut grades: Vec<f32> = Vec::with_capacity(num_grades);\n    for i in 0..num_grades {\n        let s = &args[5 + i];\n        let g: f32 = match s.parse::<f32>() {\n            Ok(v) if (0.0..=100.0).contains(&v) => v,\n            Ok(v) => {\n                println!(\"Error: Invalid grade {} (must be between 0 and 100)\", v);\n                let _ = io::stdout().flush();\n                process::exit(1);\n            }\n            Err(_) => {\n                println!(\"Error: Invalid grade (must be between 0 and 100)\");\n                let _ = io::stdout().flush();\n                process::exit(1);\n            }\n        };\n        grades.push(g);\n    }\n    let course = Course {\n        course_name: course_name_in.clone(),\n        course_code,\n    };\n    let mut student = Student {\n        name: String::new(),\n        age: 0,\n        enrolled_course: course,\n        grades,\n    };\n    updateStudentInfo(&mut student, Some(student_name), age);\n    println!(\"\\nStudent Information:\");\n    println!(\"------------------\");\n    println!(\"Name: {}\", student.name);\n    println!(\"Age: {}\", student.age);\n    println!(\n        \"Course: {} (Code: {})\", student.enrolled_course.course_name, student\n        .enrolled_course.course_code\n    );\n    print!(\"Grades: \");\n    for g in &student.grades {\n        print!(\"{:.1} \", g);\n    }\n    println!();\n    if !student.grades.is_empty() {\n        let sum: f32 = student.grades.iter().copied().sum();\n        println!(\"Average Grade: {:.2}\", sum / (student.grades.len() as f32));\n    }\n}\n"
+            }
+        ],
+        "status": "failure"
+    }
+}

@@ -3,8 +3,28 @@ import sys
 import os
 
 from sactor import Sactor
+from sactor import logging as sactor_logging
+from sactor import utils
+
+logger = sactor_logging.get_logger(__name__)
 from sactor.test_generator import ExecutableTestGenerator, TestGeneratorResult
 from sactor.test_runner import ExecutableTestRunner, TestRunnerResult
+
+
+def add_logging_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--log-dir',
+        dest='log_dir',
+        help='Override log directory (default: {result_dir}/logs).'
+    )
+
+
+def _configure_logging_from_args(config, args, *, result_dir: str | None = None):
+    return sactor_logging.configure_logging(
+        config,
+        result_dir=result_dir,
+        log_dir_override=getattr(args, 'log_dir', None),
+    )
 
 
 def parse_translate(parser):
@@ -99,15 +119,15 @@ def parse_translate(parser):
         '-a',
         type=str,
         default="",
-        help="""The complete compile commands for the C source file to be translated, including compiling and linking command lines. 
-        This can usually be copied from output of `make build`. 
+        help="""The complete compile commands for the C source file to be translated, including compiling and linking command lines.
+        This can usually be copied from output of `make build`.
         If there are multiple commands, commands should be separated by newlines.
         Example:
         `
         gcc -DHAVE_CONFIG_H -I. -I..  -I../include -I../include  -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2 -MT test_bitwise-bitwise.o -MD -MP -MF .deps/test_bitwise-bitwise.Tpo -c -o test_bitwise-bitwise.o `test -f 'bitwise.c' || echo './'`bitwise.c
         mv -f .deps/test_bitwise-bitwise.Tpo .deps/test_bitwise-bitwise.Po
-        /bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o  
-        ` 
+        /bin/bash ../libtool  --tag=CC   --mode=link gcc -D_V_SELFTEST -O2 -Wall -Wextra -ffast-math -fsigned-char -g -O2   -o test_bitwise test_bitwise-bitwise.o
+        `
         """
     )
 
@@ -165,6 +185,13 @@ def parse_run_tests(parser):
         action='store_true',
         default=None,
         help='Only avaliable for binary targets. If set, the test samples will be fed to the target program via stdin.'
+    )
+
+    parser.add_argument(
+        '--save',
+        '-s',
+        type=str,
+        help='The path to save the output json of the test run and the expected output, if the test fails. If not set, the output will not be saved.'
     )
 
 
@@ -261,11 +288,15 @@ def translate(parser, args):
         if args.executable_object is None:
             parser.error('Executable object must be provided for library targets')
 
+    config = utils.try_load_config(args.config_file)
+    result_dir = args.result_dir if args.result_dir else os.path.join(os.getcwd(), "sactor_result")
+    _configure_logging_from_args(config, args, result_dir=result_dir)
+
     sactor = Sactor(
         input_file=args.input_file,
         test_cmd_path=args.test_command_path,
         build_dir=args.build_dir,
-        result_dir=args.result_dir,
+        result_dir=result_dir,
         config_file=args.config_file,
         no_verify=args.no_verify,
         unidiomatic_only=args.unidiomatic_only,
@@ -283,6 +314,9 @@ def translate(parser, args):
 
 
 def run_tests(parser, args):
+    config = utils.try_load_config(args.config_file)
+    _configure_logging_from_args(config, args)
+
     if args.type == 'lib':
         if args.feed_as_args is not None:
             parser.error('--feed-as-args is only avaliable for binary targets')
@@ -311,14 +345,15 @@ def run_tests(parser, args):
             config_path=args.config_file,
             feed_as_arguments=feed_as_args
         )
-        result = test_runner.run_test(args.test_sample_number)
+        result = test_runner.run_test(args.test_sample_number, args.save)
         if result[0] == TestRunnerResult.PASSED:
-            print(f'✅ Test {args.test_sample_number} passed successfully!')
+            logger.info('✅ Test %d passed successfully!', args.test_sample_number, extra={"plain": True})
             sys.exit(0)
         else:
-            print(f'❌ Test {args.test_sample_number} failed!', file=sys.stderr)
-            print('Diff (-actual +expected):', file=sys.stderr)
-            print(result[1], file=sys.stderr)
+            logger.error('❌ Test %d failed!', args.test_sample_number, extra={"plain": True})
+            logger.error('Diff (-actual +expected):', extra={"plain": True})
+            if result[1]:
+                logger.error('%s', result[1], extra={"plain": True})
             sys.exit(1)
 
     elif args.type == 'lib':
@@ -329,6 +364,9 @@ def run_tests(parser, args):
 
 
 def generate_tests(parser, args):
+    config = utils.try_load_config(args.config_file)
+    _configure_logging_from_args(config, args)
+
     if args.type == 'lib':
         if args.feed_as_args is not None:
             parser.error('--feed-as-args is only avaliable for binary targets')
@@ -368,14 +406,14 @@ def generate_tests(parser, args):
 
         result = test_generator.generate_tests(args.count)
         if result == TestGeneratorResult.SUCCESS:
-            print('✅ Tests generated successfully!')
+            logger.info('✅ Tests generated successfully!', extra={"plain": True})
             test_generator.create_test_task(
                 args.out_test_task_path,
                 args.out_test_sample_path
             )
             sys.exit(0)
         else:
-            print('❌ Failed to generate tests')
+            logger.error('❌ Failed to generate tests', extra={"plain": True})
             sys.exit(1)
     elif args.type == 'lib':
         raise NotImplementedError('Library test runner not implemented yet')
@@ -385,8 +423,12 @@ def generate_tests(parser, args):
 
 
 def main():
+    logging_parent = argparse.ArgumentParser(add_help=False)
+    add_logging_arguments(logging_parent)
+
     parser = argparse.ArgumentParser(
-        description='SACToR: Structure-Aware C To Rust Translator'
+        description='SACToR: Structure-Aware C To Rust Translator',
+        parents=[logging_parent]
     )
 
     subparsers = parser.add_subparsers(
@@ -398,17 +440,20 @@ def main():
 
     translate_parser = subparsers.add_parser(
         'translate',
-        help='Translate C code into Rust code'
+        help='Translate C code into Rust code',
+        parents=[logging_parent]
     )
 
     test_runner_parser = subparsers.add_parser(
         'run-tests',
-        help='Run tests on the target program or library'
+        help='Run tests on the target program or library',
+        parents=[logging_parent]
     )
 
     generate_tests_parser = subparsers.add_parser(
         'generate-tests',
-        help='Generate tests for the target program or library'
+        help='Generate tests for the target program or library',
+        parents=[logging_parent]
     )
 
     parse_translate(translate_parser)

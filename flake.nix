@@ -22,7 +22,7 @@
               pkgs.zlib
               pkgs.uv
               pkgs.valgrind
-              (pkgs.python3. withPackages (ps: with ps; [
+              (pkgs.python3.withPackages (ps: with ps; [
                 tokenizers
               ]))
             ];

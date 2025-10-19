@@ -1,0 +1,27 @@
+{
+    "Course": {
+        "type": "struct",
+        "errors": [],
+        "status": "success"
+    },
+    "Student": {
+        "type": "struct",
+        "errors": [],
+        "status": "success"
+    },
+    "printUsage": {
+        "type": "function",
+        "errors": [],
+        "status": "success"
+    },
+    "updateStudentInfo": {
+        "type": "function",
+        "errors": [],
+        "status": "success"
+    },
+    "main": {
+        "type": "function",
+        "errors": [],
+        "status": "success"
+    }
+}

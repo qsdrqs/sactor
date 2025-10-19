@@ -8,10 +8,14 @@ edition = "2021"
 name = "rust_ast_parser"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["python-extension"]
+python-extension = ["pyo3/extension-module"]
+
 [dependencies]
 prettyplease = "0.2.25"
 proc-macro2 = { version = "1.0.92", features = [ "span-locations" ] }
-pyo3 = { version = "0.25.0", features = [ "extension-module" ] }
+pyo3 = { version = "0.25.0" }
 pyo3-stub-gen = "0.8.2"
 quote = "1.0.37"
 syn = { version = "2.0.79", features = [ "full", "extra-traits", "visit-mut" ] }
