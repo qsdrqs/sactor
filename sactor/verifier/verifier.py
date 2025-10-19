@@ -202,7 +202,7 @@ class Verifier(ABC):
                         cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
                         env=env
                     )
-            except subprocess.TimeoutExpired as e:
+            except TimeoutError as e:
                 return (VerifyResult.TEST_TIMEOUT, f'Failed to run test due to timeout: {e}', i)
             stdout = res.stdout
             stderr = res.stderr

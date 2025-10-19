@@ -537,14 +537,13 @@ def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs)
     def read_available() -> Tuple[None | bytes, None | bytes, None | int]:
         rlist, _, _ = select.select([process.stdout, process.stderr], [], [], 0.5)
         out, err = None, None
-        if rlist:
-            for r in rlist:
-                if r is process.stdout:
-                    out = r.read(4096)
-                elif r is process.stderr:
-                    err = r.read(4096)
-                else:
-                    raise TypeError("Unexpected elements in rlist")
+        for r in rlist:
+            if r is process.stdout:
+                out = r.read(4096)
+            elif r is process.stderr:
+                err = r.read(4096)
+            else:
+                raise TypeError("Unexpected elements in rlist")
         return out, err
     try:
         forced_terminate = False
@@ -558,9 +557,9 @@ def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs)
                 is_timeout = True
                 break
             out, err = read_available()
-            if (out, err) == (None, None):
+            if out is None and err is None:
                 continue  # no data yet; check time again
-            if out == "" and err == "":  # EOF
+            if out == b"" and err == b"":  # EOF
                 break
             if out:
                 captured_out.extend(out)
