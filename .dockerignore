@@ -9,6 +9,7 @@
 # Local environment
 .direnv
 .venv
+.env
 __pycache__
 *.pyc
 

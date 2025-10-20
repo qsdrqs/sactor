@@ -89,16 +89,16 @@ def parse_llm_result(llm_result, *args):
     '''
     res = {}
     for arg in args:
-        start_ptn = re.compile(rf"-+{arg.upper()}-*")
-        end_ptn = re.compile(rf"-+END {arg.upper()}-*")
+        start_ptn = re.compile(rf"-+{re.escape(arg.upper())}-*$")
+        end_ptn = re.compile(rf"-+END {re.escape(arg.upper())}-*$")
         in_arg = False
         arg_result = ""
         for line in llm_result.split("\n"):
             # prevent hallucination to different length of dashes
-            if start_ptn.match(line) and not in_arg:
+            if start_ptn.search(line) and not in_arg:
                 in_arg = True
                 continue
-            if end_ptn.match(line) and in_arg:
+            if end_ptn.search(line) and in_arg:
                 in_arg = False
                 continue
             if in_arg and '```' not in line:
