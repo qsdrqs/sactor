@@ -95,6 +95,8 @@ class Sactor:
         logger.info("Extra compile command: %s", self.extra_compile_command)
         logger.info("All compile commands: %s", self.all_compile_commands)
         logger.info("Compile commands file: %s", self.compile_commands_file)
+        logger.info("Idiomatic only: %s", self.idiomatic_only)
+        logger.info("Continue run when incomplete: %s", self.continue_run_when_incomplete)
         logger.info("-------------End of Configuration-------------")
         # save the config in the result dir. Sensitive info is removed from the saved config
         safe_config = utils.remove_keys_from_collection(self.config)
