@@ -32,6 +32,7 @@ class Translator(ABC):
         self._failure_info_backup_prepared = False
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
+        self.failure_info_add_attempts_element(struct_union.name, "struct")
         res = self._translate_struct_impl(struct_union)
         self.save_failure_info(self.failure_info_path)
         return res
@@ -70,6 +71,7 @@ class Translator(ABC):
         pass
 
     def translate_function(self, function: FunctionInfo) -> TranslateResult:
+        self.failure_info_add_attempts_element(function.name, "function")
         res = self._translate_function_impl(function)
         self.save_failure_info(self.failure_info_path)
         return res
@@ -92,14 +94,32 @@ class Translator(ABC):
             "translation": error_translation
         })
         self.failure_info[item]['status'] = "failure"
+        self.save_failure_info(self.failure_info_path)
 
     def init_failure_info(self, type, item):
         if item not in self.failure_info:
+            # TODO: fix failure_info keys to be unique
+            # Currently we use item name as key,
+            # but a function and a struct can have the same name
+            # and overwrite each other.
             self.failure_info[item] = {
                 "type": type,
                 "errors": [],
-                "status": "untranslated"
+                "status": "untranslated",
+                # number of attempts
+                # each element is the total attempts in each run (when running sactor many times)
+                "attempts": [] 
             }
+            self.save_failure_info(self.failure_info_path)
+
+    def failure_info_add_attempts_element(self, item: str, ty: str):
+        self.init_failure_info(ty, item)
+        self.failure_info[item]['attempts'].append(0)
+        self.save_failure_info(self.failure_info_path)
+
+    def failure_info_set_attempts(self, item, attempts):
+        self.failure_info[item]['attempts'][-1] = attempts
+        self.save_failure_info(self.failure_info_path)
 
     def save_failure_info(self, path):
         if self.failure_info == {}:
@@ -121,10 +141,11 @@ class Translator(ABC):
             self.failure_info = {}
         self._failure_info_backup_prepared = True
 
-    def has_dependencies_all_translated(self, cursor, dependencies_mapping):
+    def has_dependencies_all_translated(self, cursor, dependencies_mapping, ty="function"):
+        ty_dir = ty + "s"
         for dep in dependencies_mapping(cursor):
-            result = subprocess.run(["find", self.result_path, "-name", f'{dep.name}.rs'], capture_output=True, text=True)
-            if len(result.stdout.strip()) == 0:
+            result_path = os.path.join(self.result_path, self.base_name, ty_dir, f'{dep.name}.rs')
+            if not os.path.isfile(result_path):
                 return False
         return True
 
