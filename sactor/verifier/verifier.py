@@ -372,6 +372,17 @@ class Verifier(ABC):
         filename = c_function.node.location.file.name
         rust_code = rust_ast_parser.expose_function_to_c(rust_code, name)
 
+        if name == "main":
+            try:
+                rust_code = rust_ast_parser.append_stmt_to_function(
+                    rust_code, name, "std::process::exit(0);"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to append std::process::exit for main during verification: %s",
+                    exc,
+                )
+
         parsed_rust_code = RustCode(rust_code)
         all_uses = RustCode(rust_code).used_code_list
         if function_dependency_signatures:

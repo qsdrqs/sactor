@@ -3,6 +3,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
+use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::mem;
@@ -96,6 +97,68 @@ fn expose_function_to_c(source_code: &str, function_name: &str) -> PyResult<Stri
     }
     // return the modified source code
     Ok(prettyplease::unparse(&ast))
+}
+
+fn normalize_stmt_with_semi(stmt: syn::Stmt) -> syn::Stmt {
+    match stmt {
+        syn::Stmt::Expr(expr, Some(semi)) => syn::Stmt::Expr(expr, Some(semi)),
+        syn::Stmt::Expr(expr, None) => syn::Stmt::Expr(expr, Some(Token![;](Span::call_site()))),
+        other => other,
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn append_stmt_to_function(
+    source_code: &str,
+    function_name: &str,
+    stmt_code: &str,
+) -> PyResult<String> {
+    let mut ast = parse_src(source_code)?;
+    let parsed_stmt: syn::Stmt = parse_str(stmt_code).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "Failed to parse statement '{}': {}",
+            stmt_code, e
+        ))
+    })?;
+    let target_stmt = normalize_stmt_with_semi(parsed_stmt);
+    let target_tokens = target_stmt.to_token_stream().to_string();
+
+    for item in ast.items.iter_mut() {
+        if let syn::Item::Fn(f) = item {
+            if f.sig.ident != function_name {
+                continue;
+            }
+
+            if f
+                .block
+                .stmts
+                .iter()
+                .any(|existing| existing.to_token_stream().to_string() == target_tokens)
+            {
+                return Ok(prettyplease::unparse(&ast));
+            }
+
+            if let Some(last_idx) = f.block.stmts.len().checked_sub(1) {
+                if matches!(f.block.stmts[last_idx], syn::Stmt::Expr(_, None)) {
+                    if let syn::Stmt::Expr(expr, _) = f.block.stmts.remove(last_idx) {
+                        f.block.stmts.push(syn::Stmt::Expr(
+                            expr,
+                            Some(Token![;](Span::call_site())),
+                        ));
+                    }
+                }
+            }
+
+            f.block.stmts.push(target_stmt.clone());
+            return Ok(prettyplease::unparse(&ast));
+        }
+    }
+
+    Err(pyo3::exceptions::PyValueError::new_err(format!(
+        "Function '{}' not found",
+        function_name
+    )))
 }
 
 #[gen_stub_pyfunction]
@@ -1980,6 +2043,7 @@ fn get_value_type_name(code: &str, value: &str) -> PyResult<String> {
 #[pymodule]
 fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expose_function_to_c, m)?)?;
+    m.add_function(wrap_pyfunction!(append_stmt_to_function, m)?)?;
     m.add_function(wrap_pyfunction!(get_func_signatures, m)?)?;
     m.add_function(wrap_pyfunction!(get_struct_definition, m)?)?;
     m.add_function(wrap_pyfunction!(get_enum_definition, m)?)?;

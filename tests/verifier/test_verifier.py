@@ -1,9 +1,12 @@
-import pytest
-import subprocess
-import shutil
+import json
 import os
+import shutil
+import subprocess
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from sactor import rust_ast_parser
 from sactor.utils import read_file
@@ -123,7 +126,37 @@ def test_mutate_c_code():
             capture_output=True
         )
         output = result.stdout.decode("utf-8")
-        assert output.strip() == "c = 3"
+    assert output.strip() == "c = 3"
+
+
+def test_embed_test_main_appends_exit(tmp_path, config):
+    test_cmd_path = tmp_path / "test_cmd.json"
+    test_cmd_path.write_text(json.dumps([]))
+
+    c_path = tmp_path / "main.c"
+    c_path.write_text("int main(void) { return 0; }\n")
+
+    c_parser = CParser(str(c_path))
+    function_info = c_parser.get_function_info("main")
+
+    build_path = tmp_path / "build"
+    verifier = UnidiomaticVerifier(
+        str(test_cmd_path),
+        config,
+        build_path=str(build_path),
+    )
+
+    rust_code = "fn main() {\n    println!(\"hi\");\n}\n"
+    result = verifier._embed_test_rust(
+        function_info,
+        rust_code=rust_code,
+        function_dependency_signatures=[],
+    )
+    assert result[0] == VerifyResult.SUCCESS
+
+    lib_path = Path(verifier.embed_test_rust_dir) / "src" / "lib.rs"
+    contents = lib_path.read_text()
+    assert contents.count("std::process::exit(0);") == 1
 
 def test_verify_function_with_dependency_uses(config, monkeypatch):
     dependency_code = """

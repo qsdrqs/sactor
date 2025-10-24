@@ -4,12 +4,10 @@ import tempfile
 import pytest
 from functools import partial
 from unittest.mock import patch
-
 from sactor.c_parser import CParser
 from sactor.translator import UnidiomaticTranslator
 from sactor.translator.translator_types import TranslateResult
 from sactor.llm import LLM, llm_factory
-from sactor import utils
 from tests.utils import config
 from tests.mock_llm import llm_with_mock
 
@@ -61,3 +59,91 @@ def test_unidiomatic_translator(llm, config):
         assert result == TranslateResult.SUCCESS
         assert os.path.exists(
             os.path.join(tempdir, 'translated_code_unidiomatic/functions/updateStudentInfo.rs'))
+
+
+def test_c2rust_fallback_main_appends_exit(monkeypatch, tmp_path, config, llm):
+    config['general']['unidiomatic_fallback_c2rust'] = True
+    config['general']['max_translation_attempts'] = 1
+
+    def fail_query(*args, **kwargs):
+        raise AssertionError("LLM should not be called in fallback path")
+
+    monkeypatch.setattr(llm, "query", fail_query)
+
+    c_file = tmp_path / "main_only.c"
+    c_file.write_text(
+        "#include <stdio.h>\n\nint main(void) {\n    puts(\"hi\");\n    return 0;\n}\n"
+    )
+    c_parser = CParser(str(c_file))
+    test_cmd_path = tmp_path / "test_commands.json"
+    test_cmd_path.write_text("[]")
+    result_path = tmp_path / "result"
+    build_path = tmp_path / "build"
+    translator = UnidiomaticTranslator(
+        llm=llm,
+        c2rust_translation='fn main() {\n    println!("hi");\n}\n',
+        c_parser=c_parser,
+        config=config,
+        test_cmd_path=str(test_cmd_path),
+        result_path=str(result_path),
+        build_path=str(build_path),
+    )
+
+    function_info = c_parser.get_function_info('main')
+    result = translator._translate_function_impl(function_info, attempts=1)
+
+    assert result == TranslateResult.SUCCESS
+
+    output_path = result_path / 'translated_code_unidiomatic' / 'functions' / 'main.rs'
+    saved = output_path.read_text()
+    expected = '''pub fn main() {
+    println!("hi");
+}
+'''
+    assert saved == expected
+
+
+def test_llm_main_translation_appends_exit(monkeypatch, tmp_path, config, llm):
+    config['general']['unidiomatic_fallback_c2rust'] = False
+    config['general']['max_translation_attempts'] = 1
+
+    response = '''----FUNCTION----
+```rust
+pub fn main() {
+    println!("hi");
+}
+```
+----END FUNCTION----
+'''
+
+    monkeypatch.setattr(llm, "query", lambda *args, **kwargs: response)
+
+
+    c_file = tmp_path / "main_only.c"
+    c_file.write_text("int main(void) {\n    return 0;\n}\n")
+    c_parser = CParser(str(c_file))
+
+    test_cmd_path = tmp_path / "test_commands.json"
+    test_cmd_path.write_text("[]")
+    result_path = tmp_path / "result"
+    build_path = tmp_path / "build"
+
+    translator = UnidiomaticTranslator(
+        llm=llm,
+        c2rust_translation="",
+        c_parser=c_parser,
+        config=config,
+        test_cmd_path=str(test_cmd_path),
+        result_path=str(result_path),
+        build_path=str(build_path),
+    )
+
+    result = translator.translate_function(c_parser.get_function_info('main'))
+    assert result == TranslateResult.SUCCESS
+
+    saved = (result_path / 'translated_code_unidiomatic' / 'functions' / 'main.rs').read_text()
+    expected = '''pub fn main() {
+    println!("hi");
+}
+'''
+    assert saved == expected
