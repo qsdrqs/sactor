@@ -2,7 +2,10 @@ import json
 
 import pytest
 
-from sactor.translator.fewshots import FUNCTION_FEWSHOTS, STRUCT_FEWSHOTS
+from sactor.translator.idiomatic_fewshots import (
+    FUNCTION_FEWSHOTS,
+    STRUCT_FEWSHOTS,
+)
 from sactor.verifier.spec.spec_types import (validate_basic_function_spec,
                                              validate_basic_struct_spec)
 

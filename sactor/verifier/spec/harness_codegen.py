@@ -6,26 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
 from sactor import rust_ast_parser
-from sactor.verifier.spec._type_utils import (
-    ALLOWED_LEN_WORDS,
-    IDENTIFIER_RE,
-    canonical_type_string,
-    collect_libc_from_type,
-    LIBC_SCALAR_TO_PRIMITIVE,
-    SCALAR_CAST_IDENTITY,
-    SCALAR_CAST_OVERRIDES,
-    SCALAR_TYPES,
-)
+from sactor.verifier.spec._type_utils import (ALLOWED_LEN_WORDS, IDENTIFIER_RE,
+                                              LIBC_SCALAR_TO_PRIMITIVE,
+                                              SCALAR_CAST_IDENTITY,
+                                              SCALAR_CAST_OVERRIDES,
+                                              SCALAR_TYPES,
+                                              canonical_type_string,
+                                              collect_libc_from_type)
 from sactor.verifier.spec.harness_templates import (
-    EnumHarnessContext,
-    FunctionHarnessContext,
-    StructHarnessContext,
-    render_enum_struct_converters,
-    render_function_harness,
-    render_function_macro,
-    render_struct_harness,
-)
-
+    EnumHarnessContext, FunctionHarnessContext, StructHarnessContext,
+    render_enum_struct_converters, render_function_harness,
+    render_function_macro, render_struct_harness)
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +44,6 @@ def _build_function_use_lines(
 
     joined = ", ".join(sorted(libc_types))
     return [f"use std::os::raw::{{{joined}}};"]
-
-
-# NOTE: scalar primitive mappings now live in _type_utils.
 
 
 @dataclass
@@ -148,7 +136,8 @@ class StructSpec:
     def from_dict(cls, data: Optional[dict]) -> "StructSpec":
         if not isinstance(data, dict):
             data = {}
-        fields = [FieldMapping.from_dict(entry) for entry in data.get("fields", [])]
+        fields = [FieldMapping.from_dict(entry)
+                  for entry in data.get("fields", [])]
         variants = list(data.get("variants") or [])
         return cls(
             fields=fields,
@@ -252,11 +241,14 @@ def _preflight_struct_spec(
         # Verify that the idiomatic type exists in the provided Rust code.
         try:
             if i_kind == "enum":
-                rust_ast_parser.get_enum_definition(idiomatic_struct_code, i_type)
+                rust_ast_parser.get_enum_definition(
+                    idiomatic_struct_code, i_type)
             else:
-                rust_ast_parser.get_struct_definition(idiomatic_struct_code, i_type)
+                rust_ast_parser.get_struct_definition(
+                    idiomatic_struct_code, i_type)
         except Exception:
-            blocking.append(f"spec i_type '{i_type}' not found as {i_kind} in idiomatic code")
+            blocking.append(
+                f"spec i_type '{i_type}' not found as {i_kind} in idiomatic code")
 
     derived_len_i_fields: set[str] = set()
     derived_len_c_fields: set[str] = set()
@@ -264,13 +256,15 @@ def _preflight_struct_spec(
     if i_kind == "enum":
         for mapping in spec.fields:
             if "." in mapping.u.name:
-                blocking.append(f"enum: nested field path not supported: {mapping.u.name}")
+                blocking.append(
+                    f"enum: nested field path not supported: {mapping.u.name}")
     elif i_kind == "struct":
         for mapping in spec.fields:
             c_name = mapping.u.name
             i_name = mapping.i.name
             if "." in c_name:
-                blocking.append(f"nested field path not supported: u={c_name} i={i_name}")
+                blocking.append(
+                    f"nested field path not supported: u={c_name} i={i_name}")
                 continue
             if "." in i_name:
                 base, _, suffix = i_name.partition(".")
@@ -279,7 +273,8 @@ def _preflight_struct_spec(
                     if c_name:
                         derived_len_c_fields.add(c_name)
                     continue
-                blocking.append(f"nested field path not supported: u={c_name} i={i_name}")
+                blocking.append(
+                    f"nested field path not supported: u={c_name} i={i_name}")
 
     return StructPreflightResult(
         i_type=i_type,
@@ -336,7 +331,8 @@ def _render_struct_harness(
             else:
                 cast_ty = None
             if cast_ty:
-                init_lines.append(f"            {rust_path}: {c_access} as {cast_ty},")
+                init_lines.append(
+                    f"            {rust_path}: {c_access} as {cast_ty},")
             else:
                 init_lines.append(f"            {rust_path}: {c_access},")
             continue
@@ -412,10 +408,12 @@ def _render_struct_harness(
                     len_from_is_field = True
                     len_from_value = candidate
                 else:
-                    rendered = _render_len_expression(raw_len_from, u_field_types, f"{_C_STRUCT_BIND}.")
+                    rendered = _render_len_expression(
+                        raw_len_from, u_field_types, f"{_C_STRUCT_BIND}.")
                     if rendered is None:
                         msg = f"unsupported len_from expression '{raw_len_from}' for field {c_field}"
-                        init_lines.append(f"{field_comment_indent}// TODO: {msg}")
+                        init_lines.append(
+                            f"{field_comment_indent}// TODO: {msg}")
                         ptr_len_info[c_field] = {
                             "len_from": raw_len_from,
                             "len_expr": None,
@@ -730,7 +728,8 @@ def _build_mut_struct_post_lines(mut_struct_params: list[dict[str, str]]) -> lis
                 )
             )
         else:
-            post_lines.append(f"    // TODO: unsupported post-call conversion for {param_name}")
+            post_lines.append(
+                f"    // TODO: unsupported post-call conversion for {param_name}")
     return post_lines
 
 
@@ -746,7 +745,8 @@ def _prepare_function_arguments(
     for param in id_params:
         pname = (param or {}).get("name")
         if not pname:
-            plan.pre_lines.append("    // TODO: parameter without name in idiomatic signature")
+            plan.pre_lines.append(
+                "    // TODO: parameter without name in idiomatic signature")
             plan.call_args.append("/* TODO unnamed param */")
             continue
 
@@ -754,18 +754,21 @@ def _prepare_function_arguments(
         raw_type = (param or {}).get("type") or traits.get("raw") or ""
         norm_type = traits.get("normalized") or raw_type.replace(" ", "")
 
-        spec_entry = context.by_rust.get(pname) or context.by_u.get(pname) or FieldMapping()
+        spec_entry = context.by_rust.get(
+            pname) or context.by_u.get(pname) or FieldMapping()
         u_field = spec_entry.u
         u_name = u_field.name or pname
         u_shape = u_field.raw_shape
         u_param_info = u_param_map.get(u_name, {})
         c_type_for_param = (
-            u_param_info.get("type") if isinstance(u_param_info, dict) else None
+            u_param_info.get("type") if isinstance(
+                u_param_info, dict) else None
         ) or u_field.type or ""
 
         if norm_type in idiom_names and not traits.get("is_reference"):
             c_alias = c_alias_for(norm_type)
-            struct_ptr = _analyze_struct_ptr_conversion(c_type_for_param, raw_type)
+            struct_ptr = _analyze_struct_ptr_conversion(
+                c_type_for_param, raw_type)
             if struct_ptr and struct_ptr["idiom_ident"] == norm_type:
                 plan.pre_lines.append(
                     f"    // Arg '{pname}': convert {c_type_for_param or '*mut _'} to {norm_type}"
@@ -787,7 +790,8 @@ def _prepare_function_arguments(
         if traits.get("is_option"):
             option_inner = _ensure_traits_dict(traits.get("option_inner"))
             if option_inner.get("is_reference") and option_inner.get("is_mut_reference"):
-                inner = _ensure_traits_dict(option_inner.get("reference_inner"))
+                inner = _ensure_traits_dict(
+                    option_inner.get("reference_inner"))
                 inner_name = (
                     inner.get("path_ident")
                     or inner.get("normalized")
@@ -849,7 +853,8 @@ def _prepare_function_arguments(
                             ptr_name=u_name,
                         )
                     )
-                    plan.pre_lines.append(f"    // will copy back after call for {pname}")
+                    plan.pre_lines.append(
+                        f"    // will copy back after call for {pname}")
                     plan.call_args.append(idiom_var)
                     plan.mut_struct_params.append(
                         {
@@ -886,7 +891,8 @@ def _prepare_function_arguments(
                     plan.call_args.append(f"/* TODO {pname} */")
                 continue
 
-        is_slice, is_slice_optional, slice_elem, is_mut_slice = _classify_slice_traits(traits)
+        is_slice, is_slice_optional, slice_elem, is_mut_slice = _classify_slice_traits(
+            traits)
         if is_slice:
             pointer = PointerInfo.from_shape(u_shape)
             if pointer is None or pointer.kind != "slice":
@@ -905,13 +911,16 @@ def _prepare_function_arguments(
                 plan.pre_lines.append(f"    // TODO: {msg}")
                 plan.call_args.append(f"/* TODO slice {pname} */")
                 continue
-            elem = (slice_elem or "").replace(" ", "") or _infer_slice_elem_from_ptr_ty(u_field.type or "")
+            elem = (slice_elem or "").replace(
+                " ", "") or _infer_slice_elem_from_ptr_ty(u_field.type or "")
             len_var = f"{pname}_len"
             usable_len_var = f"{len_var}_non_null"
             if is_slice_optional:
-                plan.pre_lines.append(f"    // Arg '{pname}': optional slice from {c_ptr_name} with len {len_expr}")
+                plan.pre_lines.append(
+                    f"    // Arg '{pname}': optional slice from {c_ptr_name} with len {len_expr}")
             else:
-                plan.pre_lines.append(f"    // Arg '{pname}': slice from {c_ptr_name} with len {len_expr}")
+                plan.pre_lines.append(
+                    f"    // Arg '{pname}': slice from {c_ptr_name} with len {len_expr}")
             plan.pre_lines.append(f"    let {len_var} = {len_expr};")
             plan.pre_lines.append(
                 f"    let {usable_len_var} = if {c_ptr_name}.is_null() {{ 0 }} else {{ {len_var} }};"
@@ -1060,7 +1069,7 @@ def _build_function_return_handling(
     ret_return_expr = "__ret"
     alias_map = struct_name_alias or {}
 
-    c_alias_for = lambda idiom: c_name_for_idiom.get(idiom, idiom)
+    def c_alias_for(idiom): return c_name_for_idiom.get(idiom, idiom)
 
     if ret_spec is not None:
         u_desc = ret_spec.u
@@ -1086,9 +1095,11 @@ def _build_function_return_handling(
             ptr_meta = shape["ptr"]
             kind = ptr_meta.get("kind")
             c_ret_ty = (
-                u_param_info.get("type") if isinstance(u_param_info, dict) else None
+                u_param_info.get("type") if isinstance(
+                    u_param_info, dict) else None
             ) or u_desc.type or ""
-            struct_ret = _analyze_struct_ptr_conversion(c_ret_ty, i_desc.type or "")
+            struct_ret = _analyze_struct_ptr_conversion(
+                c_ret_ty, i_desc.type or "")
             if struct_ret and struct_ret["idiom_ident"] in struct_dep_names:
                 idiom_ident = struct_ret["idiom_ident"]
                 ret_lines.append(
@@ -1146,7 +1157,8 @@ def _build_function_return_handling(
                     or pointer_traits.get("pointer_base_ident")
                     or pointer_traits.get("pointer_base_raw")
                 )
-                elem_raw = base_candidate if isinstance(base_candidate, str) else ""
+                elem_raw = base_candidate if isinstance(
+                    base_candidate, str) else ""
                 elem = elem_raw or "u8"
                 ret_lines.append(
                     render_function_macro(
@@ -1206,6 +1218,8 @@ def _build_function_return_handling(
                 break
 
     return ret_lines, ret_return_expr
+
+
 def _c_field(name: str) -> str:
     return f"{_C_STRUCT_BIND}.{name}"
 
@@ -1298,7 +1312,8 @@ def _infer_slice_elem_from_ptr_ty(ptr_ty: str) -> str:
     candidate = (traits or {}).get("pointer_element")
     if not isinstance(candidate, str) or not candidate.strip():
         inner_traits = _ensure_traits_dict((traits or {}).get("pointer_inner"))
-        candidate = inner_traits.get("normalized") or inner_traits.get("path_ident")
+        candidate = inner_traits.get(
+            "normalized") or inner_traits.get("path_ident")
     if isinstance(candidate, str):
         stripped = candidate.strip()
         if stripped:
@@ -1326,7 +1341,8 @@ def _extract_box_inner(i_type: str) -> Optional[str]:
         return candidate
 
     # fallback parsing
-    normalized = (parsed or {}).get('normalized') or (i_type or '').replace(' ', '')
+    normalized = (parsed or {}).get('normalized') or (
+        i_type or '').replace(' ', '')
     cleaned = normalized
     if cleaned.startswith("Option<") and cleaned.endswith(">"):
         cleaned = cleaned[len("Option<"):-1]
@@ -1385,7 +1401,8 @@ def _has_non_unit_return(ret_traits: Optional[dict]) -> bool:
     traits = _ensure_traits_dict(ret_traits)
     if not traits:
         return False
-    normalized = traits.get('normalized') or (traits.get('raw') or "").replace(" ", "")
+    normalized = traits.get('normalized') or (
+        traits.get('raw') or "").replace(" ", "")
     return normalized not in {"", "()"}
 
 
@@ -1417,10 +1434,13 @@ def _analyze_struct_ptr_conversion(c_ty: str, raw_i_ty: str) -> Optional[dict]:
     if isinstance(base_ident_value, str) and base_ident_value:
         base_ident = base_ident_value.split("::")[-1]
     if not base_ident:
-        base_ident = ((c_traits or {}).get("pointer_base_normalized") or "").split("::")[-1]
+        base_ident = ((c_traits or {}).get(
+            "pointer_base_normalized") or "").split("::")[-1]
     if not base_ident:
-        inner_traits = _ensure_traits_dict((c_traits or {}).get("pointer_inner"))
-        inner_ident_val = inner_traits.get("path_ident") or inner_traits.get("normalized")
+        inner_traits = _ensure_traits_dict(
+            (c_traits or {}).get("pointer_inner"))
+        inner_ident_val = inner_traits.get(
+            "path_ident") or inner_traits.get("normalized")
         if isinstance(inner_ident_val, str) and inner_ident_val:
             base_ident = inner_ident_val.split("::")[-1]
     if not base_ident:
@@ -1430,7 +1450,8 @@ def _analyze_struct_ptr_conversion(c_ty: str, raw_i_ty: str) -> Optional[dict]:
     info = _ensure_traits_dict(i_traits)
 
     is_option = bool(info.get('is_option'))
-    inner = _ensure_traits_dict(info.get('option_inner') if is_option else info)
+    inner = _ensure_traits_dict(
+        info.get('option_inner') if is_option else info)
     # Strip references
     while inner.get('is_reference'):
         inner = _ensure_traits_dict(inner.get('reference_inner'))
@@ -1440,7 +1461,8 @@ def _analyze_struct_ptr_conversion(c_ty: str, raw_i_ty: str) -> Optional[dict]:
         # Existing branch handles Box conversions elsewhere; skip
         return None
 
-    inner_ident = (inner.get('path_ident') or inner.get('normalized') or '').split('::')[-1]
+    inner_ident = (inner.get('path_ident') or inner.get(
+        'normalized') or '').split('::')[-1]
     if not inner_ident:
         return None
 
@@ -1614,14 +1636,17 @@ def _gen_i_to_c_assign_lines(u: dict, i: dict, i_expr: str, u_field_types: dict[
             lf_ty = u_field_types.get(lf, None)
             if is_opt:
                 if lf_ty is None:
-                    out.append(f"    let _{lf} = {i_expr}.as_ref().map(|v| v.len()).unwrap_or(0) as usize;")
+                    out.append(
+                        f"    let _{lf} = {i_expr}.as_ref().map(|v| v.len()).unwrap_or(0) as usize;")
                 else:
-                    out.append(f"    let _{lf}: {lf_ty} = ({i_expr}.as_ref().map(|v| v.len()).unwrap_or(0) as usize) as {lf_ty};")
+                    out.append(
+                        f"    let _{lf}: {lf_ty} = ({i_expr}.as_ref().map(|v| v.len()).unwrap_or(0) as usize) as {lf_ty};")
             else:
                 if lf_ty is None:
                     out.append(f"    let _{lf} = {i_expr}.len() as usize;")
                 else:
-                    out.append(f"    let _{lf}: {lf_ty} = ({i_expr}.len() as usize) as {lf_ty};")
+                    out.append(
+                        f"    let _{lf}: {lf_ty} = ({i_expr}.len() as usize) as {lf_ty};")
         return out
     return None
 
@@ -1663,6 +1688,7 @@ def _generate_enum_struct_converters(
         vname = v.get("name")
         payload = v.get("payload") or []
         # sort payload by i_field.name numeric (tuple order)
+
         def idx(p):
             try:
                 return int(((p.get("i_field") or {}).get("name") or "0"))
@@ -1734,16 +1760,19 @@ def _generate_enum_struct_converters(
                 if cty is None:
                     temps.append(f"    let _{u_name} = core::mem::zeroed();")
                 else:
-                    temps.append(f"    let _{u_name}: {cty} = core::mem::zeroed();")
+                    temps.append(
+                        f"    let _{u_name}: {cty} = core::mem::zeroed();")
                 u_to_temp[u_name] = f"_{u_name}"
         # ensure tag set to equals value
         equals = v.get("when", {}).get("equals")
         if tag_ty is None:
             temps.append(f"    let _{tag_name} = {equals};")
         else:
-            temps.append(f"    let _{tag_name}: {tag_ty} = ({equals}) as {tag_ty};")
+            temps.append(
+                f"    let _{tag_name}: {tag_ty} = ({equals}) as {tag_ty};")
         # Build struct literal
-        temps_body = "\n".join(f"            {ln.lstrip()}" if ln.startswith("    ") else f"            {ln}" for ln in temps)
+        temps_body = "\n".join(f"            {ln.lstrip()}" if ln.startswith(
+            "    ") else f"            {ln}" for ln in temps)
         struct_fields = []
         # fields order from fmap (spec order)
         for f in fields:
@@ -1752,13 +1781,16 @@ def _generate_enum_struct_converters(
                 return None
             shape = (f.get("u_field") or {}).get("shape")
             if isinstance(shape, dict) and "ptr" in shape:
-                struct_fields.append(f"                {u_name}: {u_to_temp.get(u_name)},")
+                struct_fields.append(
+                    f"                {u_name}: {u_to_temp.get(u_name)},")
                 ptr = shape["ptr"]
                 if ptr.get("kind") == "slice" and "len_from" in ptr:
                     lf = ptr["len_from"]
-                    struct_fields.append(f"                {lf}: {u_to_temp.get(lf)},")
+                    struct_fields.append(
+                        f"                {lf}: {u_to_temp.get(lf)},")
             else:
-                struct_fields.append(f"                {u_name}: {u_to_temp.get(u_name)},")
+                struct_fields.append(
+                    f"                {u_name}: {u_to_temp.get(u_name)},")
 
         struct_body = "\n".join(struct_fields)
         variant_contexts.append(
@@ -1794,14 +1826,16 @@ def generate_struct_harness_from_spec_file(
     if spec_data is None:
         return None
     struct_spec = StructSpec.from_dict(spec_data)
-    preflight = _preflight_struct_spec(struct_name, idiomatic_struct_code, struct_spec)
+    preflight = _preflight_struct_spec(
+        struct_name, idiomatic_struct_code, struct_spec)
     if preflight.blocking_todos:
         return _struct_todo_skeleton(struct_name, preflight.i_type, preflight.blocking_todos)
 
     assert preflight.i_kind in {"struct", "enum"}, "unexpected spec kind"
 
     if preflight.i_kind == "enum":
-        u_field_types = _parse_unidiomatic_struct_field_types(struct_name, unidiomatic_struct_code_renamed)
+        u_field_types = _parse_unidiomatic_struct_field_types(
+            struct_name, unidiomatic_struct_code_renamed)
         fields_raw = [mapping.raw for mapping in struct_spec.fields]
         return _generate_enum_struct_converters(
             struct_name,
@@ -1811,8 +1845,10 @@ def generate_struct_harness_from_spec_file(
             u_field_types,
         )
 
-    u_field_types = _parse_unidiomatic_struct_field_types(struct_name, unidiomatic_struct_code_renamed)
-    rendered = _render_struct_harness(struct_name, preflight.i_type, struct_spec, preflight, u_field_types)
+    u_field_types = _parse_unidiomatic_struct_field_types(
+        struct_name, unidiomatic_struct_code_renamed)
+    rendered = _render_struct_harness(
+        struct_name, preflight.i_type, struct_spec, preflight, u_field_types)
     if rendered is None:
         return None
     return rendered
@@ -1828,7 +1864,8 @@ def _parse_fn_signature(sig: str):
         details = rust_ast_parser.parse_function_signature(cleaned)
     except Exception:
         try:
-            details = rust_ast_parser.parse_function_signature(f"{cleaned} {{}}")
+            details = rust_ast_parser.parse_function_signature(
+                f"{cleaned} {{}}")
         except Exception:
             return None
     name = details.get("name")
@@ -1882,7 +1919,8 @@ def generate_function_harness_from_spec_file(
     def c_alias_for(idiom: str) -> str:
         return c_name_for_idiom.get(idiom, idiom)
 
-    arg_plan = _prepare_function_arguments(id_params, context, idiom_names, c_alias_for, u_param_map)
+    arg_plan = _prepare_function_arguments(
+        id_params, context, idiom_names, c_alias_for, u_param_map)
 
     ret_spec = context.by_rust.get("ret")
     id_call_name = parsed_id[0]
