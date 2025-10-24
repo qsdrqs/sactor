@@ -1,18 +1,16 @@
-pub unsafe fn updateStudentInfo(
-    student: *mut Student,
-    newName: *const libc::c_char,
-    newAge: libc::c_int,
-) {
+use libc::{c_char, c_int, free, malloc, printf, strcpy, strlen};
+pub unsafe fn updateStudentInfo(student: *mut Student, newName: *const c_char, newAge: c_int) {
     if student.is_null() || newName.is_null() {
-        let msg = b"Invalid input parameters\n\0";
-        libc::printf(msg.as_ptr() as *const libc::c_char);
+        printf(b"Invalid input parameters\n\0".as_ptr() as *const c_char);
         return;
     }
     if !(*student).name.is_null() {
-        libc::free((*student).name as *mut libc::c_void);
+        free((*student).name as *mut libc::c_void);
     }
-    let size = libc::strlen(newName) + 1;
-    (*student).name = libc::malloc(size) as *mut libc::c_char;
-    libc::strcpy((*student).name, newName);
+    let name_length = strlen(newName) + 1;
+    (*student).name = malloc(name_length) as *mut c_char;
+    if !(*student).name.is_null() {
+        strcpy((*student).name, newName);
+    }
     (*student).age = newAge;
 }

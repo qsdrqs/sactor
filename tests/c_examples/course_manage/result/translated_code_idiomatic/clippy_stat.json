@@ -1,8 +1,6 @@
 {
-    "total_warnings": 2,
+    "total_warnings": 0,
     "total_errors": 0,
-    "warnings": {
-        "non_snake_case": 2
-    },
+    "warnings": {},
     "errors": {}
 }

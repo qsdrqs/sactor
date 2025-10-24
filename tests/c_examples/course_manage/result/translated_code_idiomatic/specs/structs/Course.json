@@ -1,11 +1,18 @@
 {
   "struct_name": "Course",
+  "i_kind": "struct",
+  "i_type": "Course",
   "fields": [
     {
       "u_field": {
         "name": "courseName",
-        "type": "*mut libc::c_char",
-        "shape": { "ptr": { "kind": "cstring" } }
+        "type": "*mut c_char",
+        "shape": {
+          "ptr": {
+            "kind": "cstring",
+            "null": "nullable"
+          }
+        }
       },
       "i_field": {
         "name": "course_name",
@@ -15,7 +22,7 @@
     {
       "u_field": {
         "name": "courseCode",
-        "type": "libc::c_int",
+        "type": "i32",
         "shape": "scalar"
       },
       "i_field": {

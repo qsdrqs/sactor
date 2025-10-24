@@ -1,5 +1,5 @@
 {
-  "printUsage": "printUsage",
-  "updateStudentInfo": "updateStudentInfo",
+  "printUsage": "print_usage",
+  "updateStudentInfo": "update_student_info",
   "main": "main"
 }
