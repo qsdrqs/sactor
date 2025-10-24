@@ -340,12 +340,23 @@ def _render_enum_typedef(
     typedef_name = node.spelling
     enum_start = utils.byte_to_str_index(b2s, enum_child.extent.start.offset)
     enum_end = utils.byte_to_str_index(b2s, enum_child.extent.end.offset)
-    enum_name = enum_child.spelling or typedef_name
-
     enum_body = content[enum_start:enum_end]
     if typedef_name:
         if enum_body.startswith("enum"):
-            enum_text = f"enum {typedef_name}" + enum_body[4:] + ";"
+            suffix = enum_body[4:]
+            suffix_no_ws = suffix.lstrip()
+            ws_len = len(suffix) - len(suffix_no_ws)
+            prefix_ws = suffix[:ws_len]
+            idx = 0
+            while idx < len(suffix_no_ws) and (suffix_no_ws[idx].isalnum() or suffix_no_ws[idx] == "_"):
+                idx += 1
+            identifier = suffix_no_ws[:idx]
+            remainder = suffix_no_ws[idx:]
+            if identifier:
+                joiner = prefix_ws if prefix_ws else " "
+                enum_text = f"enum{joiner}{typedef_name}{remainder};"
+            else:
+                enum_text = f"enum {typedef_name}{suffix};"
         else:
             enum_text = f"enum {typedef_name} {enum_body};"
     else:
