@@ -3,6 +3,7 @@ import textwrap
 from pathlib import Path
 
 from sactor.verifier.spec.harness_codegen import (
+    _C_STRUCT_BIND,
     _render_len_expression,
     generate_struct_harness_from_spec_file,
     generate_function_harness_from_spec_file,
@@ -20,6 +21,8 @@ def test_generate_struct_harness_basic(tmp_path: Path):
     # Idiomatic: A { num: u32, name: String, data: Vec<u8> }
     spec = {
         "struct_name": "A",
+        "i_kind": "struct",
+        "i_type": "A",
         "fields": [
             {
                 "u_field": {"name": "num", "type": "u32", "shape": "scalar"},
@@ -73,64 +76,69 @@ pub struct CA {
         """\
         use core::ptr;
         use std::ffi;
+
         unsafe fn CA_to_A_mut(input: *mut CA) -> &'static mut A {
             assert!(!input.is_null());
-            let c = &*input;
-            let r = A {
+            let c_struct = &*input;
+            let idiom_struct = A {
                     // Field 'num' -> 'num' (C -> idiomatic)
-                    num: c.num as u32,
+                    num: c_struct.num as u32,
                     // Field 'name' -> 'name' (C -> idiomatic)
-                    name: if !c.name.is_null() {
-                        unsafe { std::ffi::CStr::from_ptr(c.name) }.to_string_lossy().into_owned()
+                    name: if !c_struct.name.is_null() {
+                        unsafe { std::ffi::CStr::from_ptr(c_struct.name) }.to_string_lossy().into_owned()
                     } else {
                         String::new()
                     },
                     // Field 'data' -> 'data' (C -> idiomatic)
-                    data: if !c.data.is_null() && (c.data_len as usize) > 0 {
-                        unsafe { std::slice::from_raw_parts(c.data as *const u8, (c.data_len as usize)) }.to_vec()
+                    data: if !c_struct.data.is_null() && (c_struct.data_len as usize) > 0 {
+                        unsafe { std::slice::from_raw_parts(c_struct.data as *const u8, (c_struct.data_len as usize)) }.to_vec()
                     } else {
                         Vec::<u8>::new()
                     },
                     // Field 'data_len' -> 'data.len' (C -> idiomatic)
                     // Derived field 'data.len' computed via slice metadata
             };
-            Box::leak(Box::new(r))
+            Box::leak(Box::new(idiom_struct))
         }
-        unsafe fn A_to_CA_mut(r: &mut A) -> *mut CA {
+
+        unsafe fn A_to_CA_mut(idiom_struct: &mut A) -> *mut CA {
             // Field 'num' -> 'num' (idiomatic -> C)
-            let _num = r.num;
+            let _num = idiom_struct.num;
             // Field 'name' -> 'name' (idiomatic -> C)
             let _name_ptr: *mut libc::c_char = {
-                let s = std::ffi::CString::new(r.name.clone())
+                let s = std::ffi::CString::new(idiom_struct.name.clone())
                     .unwrap_or_else(|_| std::ffi::CString::new("").unwrap());
                 s.into_raw()
             };
             // Field 'data' -> 'data' (idiomatic -> C)
-            let _data_ptr: *mut u8 = if r.data.is_empty() {
+            let _data_ptr: *mut u8 = if idiom_struct.data.is_empty() {
                 core::ptr::null_mut()
             } else {
-                let mut boxed = r.data.clone().into_boxed_slice();
-                let ptr = boxed.as_mut_ptr();
-                core::mem::forget(boxed);
-                ptr
+                let mut b = idiom_struct.data.clone().into_boxed_slice();
+                let p = b.as_mut_ptr();
+                core::mem::forget(b);
+                p
             };
-            let _data_len: usize = (r.data.len() as usize) as usize;
-            let c = CA {
+            let _data_len: usize = (idiom_struct.data.len() as usize) as usize;
+
+            let c_struct = CA {
                 num: _num,
                 name: _name_ptr,
                 data: _data_ptr,
                 data_len: _data_len,
             };
-            Box::into_raw(Box::new(c))
+            Box::into_raw(Box::new(c_struct))
         }
         """
-    ).strip("\n")
-    assert code == expected
+    ).strip()
+    assert code.strip() == expected
 
 
 def test_generate_struct_harness_with_struct_pointer(tmp_path: Path):
     spec = {
         "struct_name": "Student",
+        "i_kind": "struct",
+        "i_type": "Student",
         "fields": [
             {
                 "u_field": {
@@ -183,13 +191,91 @@ def test_generate_struct_harness_with_struct_pointer(tmp_path: Path):
         str(spec_path),
     )
     assert code is not None
-    expected = (fixtures_dir / "student_harness.rs").read_text().strip("\n")
-    assert code == expected
+    expected = (fixtures_dir / "student_harness.rs").read_text().strip()
+    assert code.strip() == expected
+
+
+def test_generate_enum_harness_basic(tmp_path: Path):
+    spec = {
+        "struct_name": "Event",
+        "i_kind": "enum",
+        "i_type": "Event",
+        "fields": [
+            {
+                "u_field": {"name": "tag", "type": "u8", "shape": "scalar"},
+                "i_field": {"name": "tag", "type": "u8"},
+            },
+            {
+                "u_field": {
+                    "name": "message",
+                    "type": "*mut libc::c_char",
+                    "shape": {"ptr": {"kind": "cstring"}},
+                },
+                "i_field": {"name": "0", "type": "String"},
+            },
+            {
+                "u_field": {"name": "code", "type": "i32", "shape": "scalar"},
+                "i_field": {"name": "0", "type": "i32"},
+            },
+        ],
+        "variants": [
+            {
+                "name": "Message",
+                "when": {"tag": "tag", "equals": 0},
+                "payload": [
+                    {
+                        "u_field": {
+                            "name": "message",
+                            "type": "*mut libc::c_char",
+                            "shape": {"ptr": {"kind": "cstring"}},
+                        },
+                        "i_field": {"name": "0", "type": "String"},
+                    }
+                ],
+            },
+            {
+                "name": "Code",
+                "when": {"tag": "tag", "equals": 1},
+                "payload": [
+                    {
+                        "u_field": {"name": "code", "type": "i32", "shape": "scalar"},
+                        "i_field": {"name": "0", "type": "i32"},
+                    }
+                ],
+            },
+        ],
+    }
+    spec_path = write_json(tmp_path / "event_spec.json", spec)
+
+    idiomatic_struct_code = """pub enum Event {
+    Message(String),
+    Code(i32),
+}
+"""
+    unidiomatic_struct_code = """#[repr(C)]
+pub struct CEvent {
+    pub tag: u8,
+    pub message: *mut libc::c_char,
+    pub code: i32,
+}
+"""
+
+    code = generate_struct_harness_from_spec_file(
+        "Event",
+        idiomatic_struct_code,
+        unidiomatic_struct_code,
+        str(spec_path),
+    )
+    assert code is not None
+    expected = (Path(__file__).parent / "event_enum_harness.rs").read_text().strip()
+    assert code.strip() == expected
 
 
 def test_generate_struct_harness_todo_skeleton(tmp_path: Path):
     spec = {
         "struct_name": "A",
+        "i_kind": "struct",
+        "i_type": "A",
         "fields": [
             {
                 "u_field": {"name": "value", "type": "i32", "shape": "scalar"},
@@ -224,8 +310,8 @@ pub struct CA {
             unimplemented!()
         }
         """
-    )
-    assert code == expected
+    ).strip()
+    assert code.strip() == expected
 
 
 def test_generate_function_harness_basic(tmp_path: Path):
@@ -342,6 +428,77 @@ def test_generate_function_harness_struct_param(tmp_path: Path):
     assert code == expected
 
 
+def test_generate_function_harness_mut_ref_struct(tmp_path: Path):
+    spec = {
+        "function_name": "updateStudentInfo",
+        "fields": [
+            {
+                "u_field": {
+                    "name": "student",
+                    "type": "*mut CStudent",
+                    "shape": {"ptr": {"kind": "ref", "null": "forbidden"}},
+                },
+                "i_field": {"name": "student", "type": "&mut Student"},
+            },
+            {
+                "u_field": {
+                    "name": "newName",
+                    "type": "*const c_char",
+                    "shape": {"ptr": {"kind": "cstring", "null": "nullable"}},
+                },
+                "i_field": {"name": "new_name", "type": "Option<&str>"},
+            },
+            {
+                "u_field": {"name": "newAge", "type": "c_int", "shape": "scalar"},
+                "i_field": {"name": "new_age", "type": "i32"},
+            },
+        ],
+    }
+    spec_path = write_json(tmp_path / "update_student_mut_ref.json", spec)
+
+    idiomatic_sig = (
+        "fn update_student_info(student: &mut Student, new_name: Option<&str>, new_age: i32);"
+    )
+    c_sig = (
+        "fn updateStudentInfo("
+        "student: *mut CStudent, newName: *const c_char, newAge: c_int"
+        ");"
+    )
+
+    code = generate_function_harness_from_spec_file(
+        "updateStudentInfo",
+        idiomatic_sig,
+        c_sig,
+        ["Student"],
+        str(spec_path),
+    )
+    expected = textwrap.dedent(
+        """\
+        use std::os::raw::{c_char, c_int};
+
+        fn updateStudentInfo(student: *mut CStudent, newName: *const c_char, newAge: c_int)
+        {
+            // Arg 'student': convert *mut Student to &mut Student
+            let mut student_idiom: &'static mut Student = unsafe { CStudent_to_Student_mut(student) };
+            // will copy back after call for student
+            // Arg 'new_name': optional C string at newName
+            let new_name_opt = if !newName.is_null() {
+                Some(unsafe { std::ffi::CStr::from_ptr(newName) }.to_string_lossy().into_owned())
+            } else {
+                None
+            };
+            update_student_info(student_idiom, new_name_opt.as_deref(), newAge);
+            if !student.is_null() {
+                let __c_student = unsafe { Student_to_CStudent_mut(student_idiom) };
+                unsafe { *student = *__c_student; }
+                unsafe { let _ = Box::from_raw(__c_student); }
+            }
+        }
+        """
+    ).strip("\n")
+    assert code == expected
+
+
 def test_generate_function_harness_return_cstring(tmp_path: Path):
     spec = {
         "function_name": "create_message",
@@ -450,11 +607,11 @@ def test_generate_function_harness_mut_struct_param(tmp_path: Path):
         pub unsafe extern \"C\" fn process_student(student: *mut CStudent)
         {
             // Arg 'student': convert *mut Student to &mut Student
-            let mut student: &'static mut Student = unsafe { CStudent_to_Student_mut(student) };
+            let mut student_idiom: &'static mut Student = unsafe { CStudent_to_Student_mut(student) };
             // will copy back after call for student
-            process_student_idiomatic(student);
+            process_student_idiomatic(student_idiom);
             if !student.is_null() {
-                let __c_student = unsafe { Student_to_CStudent_mut(student) };
+                let __c_student = unsafe { Student_to_CStudent_mut(student_idiom) };
                 unsafe { *student = *__c_student; }
                 unsafe { let _ = Box::from_raw(__c_student); }
             }
@@ -580,19 +737,23 @@ def test_generate_function_harness_todo_fallback(tmp_path: Path):
 
 def test_render_len_expression_supports_composite_product():
     field_types = {"rows": "usize", "cols": "usize"}
-    rendered = _render_len_expression("rows * cols", field_types, "c.")
-    assert rendered == "((c.rows as usize) * (c.cols as usize))"
+    prefix = f"{_C_STRUCT_BIND}."
+    rendered = _render_len_expression("rows * cols", field_types, prefix)
+    assert rendered == f"(({_C_STRUCT_BIND}.rows as usize) * ({_C_STRUCT_BIND}.cols as usize))"
 
 
 def test_render_len_expression_returns_none_with_unknown_identifier():
     field_types = {"rows": "usize"}
-    rendered = _render_len_expression("rows * missing", field_types, "c.")
+    prefix = f"{_C_STRUCT_BIND}."
+    rendered = _render_len_expression("rows * missing", field_types, prefix)
     assert rendered is None
 
 
 def test_generate_struct_harness_with_len_expression(tmp_path: Path):
     spec = {
         "struct_name": "Matrix",
+        "i_kind": "struct",
+        "i_type": "Matrix",
         "fields": [
             {
                 "u_field": {"name": "n_rows", "type": "usize", "shape": "scalar"},
@@ -637,7 +798,7 @@ pub struct CMatrix {
 
     assert code is not None
     assert "TODO: unsupported len_from expression" not in code
-    assert "((c.n_rows as usize) * (c.n_cols as usize))" in code
+    assert f"(({_C_STRUCT_BIND}.n_rows as usize) * ({_C_STRUCT_BIND}.n_cols as usize))" in code
 
 
 def test_generate_struct_harness_with_renamed_i_type(tmp_path: Path):

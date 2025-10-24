@@ -1,39 +1,33 @@
 ----FUNCTION----
 ```rust
-unsafe fn Course_to_CCourse_mut(input: &mut Course) -> *mut CCourse {
-    let course_name_cstring = std::ffi::CString::new(input.courseName.clone()).expect("CString::new failed");
-    let course_name_ptr = course_name_cstring.into_raw();
-
-    let c_course = CCourse {
-        courseName: course_name_ptr,
-        courseCode: input.courseCode as libc::c_int,
+unsafe fn Course_to_CCourse_mut(idiom_struct: &mut Course) -> *mut CCourse {
+    let _courseName_ptr: *mut libc::c_char = {
+        let s = std::ffi::CString::new(idiom_struct.course_name.clone())
+            .unwrap_or_else(|_| std::ffi::CString::new("").unwrap());
+        s.into_raw()
     };
-
-    Box::into_raw(Box::new(c_course))
+    let _courseCode = idiom_struct.course_code;
+    let c_struct = CCourse {
+        courseName: _courseName_ptr,
+        courseCode: _courseCode,
+    };
+    Box::into_raw(Box::new(c_struct))
 }
 
 unsafe fn CCourse_to_Course_mut(input: *mut CCourse) -> &'static mut Course {
-    if input.is_null() {
-        panic!("Null pointer received for CCourse");
-    }
-
-    let c_course = &mut *input;
-
-    let course_name = if !c_course.courseName.is_null() {
-        let c_str = std::ffi::CStr::from_ptr(c_course.courseName);
-        c_str.to_str().expect("Invalid UTF-8").to_owned()
-    } else {
-        String::new()
+    assert!(!input.is_null());
+    let c_struct = &*input;
+    let idiom_struct = Course {
+        course_name: if !c_struct.courseName.is_null() {
+            unsafe { std::ffi::CStr::from_ptr(c_struct.courseName) }
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            String::new()
+        },
+        course_code: c_struct.courseCode,
     };
-
-    let course_code = c_course.courseCode as i32;
-
-    let course = Course {
-        courseName: course_name,
-        courseCode: course_code,
-    };
-
-    Box::leak(Box::new(course))
+    Box::leak(Box::new(idiom_struct))
 }
 ```
 ----END FUNCTION----

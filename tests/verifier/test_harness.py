@@ -18,6 +18,11 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
+    if "The following struct converters failed to compile." in prompt:
+        if "pub struct Student" in prompt:
+            return read_file('tests/verifier/mock_results/mock_student_harness')
+        if "pub struct Course" in prompt:
+            return read_file('tests/verifier/mock_results/mock_course_harness')
     if prompt.find('There are two structs: Student and CStudent') != -1:
         return read_file('tests/verifier/mock_results/mock_student_harness')
     if prompt.find('There are two structs: Course and CCourse') != -1:
@@ -26,8 +31,7 @@ def mock_query_impl(prompt, model, original=None, llm_instance=None):
 
 
 def general_mock_query_impl(prompt, model, original=None, llm_instance=None):
-    if llm_instance is not None and original is not None:
-        return original(llm_instance, prompt, model)
+    raise AssertionError(f"Unexpected LLM prompt in struct harness test: {prompt[:80]}")
 
 
 @pytest.fixture

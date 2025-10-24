@@ -163,7 +163,7 @@ mod tests {{
 
         formatted_code = utils.format_rust_snippet(combined_code)
 
-        prompt = textwrap.dedent(f"""
+        base_prompt = textwrap.dedent(f"""
 You are assisting with automated Rust roundtrip tests.
 
 The following code defines the idiomatic struct, the repr(C) struct, and the converters:
@@ -189,19 +189,56 @@ Return the statements between these tags, without backticks:
 ----END FILL----
 """).strip()
 
-        try:
-            raw = self.llm.query(prompt)
-        except Exception as e:
-            logger.error("LLM struct sample generation failed: %s", e)
-            return None, True
+        prompt = base_prompt
+        last_error: Optional[str] = None
+        raw_preview: Optional[str] = None
+        max_attempts = 3 # FIXME: make configurable
 
-        try:
-            parsed = utils.parse_llm_result(raw, "fill")["fill"]
-            block = textwrap.dedent(parsed).strip("\n")
-            if block.strip():
-                return block, True
-        except Exception as e:
-            logger.error("Failed to parse LLM fill result: %s", e)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                raw = self.llm.query(prompt)
+            except Exception as e:
+                logger.error("LLM struct sample generation failed: %s", e)
+                return None, True
+
+            raw_preview = raw.strip()
+            try:
+                parsed = utils.parse_llm_result(raw, "fill")["fill"]
+                block = textwrap.dedent(parsed).strip("\n")
+                if block.strip():
+                    return block, True
+                last_error = "fill block was empty"
+            except Exception as e:
+                last_error = str(e)
+
+            logger.error(
+                "Failed to parse LLM fill result (attempt %d/%d): %s",
+                attempt,
+                max_attempts,
+                last_error,
+            )
+
+            if attempt == max_attempts:
+                break
+
+            clipped_preview = raw_preview
+            if len(clipped_preview) > 2000:
+                clipped_preview = clipped_preview[:2000] + "\n...<truncated>..."
+
+            prompt = (
+                f"{base_prompt}\n\n"
+                f"The previous reply was invalid because {last_error}.\n"
+                f"Here is what you returned:\n```\n{clipped_preview}\n```\n"
+                "Respond again with the corrected statements between the "
+                "tags, with no extra commentary."
+            )
+
+        if last_error is not None:
+            logger.error(
+                "Giving up on LLM-generated struct fill after %d attempts; last error: %s",
+                max_attempts,
+                last_error,
+            )
         return None, True
 
     def _render_sample_blocks(self, struct_name: str) -> List[str]:

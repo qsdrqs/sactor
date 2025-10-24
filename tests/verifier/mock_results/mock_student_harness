@@ -1,75 +1,66 @@
-The error encountered indicates a move out of a mutable reference in Rust. This occurs because when dereferencing and attempting to create a new Box with a non-Copy type, Rust attempts to take ownership of the value, which isn't possible through a borrow.
-
-The provided translation function needs a fix where the CCourse is converted back to Course. The issue is in the line that attempts to create a new `Box` from a dereferenced mutable reference without having the `Copy` trait.
-
-To solve it, we should clone the inner structure if the performance impact is acceptable and desired. This will make it clear that we're creating a new instance of `Course` rather than trying to move from the dereference.
-
-Let me wrap the correct solution around the specified tags for you:
-
 ----FUNCTION----
 ```rust
-unsafe fn Student_to_CStudent_mut(input: &mut Student) -> *mut CStudent {
-    let name_ptr = match &input.name {
-        Some(name) => {
-            let c_name = std::ffi::CString::new(name.clone()).expect("Failed to convert to CString");
-            c_name.into_raw() as *mut libc::c_char
-        }
-        None => std::ptr::null_mut(),
+unsafe fn CStudent_to_Student_mut(input: *mut CStudent) -> &'static mut Student {
+    assert!(!input.is_null());
+    let c_struct = &*input;
+    let idiom_struct = Student {
+        name: if !c_struct.name.is_null() {
+            unsafe { std::ffi::CStr::from_ptr(c_struct.name) }
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            String::new()
+        },
+        age: c_struct.age as i32,
+        enrolled_course: if !c_struct.enrolledCourse.is_null() {
+            let tmp = unsafe { CCourse_to_Course_mut(c_struct.enrolledCourse as *mut CCourse) };
+            Some((*tmp).clone())
+        } else {
+            None
+        },
+        grades: if !c_struct.grades.is_null() && (c_struct.numGrades as usize) > 0 {
+            unsafe {
+                std::slice::from_raw_parts(
+                    c_struct.grades as *const f32,
+                    (c_struct.numGrades as usize),
+                )
+            }
+            .to_vec()
+        } else {
+            Vec::<f32>::new()
+        },
     };
-
-    let enrolled_course_ptr = match &mut input.enrolledCourse {
-        Some(course) => Course_to_CCourse_mut(course.as_mut()),
-        None => std::ptr::null_mut(),
-    };
-
-    let grades_len = input.grades.len() as libc::c_int;
-    let grades_ptr = if grades_len > 0 {
-        let grades_box = input.grades.clone().into_boxed_slice();
-        Box::into_raw(grades_box) as *mut libc::c_float
-    } else {
-        std::ptr::null_mut()
-    };
-
-    Box::into_raw(Box::new(CStudent {
-        name: name_ptr,
-        age: input.age,
-        enrolledCourse: enrolled_course_ptr,
-        grades: grades_ptr,
-        numGrades: grades_len,
-    }))
+    Box::leak(Box::new(idiom_struct))
 }
 
-unsafe fn CStudent_to_Student_mut(input: *mut CStudent) -> &'static mut Student {
-    let name = if !(*input).name.is_null() {
-        Some(
-            std::ffi::CStr::from_ptr((*input).name)
-                .to_string_lossy()
-                .into_owned(),
-        )
-    } else {
-        None
+unsafe fn Student_to_CStudent_mut(idiom_struct: &mut Student) -> *mut CStudent {
+    let _name_ptr: *mut libc::c_char = {
+        let s = std::ffi::CString::new(idiom_struct.name.clone())
+            .unwrap_or_else(|_| std::ffi::CString::new("").unwrap());
+        s.into_raw()
     };
-
-    let enrolled_course = if !(*input).enrolledCourse.is_null() {
-        Some(Box::new(CCourse_to_Course_mut((*input).enrolledCourse).clone()))
-    } else {
-        None
+    let _age = idiom_struct.age;
+    let _enrolledCourse_ptr: *mut CCourse = match idiom_struct.enrolled_course.as_mut() {
+        Some(v) => unsafe { Course_to_CCourse_mut(v) },
+        None => core::ptr::null_mut(),
     };
-
-    let grades = if !(*input).grades.is_null() && (*input).numGrades > 0 {
-        Vec::from_raw_parts((*input).grades, (*input).numGrades as usize, (*input).numGrades as usize)
+    let _grades_ptr: *mut f32 = if idiom_struct.grades.is_empty() {
+        core::ptr::null_mut()
     } else {
-        Vec::new()
+        let mut boxed = idiom_struct.grades.clone().into_boxed_slice();
+        let ptr = boxed.as_mut_ptr();
+        core::mem::forget(boxed);
+        ptr
     };
-
-    Box::leak(Box::new(Student {
-        name,
-        age: (*input).age,
-        enrolledCourse: enrolled_course,
-        grades,
-    }))
+    let _numGrades: libc::c_int = (idiom_struct.grades.len() as usize) as libc::c_int;
+    let c_struct = CStudent {
+        name: _name_ptr,
+        age: _age,
+        enrolledCourse: _enrolledCourse_ptr,
+        grades: _grades_ptr,
+        numGrades: _numGrades,
+    };
+    Box::into_raw(Box::new(c_struct))
 }
 ```
 ----END FUNCTION----
-
-With the modification to clone the `Course` struct after converting from `CCourse`, this should compile without errors.

@@ -87,13 +87,13 @@
       "additionalProperties": true,
       "properties": {
         "version": { "type": "string" },
-        "struct_name": { "type": "string" },
+        "struct_name": { "type": "string", "description": "Name of the translated idiomatic struct." },
         "fields": { "type": "array", "items": { "$ref": "#/$defs/Field" }, "minItems": 1 },
         "i_kind": { "type": "string", "enum": ["struct", "enum"], "default": "struct" },
         "i_type": { "type": "string", "description": "Idiomatic type name (useful when i_kind=enum)" },
         "variants": { "type": "array", "items": { "$ref": "#/$defs/EnumVariant" } }
       },
-      "required": ["fields"]
+      "required": ["fields", "i_kind", "i_type"]
     },
     "FunctionSpec": {
       "type": "object",
@@ -101,7 +101,7 @@
       "additionalProperties": true,
       "properties": {
         "version": { "type": "string" },
-        "function_name": { "type": "string" },
+        "function_name": { "type": "string", "description": "Name of the translated idiomatic function." },
         "fields": { "type": "array", "items": { "$ref": "#/$defs/Field" }, "minItems": 1 }
       },
       "required": ["fields"]
