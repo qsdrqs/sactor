@@ -1,0 +1,37 @@
+{% for use_line in uses %}
+{{ use_line }}
+{% endfor %}
+
+unsafe fn C{{ struct_name }}_to_{{ idiom_type }}_mut(input: *mut C{{ struct_name }}) -> &'static mut {{ idiom_type }} {
+    assert!(!input.is_null());
+    let c_struct = &*input;
+    let idiom_struct = match c_struct.{{ tag_field }} {
+{% for arm in to_rust_arms %}
+        {{ arm.match_value }} => {{ arm.expression }},
+{% endfor %}
+        _ => panic!("unsupported tag value"),
+    };
+    Box::leak(Box::new(idiom_struct))
+}
+
+unsafe fn {{ idiom_type }}_to_C{{ struct_name }}_mut(idiom_struct: &mut {{ idiom_type }}) -> *mut C{{ struct_name }} {
+    let c_struct = match idiom_struct {
+{% for variant in variants %}
+        {{ variant.pattern }} => {
+{% if variant.temps %}
+{% for line in variant.temps %}
+{{ line }}
+{% endfor %}
+
+{% endif %}
+            C{{ struct_name }} {
+{% for field_line in variant.struct_fields %}
+{{ field_line }}
+{% endfor %}
+            }
+        },
+{% endfor %}
+        _ => panic!("unsupported variant"),
+    };
+    Box::into_raw(Box::new(c_struct))
+}

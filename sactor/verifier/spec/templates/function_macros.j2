@@ -1,0 +1,133 @@
+{%- macro option_struct_storage(storage_var, struct_name, converter, ptr_name, indent="    ") -%}
+{{ indent }}let mut {{ storage_var }}: Option<&'static mut {{ struct_name }}> = if !{{ ptr_name }}.is_null() {
+{{ indent }}    Some(unsafe { {{ converter }}({{ ptr_name }}) })
+{{ indent }}} else {
+{{ indent }}    None
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro convert_struct_ptr(var_name, struct_name, converter, ptr_name, indent="    ") -%}
+{{ indent }}let mut {{ var_name }}: &'static mut {{ struct_name }} = unsafe { {{ converter }}({{ ptr_name }}) };
+{%- endmacro %}
+
+{%- macro slice_option_mut(var_name, elem_type, len_expr, ptr_expr, indent="    ") -%}
+{{ indent }}let {{ var_name }}: Option<&mut [{{ elem_type }}]> = if {{ len_expr }} == 0 {
+{{ indent }}    None
+{{ indent }}} else {
+{{ indent }}    Some(unsafe { std::slice::from_raw_parts_mut({{ ptr_expr }}, {{ len_expr }}) })
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro slice_option_ref(var_name, elem_type, len_expr, ptr_expr, indent="    ") -%}
+{{ indent }}let {{ var_name }}: Option<&[{{ elem_type }}]> = if {{ len_expr }} == 0 {
+{{ indent }}    None
+{{ indent }}} else {
+{{ indent }}    Some(unsafe { std::slice::from_raw_parts({{ ptr_expr }}, {{ len_expr }}) })
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro slice_required_mut(var_name, elem_type, len_expr, ptr_expr, indent="    ") -%}
+{{ indent }}let {{ var_name }}: &mut [{{ elem_type }}] = if {{ len_expr }} == 0 {
+{{ indent }}    &mut []
+{{ indent }}} else {
+{{ indent }}    unsafe { std::slice::from_raw_parts_mut({{ ptr_expr }}, {{ len_expr }}) }
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro slice_required_ref(var_name, elem_type, len_expr, ptr_expr, indent="    ") -%}
+{{ indent }}let {{ var_name }}: &[{{ elem_type }}] = if {{ len_expr }} == 0 {
+{{ indent }}    &[]
+{{ indent }}} else {
+{{ indent }}    unsafe { std::slice::from_raw_parts({{ ptr_expr }}, {{ len_expr }}) }
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro cstring_optional(var_name, ptr_name, indent="    ") -%}
+{{ indent }}let {{ var_name }} = if !{{ ptr_name }}.is_null() {
+{{ indent }}    Some(unsafe { std::ffi::CStr::from_ptr({{ ptr_name }}) }.to_string_lossy().into_owned())
+{{ indent }}} else {
+{{ indent }}    None
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro cstring_owned(var_name, ptr_name, indent="    ") -%}
+{{ indent }}let {{ var_name }} = if !{{ ptr_name }}.is_null() {
+{{ indent }}    unsafe { std::ffi::CStr::from_ptr({{ ptr_name }}) }.to_string_lossy().into_owned()
+{{ indent }}} else {
+{{ indent }}    String::new()
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro post_direct_struct(u_name, tmp_var, struct_name, c_name, param_name, indent="    ") -%}
+{{ indent }}if !{{ u_name }}.is_null() {
+{{ indent }}    let {{ tmp_var }} = unsafe { {{ struct_name }}_to_C{{ c_name }}_mut({{ param_name }}) };
+{{ indent }}    unsafe { *{{ u_name }} = *{{ tmp_var }}; }
+{{ indent }}    unsafe { let _ = Box::from_raw({{ tmp_var }}); }
+{{ indent }}}
+{%- endmacro %}
+
+{%- macro post_option_struct(u_name, storage_var, tmp_var, struct_name, c_name, indent="    ") -%}
+{{ indent }}if !{{ u_name }}.is_null() {
+{{ indent }}    if let Some(inner) = {{ storage_var }}.as_deref_mut() {
+{{ indent }}        let {{ tmp_var }} = unsafe { {{ struct_name }}_to_C{{ c_name }}_mut(inner) };
+{{ indent }}        unsafe { *{{ u_name }} = *{{ tmp_var }}; }
+{{ indent }}        unsafe { let _ = Box::from_raw({{ tmp_var }}); }
+{{ indent }}    }
+{{ indent }}}
+{%- endmacro %}
+
+{%- macro write_scalar_pointer(target_ptr, value_expr, indent="    ") -%}
+{{ indent }}if !{{ target_ptr }}.is_null() {
+{{ indent }}    unsafe { *{{ target_ptr }} = {{ value_expr }}; }
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro write_struct_pointer(target_ptr, source_expr, clone_var, tmp_var, converter, indent="    ") -%}
+{{ indent }}if !{{ target_ptr }}.is_null() {
+{{ indent }}    let mut {{ clone_var }} = {{ source_expr }}.clone();
+{{ indent }}    let {{ tmp_var }} = unsafe { {{ converter }}(&mut {{ clone_var }}) };
+{{ indent }}    unsafe { *{{ target_ptr }} = *{{ tmp_var }}; }
+{{ indent }}    unsafe { let _ = Box::from_raw({{ tmp_var }}); }
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro create_cstring_var(var_name, source_expr, indent="    ") -%}
+{{ indent }}let {{ var_name }}: *mut libc::c_char = {
+{{ indent }}    let s = std::ffi::CString::new({{ source_expr }})
+{{ indent }}        .unwrap_or_else(|_| std::ffi::CString::new("").unwrap());
+{{ indent }}    s.into_raw()
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro assign_pointer_from_var(target_ptr, var_name, indent="    ") -%}
+{{ indent }}if !{{ target_ptr }}.is_null() {
+{{ indent }}    unsafe { *{{ target_ptr }} = {{ var_name }}; }
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro slice_return_block(target_ptr, len_ptr, elem_type, vec_var, indent="    ") -%}
+{{ indent }}let {{ vec_var }} = __ret;
+{{ indent }}let {{ vec_var }}_ptr: *mut {{ elem_type }} = if {{ vec_var }}.is_empty() {
+{{ indent }}    core::ptr::null_mut()
+{{ indent }}} else {
+{{ indent }}    let mut boxed = {{ vec_var }}.clone().into_boxed_slice();
+{{ indent }}    let ptr = boxed.as_mut_ptr();
+{{ indent }}    core::mem::forget(boxed);
+{{ indent }}    ptr
+{{ indent }}};
+
+{{ indent }}if !{{ target_ptr }}.is_null() {
+{{ indent }}    unsafe { *{{ target_ptr }} = {{ vec_var }}_ptr; }
+{{ indent }}};
+
+{{ indent }}if !{{ len_ptr }}.is_null() {
+{{ indent }}    unsafe { *{{ len_ptr }} = ({{ vec_var }}.len() as usize) as _; }
+{{ indent }}};
+{%- endmacro %}
+
+{%- macro struct_return_value(converter, tmp_var, indent="    ", clone_var="__ret_clone") -%}
+{{ indent }}let mut {{ clone_var }} = __ret.clone();
+{{ indent }}let {{ tmp_var }} = unsafe { {{ converter }}(&mut {{ clone_var }}) };
+{{ indent }}let __ret_c_value = unsafe { *{{ tmp_var }} };
+{{ indent }}unsafe { let _ = Box::from_raw({{ tmp_var }}); };
+{%- endmacro %}

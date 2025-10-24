@@ -1,0 +1,30 @@
+{% if uses %}
+{% for use_line in uses %}
+{{ use_line }}
+{% endfor %}
+
+{% endif %}
+{{ signature }}
+{
+{% if pre_lines %}
+{% for line in pre_lines %}
+{{ line }}
+{% endfor %}
+{% endif %}
+{{ call_line }}
+{% if ret_lines %}
+{% for line in ret_lines %}
+{{ line }}
+{% endfor %}
+{% endif %}
+{% if post_lines %}
+{% for line in post_lines %}
+{{ line }}
+{% endfor %}
+{% endif %}
+{% if return_line %}
+{% for line in return_line %}
+{{ line }}
+{% endfor %}
+{% endif %}
+}

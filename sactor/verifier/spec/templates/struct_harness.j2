@@ -1,0 +1,32 @@
+{% for use_line in uses %}
+{{ use_line }}
+{% endfor %}
+
+unsafe fn C{{ struct_name }}_to_{{ idiomatic_type }}_mut(input: *mut C{{ struct_name }}) -> &'static mut {{ idiomatic_type }} {
+    assert!(!input.is_null());
+    let {{ c_struct_bind }} = &*input;
+{% for assert_line in pointer_asserts %}
+{{ assert_line }}
+{% endfor %}
+    let {{ idiom_struct_bind }} = {{ idiomatic_type }} {
+{% for line in init_lines %}
+{{ line }}
+{% endfor %}
+    };
+    Box::leak(Box::new({{ idiom_struct_bind }}))
+}
+
+unsafe fn {{ idiomatic_type }}_to_C{{ struct_name }}_mut({{ idiom_struct_bind }}: &mut {{ idiomatic_type }}) -> *mut C{{ struct_name }} {
+{% if back_lines %}
+{% for line in back_lines %}
+{{ line }}
+{% endfor %}
+
+{% endif %}
+    let {{ c_struct_bind }} = C{{ struct_name }} {
+{% for line in c_struct_init_lines %}
+{{ line }}
+{% endfor %}
+    };
+    Box::into_raw(Box::new({{ c_struct_bind }}))
+}
