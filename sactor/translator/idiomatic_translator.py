@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+from importlib import resources
 from typing import Optional, override
 
 import sactor.translator as translator
@@ -99,11 +100,16 @@ class IdiomaticTranslator(Translator):
     def _get_spec_schema_text(self) -> str:
         """Return the cached JSON schema text for SPEC generation."""
         if self._spec_schema_text is None:
-            project_root = utils.find_project_root()
-            schema_path = os.path.join(
-                project_root, "sactor", "verifier", "spec", "schema.json"
-            )
-            self._spec_schema_text = read_file(schema_path)
+            try:
+                schema_resource = resources.files("sactor.verifier.spec").joinpath("schema.json")
+                with schema_resource.open("r", encoding="utf-8") as f:
+                    self._spec_schema_text = f.read()
+            except Exception:
+                project_root = utils.find_project_root()
+                schema_path = os.path.join(
+                    project_root, "sactor", "verifier", "spec", "schema.json"
+                )
+                self._spec_schema_text = read_file(schema_path)
         return self._spec_schema_text
 
     def _load_function_name_map(self) -> dict[str, str]:

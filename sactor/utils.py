@@ -2,7 +2,9 @@ import os, copy
 import shutil
 import tempfile
 import subprocess
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from pathlib import Path
+from importlib import resources
 import re, shlex
 import tomli as toml
 from clang.cindex import Cursor, SourceLocation, SourceRange
@@ -15,6 +17,27 @@ from sactor.thirdparty.rustfmt import RustFmt
 logger = sactor_logging.get_logger(__name__)
 
 TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
+_PROJECT_ROOT_CACHE: Optional[str] = None
+
+
+def _copy_resource_tree(resource_root, destination: Path) -> None:
+    """Recursively copy a Traversable resource tree into the destination path."""
+    def _copy(node, target: Path) -> None:
+        if node.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            for child in node.iterdir():
+                _copy(child, target / child.name)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with node.open("rb") as src, open(target, "wb") as dst:
+                dst.write(src.read())
+
+    destination_path = Path(destination)
+    if destination_path.exists():
+        shutil.rmtree(destination_path)
+    destination_path.mkdir(parents=True, exist_ok=True)
+    for child in resource_root.iterdir():
+        _copy(child, destination_path / child.name)
 
 def create_rust_proj(rust_code, proj_name, path, is_lib: bool, proc_macro=False):
     if os.path.exists(path):
@@ -50,20 +73,50 @@ crate-type = ["cdylib"]'''
             f.write(rust_code)
 
     if proc_macro:
-        proj_root = find_project_root()
-        sactor_proc_macros_path = os.path.join(proj_root, "sactor_proc_macros")
-        # Copy sactor_proc_macros to the project
-        shutil.copytree(sactor_proc_macros_path,
-                        os.path.join(path, "sactor_proc_macros"))
+        macros_destination = Path(path) / "sactor_proc_macros"
+        copied = False
+        try:
+            macros_resource = resources.files("sactor._resources").joinpath("sactor_proc_macros")
+            if macros_resource.is_dir():
+                _copy_resource_tree(macros_resource, macros_destination)
+                copied = True
+        except Exception:
+            logger.debug("Unable to copy proc macros from packaged resources", exc_info=True)
+
+        if not copied:
+            proj_root = Path(find_project_root())
+            fallback_macros = proj_root / "sactor_proc_macros"
+            if fallback_macros.is_dir():
+                shutil.copytree(fallback_macros, macros_destination)
+                copied = True
+
+        if not copied:
+            raise FileNotFoundError("Could not locate sactor_proc_macros resources")
 
 
-def find_project_root():
-    path = os.path.dirname(os.path.realpath(__file__))
-    while path != "/":
-        if os.path.exists(os.path.join(path, "pyproject.toml")):
-            return path
-        path = os.path.dirname(path)
-    raise RuntimeError("Could not find project root")
+def find_project_root() -> str:
+    global _PROJECT_ROOT_CACHE
+    if _PROJECT_ROOT_CACHE:
+        return _PROJECT_ROOT_CACHE
+
+    env_root = os.environ.get("SACTOR_ROOT")
+    if env_root:
+        env_path = Path(env_root).expanduser()
+        if env_path.is_dir():
+            _PROJECT_ROOT_CACHE = str(env_path.resolve())
+            return _PROJECT_ROOT_CACHE
+        logger.warning("SACTOR_ROOT=%s does not point to a directory", env_root)
+
+    current = Path(__file__).resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").is_file():
+            _PROJECT_ROOT_CACHE = str(candidate)
+            return _PROJECT_ROOT_CACHE
+
+    package_root = current.parent
+    _PROJECT_ROOT_CACHE = str(package_root)
+    logger.debug("Falling back to package directory for project root: %s", package_root)
+    return _PROJECT_ROOT_CACHE
 
 
 def get_temp_dir():
@@ -158,34 +211,74 @@ def _merge_configs(config, default_config):
 
 
 def load_default_config():
-    proj_root = find_project_root()
-    # load default config
-    if not os.path.exists(os.path.join(proj_root, "sactor.default.toml")):
-        raise FileNotFoundError("Could not find sactor.default.toml")
-    with open(os.path.join(proj_root, "sactor.default.toml"), 'rb') as f:
-        default_config = toml.load(f)
+    """Load the bundled default configuration, falling back to repo checkout."""
+    project_default = Path(find_project_root()) / "sactor.default.toml"
+    candidates = [project_default]
+    try:
+        candidates.append(resources.files("sactor._resources").joinpath("sactor.default.toml"))
+    except Exception:
+        logger.debug("Packaged default config not found via importlib.resources", exc_info=True)
 
-    return default_config
+    for candidate in candidates:
+        try:
+            if hasattr(candidate, "open"):
+                with candidate.open("rb") as f:
+                    return toml.load(f)
+            candidate_path = Path(candidate)
+            if candidate_path.is_file():
+                with open(candidate_path, "rb") as f:
+                    return toml.load(f)
+        except FileNotFoundError:
+            continue
+        except Exception:
+            logger.debug("Failed to load default config from %s", candidate, exc_info=True)
+
+    raise FileNotFoundError("Could not load sactor.default.toml")
 
 
 def try_load_config(config_file=None):
-    proj_root = find_project_root()
+    """Load user configuration merged with defaults.
+
+    Resolution order:
+    1. Explicit `config_file` argument.
+    2. `SACTOR_CONFIG` environment variable.
+    3. `./sactor.toml` relative to current working directory.
+    4. `sactor.toml` inside the repository checkout (development mode).
+    If none are found, return the default config alone.
+    """
     default_config = load_default_config()
 
-    if config_file is None:
-        config_file = os.path.join(proj_root, "sactor.toml")
-        if not os.path.exists(config_file):
-            raise FileNotFoundError("Could not find sactor.toml")
-    if not os.path.exists(config_file):
-        raise FileNotFoundError(f"Could not find config file {config_file}")
+    def _load_user_config(path: Path) -> dict:
+        with open(path, "rb") as f:
+            return toml.load(f)
 
-    with open(config_file, 'rb') as f:
-        config = toml.load(f)
+    if config_file:
+        candidate = Path(config_file).expanduser()
+        if not candidate.is_file():
+            raise FileNotFoundError(f"Could not find config file {candidate}")
+        user_config = _load_user_config(candidate)
+        return _merge_configs(user_config, default_config)
 
-     # Merge default config with user config
-    config = _merge_configs(config, default_config)
+    env_candidate = os.environ.get("SACTOR_CONFIG")
+    if env_candidate:
+        env_path = Path(env_candidate).expanduser()
+        if not env_path.is_file():
+            raise FileNotFoundError(f"SACTOR_CONFIG={env_candidate} does not point to a readable file")
+        user_config = _load_user_config(env_path)
+        return _merge_configs(user_config, default_config)
 
-    return config
+    cwd_candidate = Path.cwd() / "sactor.toml"
+    if cwd_candidate.is_file():
+        user_config = _load_user_config(cwd_candidate)
+        return _merge_configs(user_config, default_config)
+
+    project_candidate = Path(find_project_root()) / "sactor.toml"
+    if project_candidate.is_file():
+        user_config = _load_user_config(project_candidate)
+        return _merge_configs(user_config, default_config)
+
+    logger.info("No user config found; falling back to default configuration only")
+    return default_config
 
 
 def normalize_string(output: str) -> str:
