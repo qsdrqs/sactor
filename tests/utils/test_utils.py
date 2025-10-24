@@ -1,3 +1,5 @@
+import pytest
+
 from sactor import utils
 from sactor.data_types import DataType
 
@@ -75,3 +77,66 @@ def test_scan_ws_semicolon_bytes_with_unicode_prefix():
     data = (prefix + "  ;x").encode("utf-8")
     pos = len(prefix.encode("utf-8"))
     assert utils.scan_ws_semicolon_bytes(data, pos) == pos + 3
+
+def test_parse_llm_result_accepts_tags():
+    raw = """
+----ARG----
+content
+----END ARG----
+"""
+    result = utils.parse_llm_result(raw, "arg")
+    assert result["arg"] == "content\n"
+
+def test_parse_llm_result_accepts_flexible_tags():
+    raw = """
+ --Function--
+pub fn foo() {}
+--END Function--
+"""
+    result = utils.parse_llm_result(raw, "function")
+    assert result["function"] == "pub fn foo() {}\n"
+
+
+def test_parse_llm_result_skips_code_fences_and_multiple_blocks():
+    raw = """
+----Function----
+```rust
+pub fn foo() {}
+```
+----END FUNCTION
+----ENUM----
+pub enum Foo { Bar }
+----END ENUM----
+"""
+    result = utils.parse_llm_result(raw, "function", "enum")
+    assert result["function"] == "pub fn foo() {}\n"
+    assert result["enum"] == "pub enum Foo { Bar }\n"
+
+
+def test_parse_llm_result_accepts_start_tag_without_trailing_dashes():
+    raw = """
+----FUNCTION
+pub fn foo() {}
+----END FUNCTION
+"""
+    result = utils.parse_llm_result(raw, "function")
+    assert result["function"] == "pub fn foo() {}\n"
+
+def test_parse_llm_result_errors_on_missing_content():
+    raw = """
+----Function----
+```rust
+```
+----END FUNCTION----
+"""
+    with pytest.raises(ValueError):
+        utils.parse_llm_result(raw, "function")
+
+
+def test_parse_llm_result_errors_on_missing_end_tag():
+    raw = """
+----Function----
+pub fn foo() {}
+"""
+    with pytest.raises(ValueError):
+        utils.parse_llm_result(raw, "function")

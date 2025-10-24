@@ -129,31 +129,59 @@ def get_temp_dir():
 
 def parse_llm_result(llm_result, *args):
     '''
-    Parse the result from LLM
+    Parse the result from LLM.
 
-    Need to be formatted as:
+    Expected format (case-insensitive, dashes/underscores/spaces optional):
     ----ARG----
     content
     ----END ARG----
     '''
+
+    def _canonical_tag(s: str) -> Optional[str]:
+        trimmed = s.strip()
+        if not trimmed:
+            return None
+        trimmed = trimmed.rstrip(":.")
+        if not trimmed:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9\s\-_`]+", trimmed):
+            return None
+        canonical = re.sub(r"[\s\-_`]+", "", trimmed)
+        return canonical.upper() or None
+
     res = {}
+    lines = llm_result.split("\n")
     for arg in args:
+        start_token = re.sub(r"[\s\-_`]+", "", arg.upper())
+        end_token = f"END{start_token}"
+
         in_arg = False
+        start_found = False
         arg_result = ""
-        for line in llm_result.split("\n"):
-            # prevent hallucination to different length of dashes
-            if line.find(f"-{arg.upper()}-") != -1 and not in_arg:
-                in_arg = True
+
+        for line in lines:
+            tag = _canonical_tag(line)
+            if not in_arg:
+                if tag == start_token:
+                    in_arg = True
+                    start_found = True
                 continue
-            if line.find(f"-END {arg.upper()}-") != -1 and in_arg:
+
+            if tag == end_token:
                 in_arg = False
+                break
+
+            stripped_line = line.strip()
+            if stripped_line.startswith("```") or stripped_line.startswith("~~~"):
                 continue
-            if in_arg and '```' not in line:
-                arg_result += line + "\n"
-        if arg_result == "":
+            arg_result += line + "\n"
+
+        if not start_found:
             raise ValueError(f"Could not find {arg}")
         if in_arg:
             raise ValueError(f"Could not find end of {arg}")
+        if arg_result == "":
+            raise ValueError(f"Empty result for {arg}")
         logger.debug("Generated %s:", arg)
         logger.debug("%s", arg_result)
         res[arg] = arg_result
