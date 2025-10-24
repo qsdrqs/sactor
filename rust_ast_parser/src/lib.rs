@@ -16,10 +16,26 @@ use syn::{
     Abi, AttrStyle, Attribute, File, GenericArgument, LitStr, Meta, PathArguments, Result, Token,
 };
 
+const LIBC_SCALAR_TO_PRIMITIVE: &[(&str, &str)] = &[
+    ("libc::c_char", "u8"),
+    ("libc::c_schar", "i8"),
+    ("libc::c_uchar", "u8"),
+    ("libc::c_int", "i32"),
+    ("libc::c_uint", "u32"),
+    ("libc::c_long", "isize"),
+    ("libc::c_ulong", "usize"),
+    ("libc::c_float", "f32"),
+    ("libc::c_double", "f64"),
+];
+
+const NUMERIC_PRIMITIVES: &[&str] = &[
+    "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "usize", "isize", "f32", "f64",
+];
+
 fn get_error_context(source: &str, error: &syn::Error) -> String {
     let lines: Vec<_> = source.lines().collect();
     let span = error.span();
-    // pick -1 to +2
+    // pick -1 to +2 lines around the error line
     let start_line = span.start().line.saturating_sub(2);
     let end_line = (span.end().line + 2).min(lines.len());
 
@@ -356,6 +372,205 @@ fn get_struct_field_types(
     }
 }
 
+fn normalize_token_string(input: &str) -> String {
+    let mut tokens = input.split_whitespace();
+    let Some(first) = tokens.next() else {
+        return String::new();
+    };
+
+    let mut result = String::from(first);
+    for token in tokens {
+        result.push(' ');
+        result.push_str(token);
+    }
+
+    // Normalize common Rust type punctuation spacing.
+    result = result
+        .replace(" :: ", "::")
+        .replace(" ::", "::")
+        .replace(":: ", "::")
+        .replace(" <", "<")
+        .replace("< ", "<")
+        .replace(" >", ">")
+        .replace("* mut", "*mut")
+        .replace("* const", "*const")
+        .replace("& mut", "&mut")
+        .replace("& '", "&'");
+
+    if result.contains(',') {
+        let segments: Vec<_> = result
+            .split(',')
+            .map(|segment| segment.trim())
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        result = segments.join(", ");
+    }
+
+    result
+}
+
+fn map_libc_scalar(name: &str) -> Option<&'static str> {
+    for (src, dst) in LIBC_SCALAR_TO_PRIMITIVE.iter() {
+        if *src == name {
+            return Some(*dst);
+        }
+        if let Some(tail) = src.split("::").last() {
+            if tail == name {
+                return Some(*dst);
+            }
+        }
+    }
+    None
+}
+
+fn is_numeric_primitive(name: &str) -> bool {
+    NUMERIC_PRIMITIVES.iter().any(|item| *item == name)
+}
+
+fn push_unique(vec: &mut Vec<String>, value: String) {
+    if !value.is_empty() && !vec.iter().any(|existing| existing == &value) {
+        vec.push(value);
+    }
+}
+
+fn pointer_base<'a>(traits: &'a TypeTraits) -> Option<&'a TypeTraits> {
+    if !traits.is_pointer {
+        return None;
+    }
+    let mut current = traits.pointer_inner.as_deref()?;
+    loop {
+        if !current.is_pointer {
+            return Some(current);
+        }
+        match current.pointer_inner.as_deref() {
+            Some(next) => current = next,
+            None => return None,
+        }
+    }
+}
+
+struct PointerMetadata {
+    base_ident: Option<String>,
+    base_normalized: Option<String>,
+    base_raw: Option<String>,
+    element: String,
+}
+
+fn compute_pointer_metadata(traits: &TypeTraits) -> PointerMetadata {
+    if let Some(base) = pointer_base(traits) {
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(ident) = &base.path_ident {
+            push_unique(&mut candidates, ident.clone());
+        }
+        let normalized = normalize_token_string(&base.normalized);
+        if !normalized.is_empty() {
+            push_unique(&mut candidates, normalized.clone());
+        }
+        let raw = normalize_token_string(&base.raw);
+        if !raw.is_empty() {
+            push_unique(&mut candidates, raw.clone());
+        }
+        let mut expanded = candidates.clone();
+        for candidate in candidates {
+            if let Some(tail) = candidate.split("::").last() {
+                if tail != candidate {
+                    push_unique(&mut expanded, tail.to_string());
+                }
+            }
+        }
+
+        for candidate in &expanded {
+            if let Some(mapped) = map_libc_scalar(candidate) {
+                return PointerMetadata {
+                    base_ident: base.path_ident.clone(),
+                    base_normalized: if normalized.is_empty() {
+                        None
+                    } else {
+                        Some(normalized.clone())
+                    },
+                    base_raw: if raw.is_empty() {
+                        None
+                    } else {
+                        Some(raw.clone())
+                    },
+                    element: mapped.to_string(),
+                };
+            }
+        }
+        for candidate in &expanded {
+            if is_numeric_primitive(candidate) {
+                return PointerMetadata {
+                    base_ident: base.path_ident.clone(),
+                    base_normalized: if normalized.is_empty() {
+                        None
+                    } else {
+                        Some(normalized.clone())
+                    },
+                    base_raw: if raw.is_empty() {
+                        None
+                    } else {
+                        Some(raw.clone())
+                    },
+                    element: candidate.clone(),
+                };
+            }
+        }
+
+        let element = expanded
+            .into_iter()
+            .find(|candidate| !candidate.is_empty())
+            .unwrap_or_else(|| "u8".to_string());
+
+        PointerMetadata {
+            base_ident: base.path_ident.clone(),
+            base_normalized: if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized)
+            },
+            base_raw: if raw.is_empty() { None } else { Some(raw) },
+            element,
+        }
+    } else {
+        PointerMetadata {
+            base_ident: None,
+            base_normalized: None,
+            base_raw: None,
+            element: "u8".to_string(),
+        }
+    }
+}
+
+fn compute_box_innermost(traits: &TypeTraits) -> Option<String> {
+    if traits.is_box {
+        if let Some(inner) = traits.box_inner.as_deref() {
+            if let Some(nested) = compute_box_innermost(inner) {
+                return Some(nested);
+            }
+            let normalized = normalize_token_string(&inner.normalized);
+            if !normalized.is_empty() {
+                return Some(normalized);
+            }
+            let raw = normalize_token_string(&inner.raw);
+            if !raw.is_empty() {
+                return Some(raw);
+            }
+        }
+        return None;
+    }
+    if traits.is_option {
+        if let Some(inner) = traits.option_inner.as_deref() {
+            return compute_box_innermost(inner);
+        }
+    }
+    if traits.is_reference {
+        if let Some(inner) = traits.reference_inner.as_deref() {
+            return compute_box_innermost(inner);
+        }
+    }
+    None
+}
+
 #[derive(Clone)]
 struct TypeTraits {
     raw: String,
@@ -376,6 +591,11 @@ struct TypeTraits {
     pointer_inner: Option<Box<TypeTraits>>,
     is_box: bool,
     box_inner: Option<Box<TypeTraits>>,
+    pointer_base_ident: Option<String>,
+    pointer_base_normalized: Option<String>,
+    pointer_base_raw: Option<String>,
+    pointer_element: Option<String>,
+    box_innermost: Option<String>,
 }
 
 impl TypeTraits {
@@ -399,6 +619,11 @@ impl TypeTraits {
             pointer_inner: None,
             is_box: false,
             box_inner: None,
+            pointer_base_ident: None,
+            pointer_base_normalized: None,
+            pointer_base_raw: None,
+            pointer_element: None,
+            box_innermost: None,
         }
     }
 
@@ -438,14 +663,38 @@ impl TypeTraits {
         } else {
             dict.set_item("box_inner", py.None())?;
         }
+        dict.set_item("pointer_base_ident", self.pointer_base_ident.clone())?;
+        dict.set_item(
+            "pointer_base_normalized",
+            self.pointer_base_normalized.clone(),
+        )?;
+        dict.set_item("pointer_base_raw", self.pointer_base_raw.clone())?;
+        dict.set_item("pointer_element", self.pointer_element.clone())?;
+        dict.set_item("box_innermost", self.box_innermost.clone())?;
         Ok(dict.into())
+    }
+
+    fn finalize_metadata(&mut self) {
+        if self.is_pointer {
+            let meta = compute_pointer_metadata(self);
+            self.pointer_base_ident = meta.base_ident;
+            self.pointer_base_normalized = meta.base_normalized;
+            self.pointer_base_raw = meta.base_raw;
+            self.pointer_element = Some(meta.element);
+        } else {
+            self.pointer_base_ident = None;
+            self.pointer_base_normalized = None;
+            self.pointer_base_raw = None;
+            self.pointer_element = None;
+        }
+        self.box_innermost = compute_box_innermost(self);
     }
 }
 
 fn analyze_type(ty: &syn::Type) -> TypeTraits {
     let tokens = ty.to_token_stream();
     let raw = tokens.to_string();
-    let normalized = raw.split_whitespace().collect::<String>();
+    let normalized = normalize_token_string(&raw);
     match ty {
         syn::Type::Paren(paren) => {
             let mut inner = analyze_type(&paren.elem);
@@ -599,6 +848,7 @@ fn analyze_type(ty: &syn::Type) -> TypeTraits {
                 }
             }
 
+            traits.finalize_metadata();
             traits
         }
     }

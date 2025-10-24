@@ -23,6 +23,11 @@ def _traits_base(raw: str, normalized: str) -> dict:
         "pointer_inner": None,
         "is_box": False,
         "box_inner": None,
+        "pointer_base_ident": None,
+        "pointer_base_normalized": None,
+        "pointer_base_raw": None,
+        "pointer_element": None,
+        "box_innermost": None,
     }
 
 
@@ -115,7 +120,7 @@ def test_parse_type_traits_option_mut_slice():
     slice_traits = _traits("[u8]", "[u8]", is_slice=True, slice_elem="u8")
     mut_slice_reference = _traits(
         "& mut [u8]",
-        "&mut[u8]",
+        "&mut [u8]",
         is_reference=True,
         is_mut_reference=True,
         is_slice=True,
@@ -125,7 +130,7 @@ def test_parse_type_traits_option_mut_slice():
 
     expected = _traits(
         "Option < & mut [u8] >",
-        "Option<&mut[u8]>",
+        "Option<&mut [u8]>",
         path_ident="Option",
         is_option=True,
         is_slice=True,
@@ -134,6 +139,52 @@ def test_parse_type_traits_option_mut_slice():
     )
 
     assert traits == expected
+
+
+def test_parse_type_traits_path_with_namespace():
+    traits = rust_ast_parser.parse_type_traits("libc :: c_char")
+    expected = _traits("libc :: c_char", "libc::c_char", path_ident="c_char")
+    assert traits == expected
+
+
+def test_parse_type_traits_pointer_mut_inner():
+    traits = rust_ast_parser.parse_type_traits("* mut Foo")
+
+    inner = _traits("Foo", "Foo", path_ident="Foo")
+    expected = _traits(
+        "* mut Foo",
+        "*mut Foo",
+        is_pointer=True,
+        pointer_is_mut=True,
+        pointer_depth=1,
+        pointer_inner=inner,
+        pointer_base_ident="Foo",
+        pointer_base_normalized="Foo",
+        pointer_base_raw="Foo",
+        pointer_element="Foo",
+    )
+    assert traits == expected
+
+
+def test_parse_type_traits_reference_with_lifetime():
+    traits = rust_ast_parser.parse_type_traits("&'a mut Bar")
+
+    inner = _traits("Bar", "Bar", path_ident="Bar")
+    expected = _traits(
+        "& 'a mut Bar",
+        "&'a mut Bar",
+        is_reference=True,
+        is_mut_reference=True,
+        reference_inner=inner,
+    )
+    assert traits == expected
+
+
+def test_parse_type_traits_normalizes_whitespace():
+    ty = "Option<\n    & mut\t [u8] >"
+    traits = rust_ast_parser.parse_type_traits(ty)
+    assert traits["normalized"] == "Option<&mut [u8]>"
+    assert traits["option_inner"]["normalized"] == "&mut [u8]"
 
 
 def test_parse_function_signature_full_traits():
@@ -146,7 +197,7 @@ def test_parse_function_signature_full_traits():
     i32_traits = _traits("i32", "i32", path_ident="i32")
     param_a_traits = _traits(
         "& mut i32",
-        "&muti32",
+        "&mut i32",
         is_reference=True,
         is_mut_reference=True,
         reference_inner=i32_traits,
@@ -155,7 +206,7 @@ def test_parse_function_signature_full_traits():
     slice_traits = _traits("[u8]", "[u8]", is_slice=True, slice_elem="u8")
     slice_ref_traits = _traits(
         "& [u8]",
-        "&[u8]",
+        "& [u8]",
         is_reference=True,
         is_slice=True,
         slice_elem="u8",
@@ -163,7 +214,7 @@ def test_parse_function_signature_full_traits():
     )
     option_data_traits = _traits(
         "Option < & [u8] >",
-        "Option<&[u8]>",
+        "Option<& [u8]>",
         path_ident="Option",
         is_option=True,
         is_slice=True,
@@ -174,19 +225,27 @@ def test_parse_function_signature_full_traits():
     u8_traits = _traits("u8", "u8", path_ident="u8")
     const_ptr_traits = _traits(
         "* const u8",
-        "*constu8",
+        "*const u8",
         is_pointer=True,
         pointer_is_mut=False,
         pointer_depth=1,
         pointer_inner=u8_traits,
+        pointer_base_ident="u8",
+        pointer_base_normalized="u8",
+        pointer_base_raw="u8",
+        pointer_element="u8",
     )
     handle_traits = _traits(
         "* mut * const u8",
-        "*mut*constu8",
+        "*mut *const u8",
         is_pointer=True,
         pointer_is_mut=True,
         pointer_depth=2,
         pointer_inner=const_ptr_traits,
+        pointer_base_ident="u8",
+        pointer_base_normalized="u8",
+        pointer_base_raw="u8",
+        pointer_element="u8",
     )
 
     vec_traits = _traits("Vec < u8 >", "Vec<u8>", path_ident="Vec")
@@ -196,6 +255,7 @@ def test_parse_function_signature_full_traits():
         path_ident="Box",
         is_box=True,
         box_inner=vec_traits,
+        box_innermost="Vec<u8>",
     )
     return_traits = _traits(
         "Option < Box < Vec < u8 > > >",
@@ -205,6 +265,7 @@ def test_parse_function_signature_full_traits():
         is_box=True,
         option_inner=box_traits,
         box_inner=vec_traits,
+        box_innermost="Vec<u8>",
     )
 
     expected = {
