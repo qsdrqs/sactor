@@ -1,0 +1,3 @@
+from .idiomatic_fewshots import FUNCTION_FEWSHOTS, STRUCT_FEWSHOTS
+
+__all__ = ["FUNCTION_FEWSHOTS", "STRUCT_FEWSHOTS"]

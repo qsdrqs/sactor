@@ -11,6 +11,8 @@ pub struct Course {
 ----SPEC----
 {
   "struct_name": "Course",
+  "i_kind": "struct",
+  "i_type": "Course",
   "fields": [
     {
       "u_field": {

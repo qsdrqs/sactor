@@ -4,7 +4,7 @@
 pub struct Student {
     pub name: String,
     pub age: i32,
-    pub enrolled_course: Course,
+    pub enrolled_course: Option<Course>,
     pub grades: Vec<f32>,
 }
 ```
@@ -13,6 +13,8 @@ pub struct Student {
 ----SPEC----
 {
   "struct_name": "Student",
+  "i_kind": "struct",
+  "i_type": "Student",
   "fields": [
     {
       "u_field": { "name": "name", "type": "*mut libc::c_char", "shape": { "ptr": { "kind": "cstring" } } },
@@ -23,8 +25,8 @@ pub struct Student {
       "i_field": { "name": "age", "type": "i32" }
     },
     {
-      "u_field": { "name": "enrolledCourse", "type": "*mut Course", "shape": { "ptr": { "kind": "ref" } } },
-      "i_field": { "name": "enrolled_course", "type": "Course" }
+      "u_field": { "name": "enrolledCourse", "type": "*mut Course", "shape": { "ptr": { "kind": "ref", "null": "nullable" } } },
+      "i_field": { "name": "enrolled_course", "type": "Option<Course>" }
     },
     {
       "u_field": { "name": "grades", "type": "*mut libc::c_float", "shape": { "ptr": { "kind": "slice", "len_from": "numGrades" } } },

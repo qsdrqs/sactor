@@ -107,7 +107,7 @@ def test_e2e_list_multi_variant_reuses_same_output(tmp_path, monkeypatch, e2e_co
 
     result = verifier.e2e_verify("fn main() {}")
     assert result == (VerifyResult.SUCCESS, None)
-    # two variants → two links and two runs
+    # two variants -> two links and two runs
     assert len(link_calls) == 2
     assert len(run_targets) == 2
     assert run_targets[0] == "combined" and run_targets[1] == "combined"
@@ -177,4 +177,3 @@ def test_e2e_executable_mode_runs_rust_binary(tmp_path, monkeypatch, e2e_config)
     assert len(calls) == 1
     expected = os.path.join(str(tmp_path), "build_attempt", "target", "debug", "build_attempt")
     assert calls[0] == expected
-

@@ -9,6 +9,7 @@ from sactor.c_parser import CParser
 from sactor.llm import LLM, llm_factory
 from sactor.thirdparty.crown import Crown
 from sactor.translator import IdiomaticTranslator, TranslateResult
+from sactor.verifier.verifier_types import VerifyResult
 from tests.mock_llm import llm_with_mock
 from tests.utils import config
 
@@ -18,6 +19,20 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 def mock_query_impl(prompt, model, original=None, llm_instance=None):
+    if "The following test harness failed to compile." in prompt:
+        if "struct Student" in prompt:
+            with open('tests/verifier/mock_results/mock_student_harness') as f:
+                return f.read()
+        if "struct Course" in prompt:
+            with open('tests/verifier/mock_results/mock_course_harness') as f:
+                return f.read()
+    if "The following struct converters failed to compile." in prompt:
+        if "pub struct Student" in prompt:
+            with open('tests/verifier/mock_results/mock_student_harness') as f:
+                return f.read()
+        if "pub struct Course" in prompt:
+            with open('tests/verifier/mock_results/mock_course_harness') as f:
+                return f.read()
     if prompt.find('Translate the following unidiomatic Rust function into idiomatic Rust.') != -1 and prompt.find('unsafe fn updateStudentInfo') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_function') as f:
             return f.read()
@@ -37,6 +52,8 @@ If the struct is designed as a cloneable struct, try to add/implement the `Clone
 pub struct Course {''') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_course') as f:
             return f.read()
+    if 'You are assisting with automated Rust roundtrip tests.' in prompt:
+        return '----FILL----\n// populate sample data\n----END FILL----'
     if prompt.find('Generate the harness for the function updateStudentInfo_idiomatic') != -1:
         with open('tests/translator/mocks/course_manage_idomatic_function_harness') as f:
             return f.read()
@@ -49,8 +66,7 @@ pub struct Course {''') != -1:
     else:
         if llm_instance is not None and original is not None:
             return original(llm_instance, prompt, model)
-        else:
-            raise Exception('No llm_instance provided')
+        raise Exception('No llm_instance provided')
 
 
 @pytest.fixture

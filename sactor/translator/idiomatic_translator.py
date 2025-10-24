@@ -11,6 +11,7 @@ from sactor.c_parser import (CParser, EnumInfo, EnumValueInfo, FunctionInfo,
                              GlobalVarInfo, StructInfo)
 from sactor.llm import LLM
 from sactor.thirdparty import Crown, CrownType
+from sactor.translator.idiomatic_fewshots import FUNCTION_FEWSHOTS, STRUCT_FEWSHOTS
 from sactor.utils import read_file
 from sactor.verifier import VerifyResult
 from sactor.verifier.spec.spec_types import (extract_spec_block, save_spec,
@@ -659,6 +660,7 @@ Format:
 ```json
 {{
   "struct_name": "{struct_union.name}",
+  "i_kind": "struct",
   "i_type": "<Idiomatic type name (use the same as struct_name if unchanged)>",
   "fields": [
     {{
@@ -676,100 +678,27 @@ Format:
 }}
 ```
 ----END SPEC----
-Few-shot examples (each includes unidiomatic Rust, idiomatic Rust, and the SPEC):
-Example S1 (scalar + cstring + slice):
-Unidiomatic Rust:
-```rust
-#[repr(C)]
-pub struct A {{
-    pub num: u32,
-    pub name: *const libc::c_char,
-    pub data: *const u8,
-    pub data_len: usize,
-}}
-```
-Idiomatic Rust:
-```rust
-pub struct A {{
-    pub num: u32,
-    pub name: String,
-    pub data: Vec<u8>,
-}}
-```
-----SPEC----
-```json
-{{
-  "struct_name": "A",
-  "i_type": "A",
-  "fields": [
-    {{ "u_field": {{"name": "num",  "type": "u32",             "shape": "scalar" }},
-       "i_field": {{"name": "num",  "type": "u32"}} }},
-    {{ "u_field": {{"name": "name", "type": "*const c_char",    "shape": {{ "ptr": {{ "kind": "cstring" }} }} }},
-       "i_field": {{"name": "name", "type": "String"}} }},
-    {{ "u_field": {{"name": "data", "type": "*const u8",       "shape": {{ "ptr": {{ "kind": "slice", "len_from": "data_len" }} }} }},
-       "i_field": {{"name": "data", "type": "Vec<u8>"}} }},
-    {{ "u_field": {{"name": "data_len", "type": "usize",       "shape": "scalar" }},
-       "i_field": {{"name": "data.len", "type": "usize"}} }}
-  ]
-}}
-```
-----END SPEC----
-
-Example S2 (nested dot-path + ref):
-Unidiomatic Rust:
-```rust
-#[repr(C)]
-pub struct Inner {{ pub x: i32, pub name: *const libc::c_char }}
-#[repr(C)]
-pub struct Outer {{ pub id: u32, pub inn: Inner, pub pval: *const u32 }}
-```
-Idiomatic Rust:
-```rust
-pub struct Inner {{ pub x: i32, pub name: String }}
-pub struct Outer {{ pub id: u32, pub inner: Inner, pub val: u32 }}
-```
-----SPEC----
-```json
-{{
-  "struct_name": "Outer",
-  "i_type": "Outer",
-  "fields": [
-    {{ "u_field": {{"name": "id",       "type": "u32",            "shape": "scalar" }},
-       "i_field": {{"name": "id",       "type": "u32" }} }},
-    {{ "u_field": {{"name": "inn.x",     "type": "i32",            "shape": "scalar" }},
-       "i_field": {{"name": "inner.x",  "type": "i32" }} }},
-    {{ "u_field": {{"name": "inn.name",  "type": "*const c_char",   "shape": {{ "ptr": {{ "kind": "cstring" }} }} }},
-       "i_field": {{"name": "inner.name","type": "String" }} }},
-    {{ "u_field": {{"name": "pval",     "type": "*const u32",      "shape": {{ "ptr": {{ "kind": "ref" }} }} }},
-       "i_field": {{"name": "val",      "type": "u32" }} }}
-  ]
-}}
-```
-----END SPEC----
-
-Example S3 (nullable cstring maps to Option):
-Unidiomatic Rust:
-```rust
-#[repr(C)]
-pub struct S {{ pub name: *const libc::c_char }}
-```
-Idiomatic Rust:
-```rust
-pub struct S {{ pub name: Option<String> }}
-```
-----SPEC----
-```json
-{{
-  "struct_name": "S",
-  "i_type": "S",
-  "fields": [
-    {{ "u_field": {{"name": "name", "type": "*const c_char", "shape": {{ "ptr": {{ "kind": "cstring", "null": "nullable" }} }} }},
-       "i_field": {{"name": "name", "type": "Option<String>" }} }}
-  ]
-}}
-```
-----END SPEC----
 '''
+        prompt += "\nFew-shot examples (each includes unidiomatic Rust, idiomatic Rust, and the SPEC):"
+        for example in STRUCT_FEWSHOTS:
+            prompt += f"""
+
+{example.label}:
+{example.description}
+Unidiomatic Rust:
+```rust
+{example.unidiomatic}
+```
+Idiomatic Rust:
+```rust
+{example.idiomatic}
+```
+----SPEC----
+```json
+{example.spec}
+```
+----END SPEC----
+"""
 
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
             prompt += f'''
@@ -886,10 +815,13 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             raw_struct_spec = extract_spec_block(llm_raw)
             if raw_struct_spec:
                 spec_obj = json.loads(raw_struct_spec)
+                normalized_struct_spec = json.dumps(
+                    spec_obj, indent=2) + "\n"
                 ok, msg = validate_basic_struct_spec(
                     spec_obj, struct_union.name)
                 if ok:
                     spec_obj_parsed = spec_obj
+                    raw_struct_spec = normalized_struct_spec
                     spec_tmp_dir = utils.get_temp_dir()
                     tmp_stage_base = os.path.join(spec_tmp_dir, "spec_stage")
                     save_spec(tmp_stage_base, "struct",
@@ -1351,72 +1283,27 @@ Full JSON Schema for the SPEC (do not output the schema; output only an instance
 }}
 ```
 ----END SPEC----
-Few-shot examples (each with unidiomatic Rust signature, idiomatic Rust signature, and the SPEC):
-Example F1 (slice arg):
-Unidiomatic Rust:
-```rust
-pub unsafe extern "C" fn sum(xs: *const i32, n: usize) -> i32;
-```
-Idiomatic Rust:
-```rust
-pub fn sum(xs: &[i32]) -> i32;
-```
-----SPEC----
-```json
-{{
-  "function_name": "sum",
-  "fields": [
-    {{ "u_field": {{"name": "xs", "type": "*const i32", "shape": {{ "ptr": {{ "kind": "slice", "len_from": "n" }} }} }},
-       "i_field": {{"name": "xs", "type": "&[i32]" }} }},
-    {{ "u_field": {{"name": "n",  "type": "usize",      "shape": "scalar" }},
-       "i_field": {{"name": "xs.len", "type": "usize" }} }}
-  ]
-}}
-```
-----END SPEC----
-
-Example F2 (ref out):
-Unidiomatic Rust:
-```rust
-pub unsafe extern "C" fn get_value(out_value: *mut i32);
-```
-Idiomatic Rust:
-```rust
-pub fn get_value() -> i32;
-```
-----SPEC----
-```json
-{{
-  "function_name": "get_value",
-  "fields": [
-    {{ "u_field": {{"name": "out_value", "type": "*mut i32", "shape": {{ "ptr": {{ "kind": "ref" }} }} }},
-       "i_field": {{"name": "ret", "type": "i32" }} }}
-  ]
-}}
-```
-----END SPEC----
-
-Example F3 (nullable cstring maps to Option):
-Unidiomatic Rust:
-```rust
-pub unsafe extern "C" fn set_name(name: *const libc::c_char);
-```
-Idiomatic Rust:
-```rust
-pub fn set_name(name: Option<&str>);
-```
-----SPEC----
-```json
-{{
-  "function_name": "set_name",
-  "fields": [
-    {{ "u_field": {{"name": "name", "type": "*const c_char", "shape": {{ "ptr": {{ "kind": "cstring", "null": "nullable" }} }} }},
-       "i_field": {{"name": "name", "type": "Option<&str>" }} }}
-  ]
-}}
-```
-----END SPEC----
 '''
+        prompt += "\nFew-shot examples (each with unidiomatic Rust signature, idiomatic Rust signature, and the SPEC):"
+        for example in FUNCTION_FEWSHOTS:
+            prompt += f"""
+
+{example.label}:
+{example.description}
+Unidiomatic Rust:
+```rust
+{example.unidiomatic}
+```
+Idiomatic Rust:
+```rust
+{example.idiomatic}
+```
+----SPEC----
+```json
+{example.spec}
+```
+----END SPEC----
+"""
 
         feed_to_verify = (VerifyResult.SUCCESS, None)
         if verify_result[0] == VerifyResult.COMPILE_ERROR:
