@@ -88,6 +88,19 @@ def parse_translate(parser):
     )
 
     parser.add_argument(
+        '--idiomatic-only',
+        action='store_true',
+        help='Only translate C code into idiomatic Rust code, skipping the unidiomatic translation'
+    )
+
+    parser.add_argument(
+        '--continue-run-when-incomplete',
+        action='store_true',
+        help=('Continue to run idiomatic translation even when not all unidiomatic translation succeeds.\n'
+              'Idiomatic translation will only be run for those functions, structs, etc., with existing unidiomatic translation')
+    )
+
+    parser.add_argument(
         '--extra-compile-command',
         type=str,
         help='The extra compile command to use to compile the C code', # TODO: dirty implement, remove this later
@@ -300,7 +313,9 @@ def translate(parser, args):
         is_executable=is_executable,
         executable_object=executable_object,
         all_compile_commands=args.all_compile_commands,
-        compile_commands_file=args.compile_commands_file
+        compile_commands_file=args.compile_commands_file,
+        idiomatic_only=args.idiomatic_only,
+        continue_run_when_incomplete=args.continue_run_when_incomplete
     )
 
     sactor.run()

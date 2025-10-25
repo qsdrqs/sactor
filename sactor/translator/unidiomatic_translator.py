@@ -50,7 +50,7 @@ class UnidiomaticTranslator(Translator):
 
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_unidiomatic"
-
+        self.base_name = base_name
         self.translated_struct_path = os.path.join(
             self.result_path, base_name, "structs")
         self.translated_global_var_path = os.path.join(
@@ -221,6 +221,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             return TranslateResult.SUCCESS
 
         logger.info("Translating enum: %s (attempts: %d)", enum.name, attempts)
+        self.failure_info_set_attempts(enum.name, attempts + 1)
 
         c2rust_enum = self._enum_code_from_c2rust(enum)
         if c2rust_enum:
@@ -344,6 +345,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         enum_prompt_text = ""
 
         def return_result(global_var_result, verification=True):
+            #remove mut from the binding pattern. Sometimes c2rust translates C `const` variables into Rust `static mut` variables, which is wrong
+            if global_var.is_const:
+                global_var_result = rust_ast_parser.remove_mut_from_type_specifiers(global_var_result, global_var.name)
             # check the global variable name, allow const global variable to have different name
             if global_var.name not in global_var_result and not global_var.is_const:
                 if global_var_result.lower().find(global_var.name.lower()) != -1:
@@ -468,6 +472,7 @@ Directly use these enums in your translation and do **NOT** redefine them.
             global_var.name,
             attempts,
         )
+        self.failure_info_set_attempts(global_var.name, attempts + 1)
         # Prefer translating a definition when present (even if not const),
         # otherwise fall back to an extern declaration.
         # We detect a definition heuristically by checking if the extracted
@@ -504,7 +509,7 @@ The global variable is:
 '''
             if global_var.is_array:
                 prompt += f'''
-The global variable is an array with size {global_var.array_size}. Use `static mut` to bypass the Rust's mutability rules if necessary.
+The global variable is an array with size {global_var.array_size}. Use `static` as the specifier in Rust.
 '''
         else:
             code_of_global_var = global_var.get_decl()
@@ -601,6 +606,8 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             return TranslateResult.SUCCESS
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
+        
+        self.failure_info_set_attempts(struct_union.name, attempts + 1)
 
         enum_dependencies = {}
         for enum_val in getattr(struct_union, "enum_value_dependencies", []):
@@ -739,6 +746,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 != function.node.location.file.name
             ):
                 continue
+            self.failure_info_add_attempts_element(global_var.name, "global_var")
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res, None
@@ -782,6 +790,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
             for enum_def in enum_definitions:
                 if enum_def not in code_of_enum:
+                    self.failure_info_add_attempts_element(enum_def.name, "enum")
                     self._translate_enum_impl(enum_def)
                     code_path = os.path.join(
                         self.translated_enum_path, enum_def.name + ".rs")
@@ -991,7 +1000,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             return TranslateResult.SUCCESS
 
         logger.info("Translating function: %s (attempts: %d)", function.name, attempts)
-
+        self.failure_info_set_attempts(function.name, attempts + 1)
         code_of_function = self.c_parser.extract_function_code(function.name)
         prompt = f'''
 Translate the following C function to Rust. Try to keep the **equivalence** as much as possible.
@@ -1035,7 +1044,7 @@ The function uses the following type aliases, which are defined as:
             joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
             prompt += f'''
 The function uses the following const global variables, which are already translated. The global variables' types and names are provided below, but the values are omitted.
-You should **NOT** define the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation.
+You should **NOT** define or declare the following global variables in your translation, as the system will automatically define them. But you can access the variables in your translation.
 The translated const global variables are:
 :
 ```rust
@@ -1269,11 +1278,11 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=result,
                 attempts=attempts+1
             )
-
-        # process the function result
         try:
+        # process the function result
+        # there may be an Error, so put it in a try block
             function_result = rust_ast_parser.expand_use_aliases(function_result) # remove potentail 'as' in use statements
-        except Exception as e:
+        except SyntaxError as e:
             error_message = f"Error: Syntax error in the translated code when processing use statements: {e}"
             logger.error("%s", error_message)
             # retry the translation

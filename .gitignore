@@ -1,10 +1,12 @@
 # environment
 .envrc
+.env
 .direnv/
 .venv/
 
 pyrightconfig.json
 __pycache__
+.vscode/launch.json
 
 /build
 /result

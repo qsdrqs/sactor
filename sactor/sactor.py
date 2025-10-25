@@ -1,4 +1,5 @@
-import os, shlex
+import os
+import json
 
 from sactor import logging as sactor_logging
 from sactor import thirdparty, utils
@@ -32,7 +33,9 @@ class Sactor:
         executable_object=None,
         all_compile_commands: str="",
         # compile_commands_file: compile_commands.json
-        compile_commands_file: str=""
+        compile_commands_file: str="",
+        idiomatic_only=False,
+        continue_run_when_incomplete=False
     ):
         self.config_file = config_file
         self.config = utils.try_load_config(self.config_file)
@@ -67,7 +70,9 @@ class Sactor:
         self.extra_compile_command = extra_compile_command
         self.is_executable = is_executable
         self.executable_object = executable_object
-
+        self.idiomatic_only = idiomatic_only
+        self.continue_run_when_incomplete = continue_run_when_incomplete
+            
         self.compile_commands_file = compile_commands_file
         exec_obj_missing = executable_object is None or (
             isinstance(executable_object, list) and len(executable_object) == 0)
@@ -92,7 +97,14 @@ class Sactor:
         logger.info("Extra compile command: %s", self.extra_compile_command)
         logger.info("All compile commands: %s", self.all_compile_commands)
         logger.info("Compile commands file: %s", self.compile_commands_file)
+        logger.info("Idiomatic only: %s", self.idiomatic_only)
+        logger.info("Continue run when incomplete: %s", self.continue_run_when_incomplete)
         logger.info("-------------End of Configuration-------------")
+        # save the config in the result dir. Sensitive info is removed from the saved config
+        safe_config = utils.remove_keys_from_collection(self.config)
+        os.makedirs(self.result_dir, exist_ok=True)
+        with open(os.path.join(self.result_dir, "config.json"), "w") as f:
+            json.dump(safe_config, f, indent=4)
 
         # Check necessary requirements
         missing_requirements = thirdparty.check_all_requirements()
@@ -144,29 +156,35 @@ class Sactor:
         self.c2rust_translation = None
 
     def run(self):
-        result, unidiomatic_translator = self._run_unidomatic_translation()
-        # Collect failure info
-        unidiomatic_translator.save_failure_info(os.path.join(
-            self.result_dir, "unidiomatic_failure_info.json"))
-
-        if result != TranslateResult.SUCCESS:
-            self.llm.statistic(self.llm_stat)
-            unidiomatic_translator.print_result_summary("Unidiomatic")
-            raise ValueError(
-                f"Failed to translate unidiomatic code: {result}")
-        combine_result, _ = self.combiner.combine(
-            os.path.join(self.result_dir, "translated_code_unidiomatic"),
-            is_idiomatic=False,
-        )
-        if combine_result != CombineResult.SUCCESS:
-            self.llm.statistic(self.llm_stat)
-            raise ValueError(
-                f"Failed to combine translated code for unidiomatic translation: {combine_result}")
+        if not self.idiomatic_only:
+            result, unidiomatic_translator = self._run_unidomatic_translation()
+            # Collect failure info
+            unidiomatic_translator.save_failure_info(unidiomatic_translator.failure_info_path)
+            
+            if result != TranslateResult.SUCCESS:
+                self.llm.statistic(self.llm_stat)
+                unidiomatic_translator.print_result_summary("Unidiomatic")
+                msg = f"Failed to translate unidiomatic code: {result}"
+                if self.continue_run_when_incomplete:
+                    print(msg)
+                else:
+                    raise ValueError(msg)
+            else:
+                combine_result, _ = self.combiner.combine(
+                    os.path.join(self.result_dir, "translated_code_unidiomatic"),
+                    is_idiomatic=False,
+                )
+                if combine_result != CombineResult.SUCCESS:
+                    self.llm.statistic(self.llm_stat)
+                    msg = f"Failed to combine translated code for unidiomatic translation: {combine_result}"
+                    if self.continue_run_when_incomplete:
+                        print(msg)
+                    else:
+                        raise ValueError(msg)
         if not self.unidiomatic_only:
             result, idiomatic_translator = self._run_idiomatic_translation()
             # Collect failure info
-            idiomatic_translator.save_failure_info(os.path.join(
-                self.result_dir, "idiomatic_failure_info.json"))
+            idiomatic_translator.save_failure_info(idiomatic_translator.failure_info_path)
             if result != TranslateResult.SUCCESS:
                 self.llm.statistic(self.llm_stat)
                 raise ValueError(
@@ -257,6 +275,7 @@ class Sactor:
             extra_compile_command=self.extra_compile_command,
             executable_object=self.executable_object,
             processed_compile_commands=self.processed_compile_commands,
+            continue_run_when_incomplete=self.continue_run_when_incomplete
         )
 
         return translator

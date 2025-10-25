@@ -1,6 +1,9 @@
 from collections import deque
 
 from clang import cindex
+import os
+import re
+from sactor import utils
 
 from sactor import logging as sactor_logging, utils
 from sactor.utils import read_file, read_file_lines
@@ -9,6 +12,7 @@ from .enum_info import EnumInfo, EnumValueInfo
 from .function_info import FunctionInfo
 from .global_var_info import GlobalVarInfo
 from .struct_info import StructInfo
+from clang.cindex import CursorKind
 
 standard_io = [
     "stdin",
@@ -44,9 +48,9 @@ class CParser:
         self._enums: dict[str, EnumInfo] = {}
         self._structs_unions: dict[str, StructInfo] = {}
         self._functions: dict[str, FunctionInfo] = {}
-
+        
+        self._intrinsic_alias = self._get_intrinsic_aliases()
         self._type_alias: dict[str, str] = self._extract_type_alias()
-
         self._extract_structs_unions()
         self._update_structs_unions()
 
@@ -122,6 +126,53 @@ class CParser:
             self.translation_unit.cursor, typedef_nodes=typedef_nodes)
         return typedef_nodes
     
+    @staticmethod
+    def _build_compiler_intrinsic_define_map(config: str) -> dict:
+        ptn = re.compile(r"^#define +(\w+) +([\w ]+)")
+        lines = config.splitlines()
+        res = {}
+        for line in lines:
+            match = ptn.match(line)
+            if match:
+                res[match.group(1)] = match.group(2)
+        return res
+
+    # TODO: dirty implementation. May be improved later
+    def _get_intrinsic_aliases(self) -> dict:
+        """
+        Some type aliases are intrinsic in the compiler and cannot be 
+        found through headers. For example, `size_t`. This method extract those aliases.
+        """
+        import subprocess, tempfile
+        # map from alias type to its intrinsic macro definition name.
+        # this function only handles intrinsic aliases in this dict.
+        # this dict may be expanded to handle other intrinsic aliases.
+        alias_intrinsic = {
+            "size_t": "__SIZE_TYPE__",
+        }
+        # get mapping from intrinsic macro definition to canonical type
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # create an empty source file
+            path = os.path.join(tmp_dir, "empty.c")
+            with open(path, "w") as f:
+                pass
+            # TODO: make it switchable to gcc
+            compiler = "clang"
+            result = subprocess.run(
+                    [compiler, "-E", "-P", "-v", "-dD", path], 
+                    capture_output=True, 
+                    text=True, 
+                    check=True
+                )
+            config = result.stdout
+        intrinsic_canonical = self._build_compiler_intrinsic_define_map(config)
+        alias_canonical = {}
+        for alias, intrinsic in alias_intrinsic.items():
+            alias_canonical[alias] = intrinsic_canonical[intrinsic]
+        return alias_canonical
+
+        # map from instrinsic alias to canonical type
+
     def _extract_type_alias(self):
         """
         Extracts type aliases (typedefs) from the C file.
@@ -130,6 +181,7 @@ class CParser:
         type_alias = {}
         self._process_typedef_nodes(
             self.translation_unit.cursor, type_alias=type_alias)
+        type_alias.update(self._intrinsic_alias)
         return type_alias
 
     def _extract_structs_unions(self):
@@ -351,18 +403,22 @@ class CParser:
         Recursively collects the names of functions called within the given node,
         excluding standard library functions.
         """
+
+        def is_function_reference(cursor: cindex.Cursor) -> bool:
+            if cursor.kind == CursorKind.DECL_REF_EXPR:
+                if cursor.referenced and cursor.referenced.kind == CursorKind.FUNCTION_DECL:
+                    return True
+            return False
+        
         called_functions = set()
         if not node:
             return called_functions
-        #debug
-        # print("_collect_function", node.displayname, flush=True)
-        for child in node.get_children():
-            if child.kind == cindex.CursorKind.CALL_EXPR:
-                # print("child.kind:", child.displayname, flush=True)
-                called_func_cursor = child.referenced
 
+        for child in node.get_children():
+            # functions in function calls and references (e.g., assign the function to a function pointer) are tracked
+            if child.kind == CursorKind.CALL_EXPR or is_function_reference(child):
+                called_func_cursor = child.referenced
                 if called_func_cursor:
-                    # print("called func cursor:", called_func_cursor.displayname, flush=True)
                     # Exclude functions declared in system headers
                     if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
                         called_functions.add(called_func_cursor.spelling)

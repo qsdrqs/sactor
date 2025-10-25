@@ -36,6 +36,7 @@ class Translator(ABC):
         self._dependency_cache: Dict[Tuple[str, str], str] = {}
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
+        self.failure_info_add_attempts_element(struct_union.name, "struct")
         res = self._translate_struct_impl(struct_union)
         self.save_failure_info(self.failure_info_path)
         return res
@@ -74,6 +75,7 @@ class Translator(ABC):
         pass
 
     def translate_function(self, function: FunctionInfo) -> TranslateResult:
+        self.failure_info_add_attempts_element(function.name, "function")
         res = self._translate_function_impl(function)
         self.save_failure_info(self.failure_info_path)
         return res
@@ -99,16 +101,34 @@ class Translator(ABC):
         item_type = self.failure_info[item].get("type")
         if item_type:
             self._set_translation_status(item_type, item, "failure")
+        self.save_failure_info(self.failure_info_path)
 
     def init_failure_info(self, type, item):
         if item not in self.failure_info:
+            # TODO: fix failure_info keys to be unique
+            # Currently we use item name as key,
+            # but a function and a struct can have the same name
+            # and overwrite each other.
             self.failure_info[item] = {
                 "type": type,
                 "errors": [],
-                "status": "untranslated"
+                "status": "untranslated",
+                # number of attempts
+                # each element is the total attempts in each run (when running sactor many times)
+                "attempts": [] 
             }
+            self.save_failure_info(self.failure_info_path)
         if type and item not in self.translation_status[type]:
             self.translation_status[type][item] = "pending"
+
+    def failure_info_add_attempts_element(self, item: str, ty: str):
+        self.init_failure_info(ty, item)
+        self.failure_info[item]['attempts'].append(0)
+        self.save_failure_info(self.failure_info_path)
+
+    def failure_info_set_attempts(self, item, attempts):
+        self.failure_info[item]['attempts'][-1] = attempts
+        self.save_failure_info(self.failure_info_path)
 
     def save_failure_info(self, path):
         if self.failure_info == {}:

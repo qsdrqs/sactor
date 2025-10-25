@@ -5,6 +5,7 @@ use pyo3::types::{PyDict, PyList};
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
+use std::any::TypeId;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::mem;
 use syn::{
@@ -13,9 +14,12 @@ use syn::{
     spanned::Spanned,
     token,
     visit::{self, Visit},
-    visit_mut::VisitMut,
-    Abi, AttrStyle, Attribute, File, GenericArgument, LitStr, Meta, PathArguments, Result, Token,
+    visit_mut::{self, VisitMut},
+    Abi, AttrStyle, Attribute, File, GenericArgument, ItemStatic, LitStr, Meta, PatIdent,
+    PathArguments, Result, Token, TypePath,
 };
+use libc::*;
+
 
 const LIBC_SCALAR_TO_PRIMITIVE: &[(&str, &str)] = &[
     ("libc::c_char", "u8"),
@@ -53,14 +57,35 @@ fn get_error_context(source: &str, error: &syn::Error) -> String {
 }
 
 fn parse_src(source_code: &str) -> PyResult<File> {
-    parse_str(source_code).map_err(|e| {
-        let msg = format!(
+    use std::panic;
+    // parse_str may panic. We need to convert panic to Err
+    let res = panic::catch_unwind(|| {
+        parse_str(source_code).map_err(|e| {
+            let msg = format!(
             "Error: {:?}\nContext:\n{}",
-            e,
-            get_error_context(source_code, &e)
-        );
-        pyo3::exceptions::PySyntaxError::new_err(msg)
-    })
+                e,
+                get_error_context(source_code, &e)
+            );
+            pyo3::exceptions::PySyntaxError::new_err(msg)
+        })
+    });
+    match res {
+        Ok(inner_res) => inner_res,
+        Err(e) => {
+            if let Some(msg) = e.downcast_ref::<&str>() {
+                Err(format!("Error when parsing Rust: {}", msg))
+            }
+            else if let Some(msg) = e.downcast_ref::<String>() {
+                Err(format!("Error when parsing Rust: {}", msg))
+            }
+            else {
+                Err("Error when parsing Rust.".to_string())
+            }.map_err(|msg| {
+                pyo3::exceptions::PySyntaxError::new_err(msg)
+            })
+        }
+    }
+    
 }
 
 // Expose a function to C
@@ -1263,16 +1288,35 @@ impl syn::visit_mut::VisitMut for UseAliasExpander {
 #[gen_stub_pyfunction]
 #[pyfunction]
 fn expand_use_aliases(code: &str) -> PyResult<String> {
-    let mut ast = parse_src(code)?;
-    let mut expander = UseAliasExpander::new();
+    use std::panic;
+    let res = panic::catch_unwind(|| {
+        let mut ast: File = parse_src(code)?;
+        let mut expander = UseAliasExpander::new();
+        // First pass: collect all aliases
+        expander.collect_aliases(&ast);
 
-    // First pass: collect all aliases
-    expander.collect_aliases(&ast);
+        // Second pass: expand all usages
+        expander.visit_file_mut(&mut ast);
 
-    // Second pass: expand all usages
-    expander.visit_file_mut(&mut ast);
+        Ok(prettyplease::unparse(&ast))
+    });
+    match res {
+        Ok(inner_res) => inner_res,
+        Err(e) => {
+            if let Some(msg) = e.downcast_ref::<&str>() {
+                Err(format!("Error when expand_use_aliases: {}", msg))
+            }
+            else if let Some(msg) = e.downcast_ref::<String>() {
+                Err(format!("Error when expand_use_aliases: {}", msg))
+            }
+            else {
+                Err("Error when expand_use_aliases.".to_string())
+            }.map_err(|msg| {
+                pyo3::exceptions::PySyntaxError::new_err(msg)
+            })
+        }
+    }
 
-    Ok(prettyplease::unparse(&ast))
 }
 
 #[gen_stub_pyfunction]
@@ -1608,6 +1652,124 @@ fn add_derive_to_struct_union(
     }
 
     Ok(prettyplease::unparse(&ast))
+}
+
+/// Builds a map from libc type names to their equivalent Rust primitive type names.
+/// This is done at runtime by comparing `TypeId`s, so the mapping is correct
+/// for the architecture that this tool is compiled and running on.
+fn build_libc_type_map() -> HashMap<String, &'static str> {
+    let mut map = HashMap::new();
+
+    // This macro takes a libc type, gets its TypeId, and compares it against
+    // the TypeIds of Rust's primitive types to find the match.
+    macro_rules! map_type {
+        ($($libc_ty:ty),*) => {
+            $(
+                // Get the base name of the type (e.g., "c_int" from "libc::c_int").
+                let name = stringify!($libc_ty).split("::").last().unwrap();
+                let type_id = TypeId::of::<$libc_ty>();
+                let mut has_type = true;
+                let rust_type_name = if type_id == TypeId::of::<i8>() { "i8" }
+                else if type_id == TypeId::of::<u8>() { "u8" }
+                else if type_id == TypeId::of::<i16>() { "i16" }
+                else if type_id == TypeId::of::<u16>() { "u16" }
+                else if type_id == TypeId::of::<i32>() { "i32" }
+                else if type_id == TypeId::of::<u32>() { "u32" }
+                else if type_id == TypeId::of::<i64>() { "i64" }
+                else if type_id == TypeId::of::<u64>() { "u64" }
+                else if type_id == TypeId::of::<isize>() { "isize" }
+                else if type_id == TypeId::of::<usize>() { "usize" }
+                else if type_id == TypeId::of::<f32>() { "f32" }
+                else if type_id == TypeId::of::<f64>() { "f64" }
+                else {
+                    has_type = false;
+                    // This case should not be hit for the types we are mapping.
+                    // We'll print a warning if a type can't be mapped.
+                    eprintln!("Warning: Could not determine a Rust primitive type for libc type '{}'.", name);
+                    ""
+                };
+                if has_type {
+                    map.insert(name.to_string(), rust_type_name);
+                }
+            )*
+        }
+    }
+
+    // List of all libc integer/float types we want to replace.
+    map_type!(
+        c_char,
+        c_schar,
+        c_uchar,
+        c_short,
+        c_ushort,
+        c_int,
+        c_uint,
+        c_long,
+        c_ulong,
+        c_longlong,
+        c_ulonglong,
+        c_float,
+        c_double,
+        size_t,
+        ssize_t,
+        ptrdiff_t,
+        intptr_t,
+        uintptr_t
+    );
+
+    map
+}
+
+/// A visitor that traverses the AST and mutates libc types based on the provided map.
+struct LibcTypeVisitor<'a> {
+    type_map: &'a HashMap<String, &'static str>,
+}
+
+impl<'a> VisitMut for LibcTypeVisitor<'a> {
+    /// This method is called for every type path in the source code.
+    fn visit_type_path_mut(&mut self, type_path: &mut TypePath) {
+        // We are looking for paths with exactly two segments, like `libc::c_int`.
+        if type_path.qself.is_none() && type_path.path.segments.len() == 2 {
+            let first_segment = &type_path.path.segments[0];
+
+            // Check if the first segment is `libc`.
+            if first_segment.ident == "libc" && first_segment.arguments.is_none() {
+                let second_segment = &type_path.path.segments[1];
+                let libc_type_name = second_segment.ident.to_string();
+
+                // If the second segment is a libc type we can replace...
+                if let Some(&rust_type_str) = self.type_map.get(&libc_type_name) {
+                    // Create a new identifier for the Rust type.
+                    let new_rust_type_ident =
+                        syn::Ident::new(rust_type_str, second_segment.ident.span());
+
+                    // Create a new path from this single identifier.
+                    let new_path: syn::Path = new_rust_type_ident.into();
+
+                    // Replace the old path (`libc::c_int`) with the new one (`i32`).
+                    type_path.path = new_path;
+                }
+            }
+        }
+
+        // Continue traversing the rest of the AST to find other types.
+        syn::visit_mut::visit_type_path_mut(self, type_path);
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn replace_libc_numeric_types_to_rust_primitive_types(code: &str) -> PyResult<String> {
+    let type_map = build_libc_type_map();
+    let mut ast = parse_src(code)?;
+    let mut visitor = LibcTypeVisitor {
+        type_map: &type_map,
+    };
+    visitor.visit_file_mut(&mut ast);
+
+    // Convert the modified syntax tree back into formatted code.
+    let transformed_code = prettyplease::unparse(&ast);
+    Ok(transformed_code)
 }
 
 #[gen_stub_pyfunction]
@@ -1948,6 +2110,46 @@ fn vec_to_punctuated(
     }
     punctuated
 }
+/// The mut-remover: walks the AST and clears `mut` when the bound ident matches `name`.
+struct RemoveMut {
+    name: String,
+}
+
+impl RemoveMut {
+    fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+impl VisitMut for RemoveMut {
+    fn visit_pat_ident_mut(&mut self, node: &mut PatIdent) {
+        // If this pattern is a direct identifier binding with the target name, remove `mut`.
+        if node.ident == self.name {
+            node.mutability = None;
+        }
+        // Recurse into subpatterns if any (usually none for simple PatIdent).
+        visit_mut::visit_pat_ident_mut(self, node);
+    }
+
+    fn visit_item_static_mut(&mut self, node: &mut ItemStatic) {
+        if node.ident == self.name {
+            node.mutability = syn::StaticMutability::None; // removes the `mut`
+        }
+        visit_mut::visit_item_static_mut(self, node);
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+fn remove_mut_from_type_specifiers(code: &str, var_name: &str) -> PyResult<String> {
+    let mut file: File = parse_src(code)?;
+    let mut remover = RemoveMut::new(var_name);
+    visit_mut::visit_file_mut(&mut remover, &mut file);
+
+    // Pretty-print. Use prettyplease for nicer formatting; otherwise use tokens.
+    let formatted = prettyplease::unparse(&file);
+    Ok(formatted)
+}
 
 #[gen_stub_pyfunction]
 #[pyfunction]
@@ -2068,7 +2270,8 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dedup_items, m)?)?;
     m.add_function(wrap_pyfunction!(strip_to_struct_items, m)?)?;
     m.add_function(wrap_pyfunction!(get_value_type_name, m)?)?;
-
+    m.add_function(wrap_pyfunction!(replace_libc_numeric_types_to_rust_primitive_types, m)?)?;
+    m.add_function(wrap_pyfunction!(remove_mut_from_type_specifiers, m)?)?;
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;
     Ok(())

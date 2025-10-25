@@ -8,11 +8,15 @@ from importlib import resources
 import re, shlex
 import tomli as toml
 from clang.cindex import Cursor, SourceLocation, SourceRange
-
+import sys
+import time
+import select
 from sactor import logging as sactor_logging
 from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
+from collections import namedtuple
+
 
 logger = sactor_logging.get_logger(__name__)
 
@@ -154,7 +158,6 @@ def parse_llm_result(llm_result, *args):
     for arg in args:
         start_token = re.sub(r"[\s\-_`]+", "", arg.upper())
         end_token = f"END{start_token}"
-
         in_arg = False
         start_found = False
         arg_result = ""
@@ -601,3 +604,112 @@ def patched_env(key, value, env=None):
         old_value = env[key]
     env[key] = value if old_value is None else f"{value}:{old_value}"
     return env
+
+def remove_keys_from_collection(src: dict | list, blacklist: set[str] | None = None) -> dict | list:
+    blacklist = set() if not blacklist else blacklist
+    blacklist.add("key")
+    if type(src) == dict:
+        result = {}
+        for key, value in src.items():
+            keep = True
+            for banned in blacklist:
+                if banned in key:
+                    keep = False
+                    break
+            if keep:
+                ty_value = type(value)
+                if ty_value == dict or ty_value == list:
+                    value = remove_keys_from_collection(value, blacklist)
+                result[key] = value
+    elif type(src) == list:
+        result = []
+        for item in src:
+            ty = type(item)
+            if ty == dict or ty == list:
+                item = remove_keys_from_collection(item, blacklist)
+            result.append(item)
+    else:
+        raise TypeError("Type must be dict or list")
+    return result
+
+ProcessResult = namedtuple("ProcessResult", ["stdout", "stderr", "returncode"])
+
+def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs) -> ProcessResult:
+    """
+    Run a command and capture its stdout in real-time.
+    Stop when limit_bytes bytes are read or time_limit_sec have elapsed.
+    This is useful when a command returns too much output, causing out-of-memory errors.
+    """
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=4096,
+        text=False,
+        **kwargs
+    )
+    captured_out, captured_err = bytearray(), bytearray()
+    start_time = time.monotonic()
+    returncode = 0
+    is_timeout = False
+    def read_available() -> Tuple[None | bytes, None | bytes, None | int]:
+        rlist, _, _ = select.select([process.stdout, process.stderr], [], [], 0.5)
+        out, err = None, None
+        for r in rlist:
+            if r is process.stdout:
+                out = r.read(4096)
+            elif r is process.stderr:
+                err = r.read(4096)
+            else:
+                raise TypeError("Unexpected elements in rlist")
+        return out, err
+    try:
+        forced_terminate = False
+        while True:
+            # --- time check ---
+            elapsed = time.monotonic() - start_time
+            if elapsed >= time_limit_sec:
+                print("\n--- Time limit reached, terminating process ---", file=sys.stderr)
+                process.terminate()
+                forced_terminate = True
+                is_timeout = True
+                break
+            out, err = read_available()
+            if out is None and err is None:
+                continue  # no data yet; check time again
+            if out == b"" and err == b"":  # EOF
+                break
+            if out:
+                captured_out.extend(out)
+            if err:
+                captured_err.extend(err)
+            if len(captured_out) >= limit_bytes:
+                print("\n--- Stdout byte limit reached, terminating process ---", file=sys.stderr)
+                process.terminate()
+                forced_terminate = True
+                break
+            if len(captured_err) >= limit_bytes:
+                print("\n--- Stderr byte limit reached, terminating process ---", file=sys.stderr)
+                process.terminate()
+                forced_terminate = True
+                break
+        # wait briefly for exit
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            forced_terminate = True
+        finally:
+            if not forced_terminate:
+                returncode = process.returncode
+
+    finally:
+        if process.stdout:
+            process.stdout.close()
+        if process.stderr:
+            process.stderr.close()
+    if is_timeout:
+        raise TimeoutError(f"Time limit ({time_limit_sec} s) reached")
+    out_text = bytes(captured_out[:limit_bytes]).decode(errors="ignore")
+    err_text = bytes(captured_err[:limit_bytes]).decode(errors="ignore")
+    return ProcessResult(out_text, err_text, returncode)

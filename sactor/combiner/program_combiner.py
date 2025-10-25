@@ -188,7 +188,7 @@ class ProgramCombiner(Combiner):
             cmd, capture_output=True)
 
         if result.returncode != 0:
-            logger.error("Failed to format the code: %s", result.stderr)
+            logger.error("Failed to format the code: %s", result.stderr.decode(errors='ignore'))
             return CombineResult.RUSTFMT_FAILED, None
 
         # fix the code
@@ -199,7 +199,7 @@ class ProgramCombiner(Combiner):
             cmd, capture_output=True)
 
         if result.returncode != 0:
-            logger.error("Failed to fix the code: %s", result.stderr)
+            logger.error("Failed to fix the code: %s", result.stderr.decode(errors='ignore'))
             return CombineResult.RUSTFIX_FAILED, None
 
         # cargo clippy

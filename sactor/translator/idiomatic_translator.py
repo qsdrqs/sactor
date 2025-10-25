@@ -21,6 +21,8 @@ from sactor.verifier.spec.spec_types import (extract_spec_block, save_spec,
 from .translator import Translator
 from .translator_types import TranslateResult
 
+CONST_VAR_MAX_TRANSLATION_LEN = 2048
+
 
 logger = sactor_logging.get_logger(__name__)
 
@@ -40,6 +42,7 @@ class IdiomaticTranslator(Translator):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        continue_run_when_incomplete=False
     ):
         super().__init__(
             llm=llm,
@@ -57,6 +60,8 @@ class IdiomaticTranslator(Translator):
         self.c2rust_translation = c2rust_translation
         base_name = "translated_code_idiomatic"
         self.base_name = base_name
+        
+        self.continue_run_when_incomplete = continue_run_when_incomplete
 
         self.translated_struct_path = os.path.join(
             self.result_path, base_name, "structs")
@@ -220,10 +225,16 @@ class IdiomaticTranslator(Translator):
             )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         logger.info("Translating enum: %s (attempts: %d)", enum.name, attempts)
+        self.failure_info_set_attempts(enum.name, attempts + 1)
 
         if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs"):
-            raise RuntimeError(
-                f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet")
+            msg = f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet"
+            if self.continue_run_when_incomplete:
+                self.append_failure_info(enum.name, "NO_UNIDIOMATIC_CODE_ERROR", msg, "")
+                print(msg)
+                return TranslateResult.NO_UNIDIOMATIC_CODE
+            else:
+                raise RuntimeError(msg)
         code_of_enum = read_file(
             f"{self.unidiomatic_result_path}/translated_code_unidiomatic/enums/{enum.name}.rs")
         prompt = f'''
@@ -326,6 +337,45 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     ) -> TranslateResult:
         global_var_save_path = os.path.join(
             self.translated_global_var_path, global_var.name + ".rs")
+        
+        def return_result(global_var_result, verification=True):
+            # check the global variable name, allow const global variable to have different name
+            if global_var.name not in global_var_result and not global_var.is_const:
+                if global_var_result.lower().find(global_var.name.lower()) != -1:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
+                else:
+                    error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
+                    print(error_message)
+                    self.append_failure_info(
+                        global_var.name, "COMPILE_ERROR", error_message, global_var_result
+                    )
+                    return self._translate_global_vars_impl(
+                        global_var,
+                        verify_result=(
+                            VerifyResult.COMPILE_ERROR, error_message),
+                        error_translation=global_var_result,
+                        attempts=attempts+1
+                    )
+
+            print("Translated global variable:")
+            print(global_var_result)
+
+            # TODO: may add verification here
+            result = self.verifier.try_compile_rust_code(global_var_result)
+            if result[0] != VerifyResult.SUCCESS:
+                if result[0] == VerifyResult.COMPILE_ERROR:
+                    self.append_failure_info(
+                        global_var.name, "COMPILE_ERROR", result[1], global_var_result)
+                return self._translate_global_vars_impl(
+                    global_var,
+                    verify_result=result,
+                    error_translation=global_var_result,
+                    attempts=attempts + 1
+                )
+            self.failure_info[global_var.name]['status'] = "success"
+            utils.save_code(global_var_save_path, global_var_result)
+            return TranslateResult.SUCCESS
+
         enum_dependency_code = ""
         # Always initialize failure_info, even if already translated
         self.init_failure_info("global_var", global_var.name)
@@ -367,13 +417,29 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             global_var.name,
             attempts,
         )
+        self.failure_info_set_attempts(global_var.name, attempts + 1)
+
         if global_var.is_const:
             global_var_name = global_var.name
             if not os.path.exists(f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs"):
-                raise RuntimeError(
-                    f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet")
+                msg = f"Error: Global variable {global_var_name} is not translated into unidiomatic Rust yet"
+                if self.continue_run_when_incomplete:
+                    self.append_failure_info(
+                        global_var_name,
+                        "NO_UNIDIOMATIC_CODE_ERROR",
+                        msg,
+                        ""
+                        )
+                    print(msg)
+                    return TranslateResult.NO_UNIDIOMATIC_CODE
+                else:
+                    raise RuntimeError(msg)
             code_of_global_var = read_file(
                 f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs")
+            if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
+                # use ast parser to change libc numeric types to Rust primitive types
+                result = rust_ast_parser.replace_libc_numeric_types_to_rust_primitive_types(code_of_global_var)
+                return return_result(result, verification=False)
             prompt = f'''
 Translate the following unidiomatic Rust const global variable to idiomatic Rust. Try to avoid using raw pointers in the translation of the global variable.
 The global variable is:
@@ -522,13 +588,24 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             struct_union.name,
             attempts,
         )
+        self.failure_info_set_attempts(struct_union.name, attempts + 1)
 
         # Get unidiomatic translation code
         struct_path = os.path.join(
             self.unidiomatic_result_path, "translated_code_unidiomatic/structs", struct_union.name + ".rs")
         if not os.path.exists(struct_path):
-            raise RuntimeError(
-                f"Error: Struct {struct_union.name} is not translated into unidiomatic Rust yet")
+            msg = f"Error: Struct {struct_union.name} is not translated into unidiomatic Rust yet"
+            if self.continue_run_when_incomplete:
+                self.append_failure_info(
+                    struct_union.name,
+                    "NO_UNIDIOMATIC_CODE_ERROR",
+                    msg,
+                    ""
+                )
+                print(msg)
+                return TranslateResult.NO_UNIDIOMATIC_CODE
+            else:
+                raise RuntimeError(msg)
 
         unidiomatic_struct_code = read_file(struct_path)
 
@@ -990,7 +1067,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         elif result[0] != VerifyResult.SUCCESS:
             raise NotImplementedError(
                 f'error type {result[0]} not implemented')
-
+        
         if not spec_pre_saved and spec_tmp_path and raw_struct_spec:
             try:
                 save_spec(final_spec_base, "struct",
@@ -1006,7 +1083,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         if spec_tmp_dir:
             shutil.rmtree(spec_tmp_dir, ignore_errors=True)
 
-        # Update idiomatic name mapping (best-effort)
+        # Update idiomatic name mapping
         if idiomatic_struct_name:
             try:
                 mapping_dir = os.path.join(final_spec_base, "specs")
@@ -1061,6 +1138,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             )
             return TranslateResult.MAX_ATTEMPTS_EXCEEDED
         logger.info("Translating function: %s (attempts: %d)", function.name, attempts)
+        self.failure_info_set_attempts(function.name, attempts + 1)
 
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
@@ -1085,15 +1163,28 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         # Get used global variables
         used_global_var_nodes = function.global_vars_dependencies
         used_global_vars = {}
+        used_global_vars_only_type_and_names = {}
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
+            self.failure_info_add_attempts_element(global_var.name, "global_var")
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res
             with open(os.path.join(self.translated_global_var_path, global_var.name + ".rs"), "r") as file:
                 code_of_global_var = file.read()
+                # we only keep the type and name of the variable. e.g., for `static mut a: i32 = 5;`, we keep `static mut a: i32;`
+                # because 1. values are not needed for function translation; 2. if it has a long value, for example a very long array,
+                # including the value will break the LLM.
+                # Use Rust parser to properly extract type and name, avoiding issues with values containing special characters
+                try:
+                    type_and_name = rust_ast_parser.get_value_type_name(code_of_global_var, global_var.name)
+                except Exception as e:
+                    # Fallback to old method if parsing fails
+                    print(f"Failed to parse global variable {global_var.name} with Rust parser: {e}. Using fallback method.")
+                    type_and_name = f"{code_of_global_var.rsplit('=')[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
+                used_global_vars_only_type_and_names[global_var.name] = type_and_name
 
         used_enum_values: list[EnumValueInfo] = function.enum_values_dependencies
         used_enum_defs = function.enum_dependencies
@@ -1130,8 +1221,18 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         unidiomatic_function_path = os.path.join(
             self.unidiomatic_result_path, "translated_code_unidiomatic/functions", function.name + ".rs")
         if not os.path.exists(unidiomatic_function_path):
-            raise RuntimeError(
-                f"Error: Function {function.name} is not translated into unidiomatic Rust yet")
+            msg = f"Error: Function {function.name} is not translated into unidiomatic Rust yet"
+            if self.continue_run_when_incomplete:
+                self.append_failure_info(
+                    function.name,
+                    "NO_UNIDIOMATIC_CODE_ERROR",
+                    msg,
+                    ""
+                )
+                print(msg)
+                return TranslateResult.NO_UNIDIOMATIC_CODE
+            else:
+                raise RuntimeError(msg)
 
         unidiomatic_function_code = read_file(unidiomatic_function_path)
 
@@ -1177,11 +1278,11 @@ Try to avoid using pointers in the function arguments and return values if possi
 '''
 
         if len(used_global_vars) > 0:
-            joint_used_global_vars = '\n'.join(used_global_vars.values())
+            joint_used_global_vars_only_type_and_names = '\n'.join(used_global_vars_only_type_and_names.values())
             prompt += f'''
-The function uses the following const global variables, which are already translated as (you should **NOT** include them in your translation, as the system will automatically include them):
+The function uses the following const global variables, whose types and names are (you should **NOT** define or declare them in your translation, as the system will automatically define them. But you can access these global variables):
 ```rust
-{joint_used_global_vars}
+{joint_used_global_vars_only_type_and_names}
 ```
 '''
         if len(used_enum_values) > 0 or len(used_enum_defs) > 0:
@@ -1195,6 +1296,7 @@ The function uses the following const global variables, which are already transl
                 enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
+                self.failure_info_add_attempts_element(enum_def.name, "enum")
                 self._translate_enum_impl(enum_def)
                 with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
                     code_of_enum[enum_def] = file.read()
@@ -1547,7 +1649,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         function_result = rust_ast_parser.expand_use_aliases(
             function_result)  # remove potentail 'as' in use statements
 
-        # Verify the translation
         # Stage SPEC (with idiomatic name) before verification so harness generation can see it
         spec_tmp_dir: Optional[str] = None
         spec_pre_saved = False
@@ -1594,15 +1695,28 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     )
             except Exception as e:
                 logger.warning("Function spec staging skipped: %s", e)
-
-        result = self.verifier.verify_function(
-            function,
-            function_code=function_result,
-            data_type_code=data_type_code,
-            function_dependencies_code=all_dependency_functions_code,
-            unidiomatic_signature=undiomantic_function_signature,
-            prefix=False,  # TODO: check here
-        )
+        
+        try:
+            result = self.verifier.verify_function(
+                function,
+                function_code=function_result,
+                data_type_code=data_type_code,
+                function_dependencies_code=all_dependency_functions_code,
+                unidiomatic_signature=undiomantic_function_signature,
+                prefix=False,  # TODO: check here
+            )
+        except Exception as e:
+            self.append_failure_info(
+                function.name, "COMPILE_ERROR", str(e), function_result
+            )
+            # TODO: assign a new error code instead of compile_error?
+            result2 = (VerifyResult.COMPILE_ERROR, str(e))
+            return self._translate_function_impl(
+                function,
+                result2,
+                error_translation=function_result,
+                attempts=attempts+1
+            )
 
         if result[0] != VerifyResult.SUCCESS:
             # Clean up staged SPEC and mapping if verification failed
@@ -1640,7 +1754,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 error_translation=function_result,
                 attempts=attempts + 1
             )
-
+        
         # Persist SPEC (if staged) and update mapping after successful verification
         if spec_json_to_save and not spec_pre_saved:
             try:
@@ -1673,6 +1787,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             except Exception as e:
                 logger.warning("Function name mapping update skipped: %s", e)
 
+        self.failure_info[function.name]["status"] = "success"
         # save code
         self.mark_translation_success("function", function.name)
         utils.save_code(
