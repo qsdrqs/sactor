@@ -127,7 +127,12 @@ class Translator(ABC):
         self.save_failure_info(self.failure_info_path)
 
     def failure_info_set_attempts(self, item, attempts):
-        self.failure_info[item]['attempts'][-1] = attempts
+        info = self.failure_info.get(item)
+        if info is None:
+            raise KeyError(f"Attempting to update attempts for unknown item: {item}")
+        if not info['attempts']:
+            info['attempts'].append(0)
+        info['attempts'][-1] = attempts
         self.save_failure_info(self.failure_info_path)
 
     def save_failure_info(self, path):

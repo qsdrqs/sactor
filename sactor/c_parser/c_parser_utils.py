@@ -211,7 +211,13 @@ def preprocess_source_code(input_file, commands: list[list[str]]) -> str:
 
 def unfold_typedefs(input_file, compile_flags: list[str] = []):
     c_parser = CParser(input_file, omit_error=True, extra_args=compile_flags)
-    type_aliases = c_parser._type_alias
+
+    intrinsic_aliases = getattr(c_parser, "_intrinsic_alias", {}) or {}
+    type_aliases_no_intrinsic = {
+        alias: target
+        for alias, target in c_parser._type_alias.items()
+        if alias not in intrinsic_aliases
+    }
 
     text_str, data_bytes, b2s, s2b = utils.load_text_with_mappings(input_file)
     content = text_str
@@ -231,7 +237,7 @@ def unfold_typedefs(input_file, compile_flags: list[str] = []):
             b2s,
         )
 
-    content = _expand_type_alias_tokens(content, type_aliases)
+    content = _expand_type_alias_tokens(content, type_aliases_no_intrinsic)
     content = re.sub(r"\n{3,}", "\n\n", content)
 
     tmp_dir = utils.get_temp_dir()
