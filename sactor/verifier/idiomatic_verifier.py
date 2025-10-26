@@ -1014,6 +1014,7 @@ Output only the two functions in this format:
                     "specs",
                     "structs",
                 ),
+                config=self.config,
             )
             ok, snippet = tester.run_minimal(
                 combined_code,

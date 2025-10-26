@@ -21,10 +21,27 @@ class StructRoundTripTester:
     then samples, else a zeroed-only fallback.
     """
 
-    def __init__(self, cargo_bin: str = "cargo", llm=None, spec_root: Optional[str] = None):
+    def __init__(
+        self,
+        cargo_bin: str = "cargo",
+        llm=None,
+        spec_root: Optional[str] = None,
+        config: Optional[dict] = None,
+    ):
         self.cargo_bin = cargo_bin
         self.llm = llm
         self.spec_root = spec_root
+        self._config = config or {}
+        self._selftest_cfg = self._config.get("verifier", {}).get("selftest", {})
+        self._enabled = self._selftest_cfg.get("enabled", True)
+        explicit_samples = self._selftest_cfg.get("samples_path")
+        self._samples_path = explicit_samples or None
+        explicit_spec_path = self._selftest_cfg.get("struct_spec_path") or None
+        if explicit_spec_path and os.path.isdir(explicit_spec_path):
+            self.spec_root = explicit_spec_path
+            self._struct_spec_override = None
+        else:
+            self._struct_spec_override = explicit_spec_path
 
     def run_minimal(
         self,
@@ -43,8 +60,8 @@ class StructRoundTripTester:
         fails. The returned snippet is the trailing portion of stdout/stderr for
         the last attempt (or a labeled combination if all attempts fail).
         """
-        if os.environ.get("SACTOR_DISABLE_SELFTEST") == "1":
-            return True, "selftest disabled by SACTOR_DISABLE_SELFTEST"
+        if not self._enabled:
+            return True, "selftest disabled by configuration"
         with tempfile.TemporaryDirectory() as td:
             os.makedirs(os.path.join(td, "src"), exist_ok=True)
 
@@ -270,7 +287,7 @@ Return the statements between these tags, without backticks:
 
     def _load_samples(self, struct_name: str) -> list[dict] | None:
         # Prefer explicit path
-        path = os.environ.get("SACTOR_SAMPLES")
+        path = self._samples_path
         if not path:
             # default location under result path used by verifier
             default_path = os.path.join(
@@ -303,8 +320,8 @@ Return the statements between these tags, without backticks:
 
     def _load_struct_spec(self, struct_name: str) -> Optional[dict]:
         # Prefer explicit override via environment
-        path = os.environ.get("SACTOR_STRUCT_SPEC")
-        if path and os.path.exists(path):
+        path = self._struct_spec_override
+        if path and os.path.isfile(path):
             return self._read_struct_spec(path, struct_name)
 
         candidate_dirs: List[str] = []

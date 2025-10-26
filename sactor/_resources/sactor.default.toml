@@ -13,6 +13,20 @@ You are an expert in translating code from C to Rust. You will take all informat
 encoding = "o200k_base" # Encoding for the `tiktoken` library, default for GPT-4o model
 model = "gpt-4o" # Default model to use
 
+[test_generator]
+max_attempts = 6
+timeout_seconds = 60
+
+[test_runner]
+timeout_seconds = 60
+
+[verifier]
+
+[verifier.selftest]
+enabled = true
+samples_path = ""
+struct_spec_path = ""
+
 [logging]
 # Minimum level that appears on stdout (DEBUG, PROMPT, RESPONSE, INFO, WARNING, ERROR, CRITICAL)
 console_level = "DEBUG"
@@ -83,10 +97,3 @@ api_base = "http://localhost:11434"
 
 # Add more models following the same pattern
 # For complete list of supported providers and formats, see: https://docs.litellm.ai/docs/providers
-
-[test_generator]
-max_attempts = 6
-timeout_seconds = 60
-
-[test_runner]
-timeout_seconds = 60
