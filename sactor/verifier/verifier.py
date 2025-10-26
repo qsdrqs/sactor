@@ -216,7 +216,9 @@ class Verifier(ABC):
             '--',
         ]
 
-        timeout = self.config['general']['timeout_seconds']
+        general_config = self.config.get('general', {})
+        timeout = general_config.get('timeout_seconds', 60)
+        byte_limit = general_config.get('command_output_byte_limit', 40000)
 
         for i, cmd in enumerate(test_cmds):
             if test_number is not None and i != test_number:
@@ -225,12 +227,13 @@ class Verifier(ABC):
             if valgrind:
                 cmd = valgrind_cmd + cmd
             try:
-                res = utils.run_command_with_limit(
-                        cmd=cmd,
-                        time_limit_sec=timeout,
-                        cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
-                        env=env
-                    )
+                res = utils.run_command(
+                    cmd,
+                    limit_bytes=byte_limit,
+                    timeout=timeout,
+                    cwd=os.path.dirname(os.path.abspath(self.test_cmd_path)),
+                    env=env,
+                )
             except TimeoutError as e:
                 return (VerifyResult.TEST_TIMEOUT, f'Failed to run test due to timeout: {e}', i)
             stdout = res.stdout

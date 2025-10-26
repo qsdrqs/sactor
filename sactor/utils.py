@@ -620,6 +620,142 @@ def sanitize_config(
 
 ProcessResult = namedtuple("ProcessResult", ["stdout", "stderr", "returncode"])
 
+
+def _extend_with_limit(buffer: bytearray, chunk: bytes, limit: int) -> bool:
+    """Append ``chunk`` into ``buffer`` up to ``limit`` bytes.
+
+    Returns ``True`` when the incoming chunk exceeded the remaining capacity.
+    """
+
+    if limit <= 0:
+        return True
+    remaining = limit - len(buffer)
+    if remaining <= 0:
+        return True
+    buffer.extend(chunk[:remaining])
+    return len(chunk) > remaining
+
+
+def _run_command_streaming(
+    cmd: Sequence[str | os.PathLike[str]],
+    *,
+    limit_bytes: int,
+    time_limit_sec: float | None,
+    env: dict[str, str] | None,
+    cwd: str | os.PathLike[str] | None,
+    text: bool,
+) -> ProcessResult:
+    if limit_bytes is None or limit_bytes <= 0:
+        raise ValueError("limit_bytes must be a positive integer")
+
+    configured_time_limit = time_limit_sec
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+        env=env,
+        cwd=cwd,
+        text=False,
+    )
+
+    stdout_buf = bytearray()
+    stderr_buf = bytearray()
+    timed_out = False
+    start_time = time.monotonic()
+    streams = []
+    if process.stdout is not None:
+        streams.append(process.stdout)
+    if process.stderr is not None:
+        streams.append(process.stderr)
+
+    while streams:
+        now = time.monotonic()
+        if time_limit_sec is not None and now - start_time >= time_limit_sec:
+            timed_out = True
+            logger.warning(
+                "Time limit reached (%.2fs); terminating process",
+                configured_time_limit,
+            )
+            process.terminate()
+            time_limit_sec = None  # avoid repeated termination attempts
+
+        timeout = None
+        if time_limit_sec is not None:
+            timeout = max(0.0, min(0.2, time_limit_sec - (now - start_time)))
+
+        readable, _, _ = select.select(streams, [], [], timeout)
+        if not readable:
+            if process.poll() is not None:
+                # Drain any remaining data after process exit.
+                for stream in list(streams):
+                    chunk = stream.read()
+                    if chunk:
+                        truncated = _extend_with_limit(
+                            stdout_buf if stream is process.stdout else stderr_buf,
+                            chunk,
+                            limit_bytes,
+                        )
+                        if truncated:
+                            logger.warning(
+                                "%s byte limit reached (%d bytes); terminating process",
+                                "Stdout" if stream is process.stdout else "Stderr",
+                                limit_bytes,
+                            )
+                            if process.poll() is None:
+                                process.terminate()
+                    else:
+                        streams.remove(stream)
+            continue
+
+        for stream in readable:
+            chunk = stream.read(4096)
+            if not chunk:
+                streams.remove(stream)
+                continue
+            buffer = stdout_buf if stream is process.stdout else stderr_buf
+            truncated = _extend_with_limit(buffer, chunk, limit_bytes)
+            if truncated:
+                logger.warning(
+                    "%s byte limit reached (%d bytes); terminating process",
+                    "Stdout" if stream is process.stdout else "Stderr",
+                    limit_bytes,
+                )
+                if process.poll() is None:
+                    process.terminate()
+
+        if process.poll() is not None:
+            # Allow loop to drain remaining buffered data on next iteration.
+            continue
+
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+    returncode = process.poll()
+    if timed_out:
+        raise TimeoutError(
+            "Time limit exceeded while running command"
+            if configured_time_limit is None
+            else f"Time limit ({configured_time_limit:.2f}s) exceeded while running command"
+        )
+
+    stdout_bytes = bytes(stdout_buf[:limit_bytes])
+    stderr_bytes = bytes(stderr_buf[:limit_bytes])
+    if text:
+        return ProcessResult(
+            stdout_bytes.decode(errors="ignore"),
+            stderr_bytes.decode(errors="ignore"),
+            returncode if returncode is not None else 0,
+        )
+    return ProcessResult(stdout_bytes, stderr_bytes, returncode if returncode is not None else 0)
+
 def run_command(
     cmd: Sequence[str | os.PathLike[str]],
     *,
@@ -635,23 +771,22 @@ def run_command(
     """
     Unified command execution helper.
 
-    When `limit_bytes` is provided, falls back to `run_command_with_limit`
-    to stream output and enforce byte/time limits. Otherwise delegates to
-    `subprocess.run` with consistent return semantics.
+    Streams output when ``limit_bytes`` is provided, enforcing byte/time limits.
+    Otherwise delegates to ``subprocess.run`` with consistent return semantics.
     """
     if limit_bytes is not None:
+        if not capture_output:
+            raise ValueError("capture_output must be True when enforcing byte limits")
         if input_data is not None:
-            raise ValueError("run_command_with_limit does not support stdin input")
-        # `run_command_with_limit` enforces both byte and time limits. Preserve
-        # existing defaults when callers do not supply explicit values.
+            raise ValueError("stdin input is not supported when limit_bytes is set")
         time_limit = timeout if timeout is not None else 300
-        byte_limit = limit_bytes
-        result = run_command_with_limit(
+        result = _run_command_streaming(
             cmd,
-            limit_bytes=byte_limit,
+            limit_bytes=limit_bytes,
             time_limit_sec=time_limit,
             env=env,
             cwd=cwd,
+            text=text,
         )
         if check and result.returncode != 0:
             raise subprocess.CalledProcessError(
@@ -676,83 +811,3 @@ def run_command(
     if check and result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, cmd, stdout, stderr)
     return result
-
-def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs) -> ProcessResult:
-    """
-    Run a command and capture its stdout in real-time.
-    Stop when limit_bytes bytes are read or time_limit_sec have elapsed.
-    This is useful when a command returns too much output, causing out-of-memory errors.
-    """
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        bufsize=4096,
-        text=False,
-        **kwargs
-    )
-    captured_out, captured_err = bytearray(), bytearray()
-    start_time = time.monotonic()
-    returncode = 0
-    is_timeout = False
-    def read_available() -> Tuple[None | bytes, None | bytes, None | int]:
-        rlist, _, _ = select.select([process.stdout, process.stderr], [], [], 0.5)
-        out, err = None, None
-        for r in rlist:
-            if r is process.stdout:
-                out = r.read(4096)
-            elif r is process.stderr:
-                err = r.read(4096)
-            else:
-                raise TypeError("Unexpected elements in rlist")
-        return out, err
-    try:
-        forced_terminate = False
-        while True:
-            # --- time check ---
-            elapsed = time.monotonic() - start_time
-            if elapsed >= time_limit_sec:
-                logger.warning("Time limit reached, terminating process")
-                process.terminate()
-                forced_terminate = True
-                is_timeout = True
-                break
-            out, err = read_available()
-            if out is None and err is None:
-                continue  # no data yet; check time again
-            if out == b"" and err == b"":  # EOF
-                break
-            if out:
-                captured_out.extend(out)
-            if err:
-                captured_err.extend(err)
-            if len(captured_out) >= limit_bytes:
-                logger.warning("Stdout byte limit reached, terminating process")
-                process.terminate()
-                forced_terminate = True
-                break
-            if len(captured_err) >= limit_bytes:
-                logger.warning("Stderr byte limit reached, terminating process")
-                process.terminate()
-                forced_terminate = True
-                break
-        # wait briefly for exit
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            forced_terminate = True
-        finally:
-            if not forced_terminate:
-                returncode = process.returncode
-
-    finally:
-        if process.stdout:
-            process.stdout.close()
-        if process.stderr:
-            process.stderr.close()
-    if is_timeout:
-        raise TimeoutError(f"Time limit ({time_limit_sec} s) reached")
-    out_text = bytes(captured_out[:limit_bytes]).decode(errors="ignore")
-    err_text = bytes(captured_err[:limit_bytes]).decode(errors="ignore")
-    return ProcessResult(out_text, err_text, returncode)

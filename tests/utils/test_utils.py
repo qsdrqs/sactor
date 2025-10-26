@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 
 from sactor import utils
@@ -31,6 +34,7 @@ def test_load_config():
     config = utils.try_load_config(mock_config_path)
     assert config['general']['max_translation_attempts'] == 3
     assert config['general']['model'] == 'gpt-4o'
+    assert config['general']['command_output_byte_limit'] == 40000
     assert 'litellm' in config and 'model_list' in config['litellm']
 
 def test_rename_signature():
@@ -140,3 +144,54 @@ pub fn foo() {}
 """
     with pytest.raises(ValueError):
         utils.parse_llm_result(raw, "function")
+
+
+def test_run_command_limit_success():
+    result = utils.run_command(
+        [sys.executable, "-c", "print('ok')"],
+        limit_bytes=1024,
+    )
+    assert result.stdout.startswith("ok")
+    assert result.returncode == 0
+
+
+def test_run_command_limit_enforces_truncation():
+    script = """
+import sys
+import time
+sys.stdout.write('x' * 50000)
+sys.stdout.flush()
+time.sleep(5)
+"""
+    result = utils.run_command(
+        [sys.executable, "-c", script],
+        limit_bytes=1024,
+    )
+    assert len(result.stdout) == 1024
+    assert result.returncode is not None and result.returncode != 0
+
+
+def test_run_command_limit_timeout():
+    with pytest.raises(TimeoutError):
+        utils.run_command(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+            limit_bytes=1024,
+            timeout=0.2,
+        )
+
+
+def test_run_command_check_raises():
+    with pytest.raises(subprocess.CalledProcessError):
+        utils.run_command(
+            [sys.executable, "-c", "import sys; sys.exit(3)"],
+            check=True,
+        )
+
+
+def test_run_command_limit_requires_capture_output():
+    with pytest.raises(ValueError):
+        utils.run_command(
+            [sys.executable, "-c", "print('hi')"],
+            limit_bytes=128,
+            capture_output=False,
+        )

@@ -5,6 +5,7 @@ max_verifier_harness_attempts = 6
 unidiomatic_fallback_c2rust = false
 unidiomatic_fallback_c2rust_fix_attempts = 6
 timeout_seconds = 60 # timeout for the execution of generated code
+command_output_byte_limit = 40000 # Max bytes captured from subprocess stdout/stderr before truncation
 const_global_max_translation_len = 2048 # Max accepted length of baseline const global definitions
 max_llm_input_tokens = 20480 # Maximum tokens allowed in a single LLM prompt before truncation
 system_message = '''
