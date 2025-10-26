@@ -31,7 +31,7 @@ class Translator(ABC):
             self.result_path = result_path
         else:
             self.result_path = os.path.join(
-                utils.find_project_root(), 'result')
+                os.getcwd(), 'sactor_result')
         self.failure_info_path = os.path.join(
             self.result_path, "general_failure_info.json")
         self._failure_info_backup_prepared = False

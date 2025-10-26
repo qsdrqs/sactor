@@ -21,7 +21,6 @@ from collections import namedtuple
 logger = sactor_logging.get_logger(__name__)
 
 TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
-_PROJECT_ROOT_CACHE: Optional[str] = None
 
 
 def _copy_resource_tree(resource_root, destination: Path) -> None:
@@ -88,39 +87,7 @@ crate-type = ["cdylib"]'''
             logger.debug("Unable to copy proc macros from packaged resources", exc_info=True)
 
         if not copied:
-            proj_root = Path(find_project_root())
-            fallback_macros = proj_root / "sactor_proc_macros"
-            if fallback_macros.is_dir():
-                shutil.copytree(fallback_macros, macros_destination)
-                copied = True
-
-        if not copied:
             raise FileNotFoundError("Could not locate sactor_proc_macros resources")
-
-
-def find_project_root() -> str:
-    global _PROJECT_ROOT_CACHE
-    if _PROJECT_ROOT_CACHE:
-        return _PROJECT_ROOT_CACHE
-
-    env_root = os.environ.get("SACTOR_ROOT")
-    if env_root:
-        env_path = Path(env_root).expanduser()
-        if env_path.is_dir():
-            _PROJECT_ROOT_CACHE = str(env_path.resolve())
-            return _PROJECT_ROOT_CACHE
-        logger.warning("SACTOR_ROOT=%s does not point to a directory", env_root)
-
-    current = Path(__file__).resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").is_file():
-            _PROJECT_ROOT_CACHE = str(candidate)
-            return _PROJECT_ROOT_CACHE
-
-    package_root = current.parent
-    _PROJECT_ROOT_CACHE = str(package_root)
-    logger.debug("Falling back to package directory for project root: %s", package_root)
-    return _PROJECT_ROOT_CACHE
 
 
 def get_temp_dir():
@@ -242,29 +209,33 @@ def _merge_configs(config, default_config):
 
 
 def load_default_config():
-    """Load the bundled default configuration, falling back to repo checkout."""
-    project_default = Path(find_project_root()) / "sactor.default.toml"
-    candidates = [project_default]
+    """Load the bundled default configuration from packaged resources."""
+    resource_dir = Path(__file__).resolve().parent / "_resources"
+    candidate = resource_dir / "sactor.default.toml"
+    if candidate.is_file():
+        with open(candidate, "rb") as f:
+            return toml.load(f)
+
+    raise FileNotFoundError("Could not load _resources/sactor.default.toml")
+
+
+def load_spec_schema_text() -> str:
+    """Return the spec schema JSON text from packaged resources.
+
+    Raises FileNotFoundError if the schema cannot be located.
+    """
     try:
-        candidates.append(resources.files("sactor._resources").joinpath("sactor.default.toml"))
+        schema_resource = resources.files("sactor.verifier.spec").joinpath("schema.json")
+        with schema_resource.open("r", encoding="utf-8") as f:
+            return f.read()
     except Exception:
-        logger.debug("Packaged default config not found via importlib.resources", exc_info=True)
+        pass
 
-    for candidate in candidates:
-        try:
-            if hasattr(candidate, "open"):
-                with candidate.open("rb") as f:
-                    return toml.load(f)
-            candidate_path = Path(candidate)
-            if candidate_path.is_file():
-                with open(candidate_path, "rb") as f:
-                    return toml.load(f)
-        except FileNotFoundError:
-            continue
-        except Exception:
-            logger.debug("Failed to load default config from %s", candidate, exc_info=True)
+    fallback = Path(__file__).resolve().parent / "verifier" / "spec" / "schema.json"
+    if fallback.is_file():
+        return fallback.read_text(encoding="utf-8")
 
-    raise FileNotFoundError("Could not load sactor.default.toml")
+    raise FileNotFoundError("Could not locate verifier/spec/schema.json")
 
 
 def try_load_config(config_file=None):
@@ -303,9 +274,11 @@ def try_load_config(config_file=None):
         user_config = _load_user_config(cwd_candidate)
         return _merge_configs(user_config, default_config)
 
-    project_candidate = Path(find_project_root()) / "sactor.toml"
-    if project_candidate.is_file():
-        user_config = _load_user_config(project_candidate)
+    # Load from repository root if in development mode
+    package_dir = Path(__file__).resolve().parent
+    repo_candidate = package_dir.parent / "sactor.toml"
+    if repo_candidate.is_file():
+        user_config = _load_user_config(repo_candidate)
         return _merge_configs(user_config, default_config)
 
     logger.info("No user config found; falling back to default configuration only")

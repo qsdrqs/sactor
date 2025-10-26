@@ -2,10 +2,11 @@ import json
 import re
 import os
 from typing import Optional, Tuple
-from importlib import resources
 
 # Use jsonschema for full validation based on the bundled schema
 from jsonschema import Draft202012Validator  # type: ignore
+
+from sactor import utils
 
 SPEC_START = "----SPEC----"
 SPEC_END = "----END SPEC----"
@@ -62,20 +63,11 @@ def _load_schema() -> Optional[dict]:  # pragma: no cover - thin IO
     if _SCHEMA_CACHE is not None:
         return _SCHEMA_CACHE
     try:
-        schema_resource = resources.files(__package__).joinpath("schema.json")
-        with schema_resource.open("r", encoding="utf-8") as f:
-            _SCHEMA_CACHE = json.load(f)
-            return _SCHEMA_CACHE
+        schema_text = utils.load_spec_schema_text()
+        _SCHEMA_CACHE = json.loads(schema_text)
+        return _SCHEMA_CACHE
     except FileNotFoundError:
         return None
-    except Exception:
-        # Fallback to legacy file-system logic in case resources are unavailable.
-        pass
-    try:
-        here = os.path.dirname(__file__)
-        with open(os.path.join(here, "schema.json"), "r", encoding="utf-8") as f:
-            _SCHEMA_CACHE = json.load(f)
-            return _SCHEMA_CACHE
     except Exception:
         return None
 

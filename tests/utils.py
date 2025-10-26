@@ -1,10 +1,17 @@
 import os
+from pathlib import Path
 import pytest
 import shutil
 import subprocess
 import tempfile
 
 from sactor.utils import load_default_config
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def find_project_root() -> str:
+    return str(_PROJECT_ROOT)
 
 def c_file_executable(file_path):
     with tempfile.TemporaryDirectory() as tmpdirname:

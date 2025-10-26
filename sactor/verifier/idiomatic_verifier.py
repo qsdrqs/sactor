@@ -48,7 +48,7 @@ class IdiomaticVerifier(Verifier):
             self.result_path = result_path
         else:
             self.result_path = os.path.join(
-                utils.find_project_root(), 'result')
+                os.getcwd(), 'sactor_result')
         self.saved_test_harness_path = os.path.join(
             self.result_path, "test_harness")
         if unidiomatic_result_path is not None:

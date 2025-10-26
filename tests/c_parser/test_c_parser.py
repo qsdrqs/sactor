@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 
 from sactor import utils
+from tests.utils import find_project_root
 from sactor.c_parser import CParser
 
 
@@ -243,7 +244,7 @@ bool foo() { return true; }'''
         file_path = f'{tmpdir}/tmp.c'
         with open(file_path, 'w') as f:
             f.write(code)
-        print(f'-I{utils.find_project_root()}/include')
+        print(f'-I{find_project_root()}/include')
         c_parser = CParser(file_path)
         foo = c_parser.get_function_info('foo')
         tokens = utils.cursor_get_tokens(foo.node)
