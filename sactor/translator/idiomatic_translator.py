@@ -370,7 +370,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     error_translation=global_var_result,
                     attempts=attempts + 1
                 )
-            self.failure_info[global_var.name]['status'] = "success"
+            self.mark_translation_success("global_var", global_var.name)
             utils.save_code(global_var_save_path, global_var_result)
             return TranslateResult.SUCCESS
 
@@ -1165,7 +1165,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         for global_var in used_global_var_nodes:
             if global_var.node.location is not None and global_var.node.location.file.name != function.node.location.file.name:
                 continue
-            self.failure_info_add_attempts_element(global_var.name, "global_var")
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res
@@ -1294,7 +1293,6 @@ The function uses the following const global variables, whose types and names ar
                 enum_definitions.add(enum_def)
 
             for enum_def in enum_definitions:
-                self.failure_info_add_attempts_element(enum_def.name, "enum")
                 self._translate_enum_impl(enum_def)
                 with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
                     code_of_enum[enum_def] = file.read()
@@ -1785,7 +1783,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             except Exception as e:
                 logger.warning("Function name mapping update skipped: %s", e)
 
-        self.failure_info[function.name]["status"] = "success"
         # save code
         self.mark_translation_success("function", function.name)
         utils.save_code(

@@ -604,7 +604,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             return TranslateResult.SUCCESS
         for struct in struct_union_dependencies:
             self.translate_struct(struct)
-        
         self.failure_info_set_attempts(struct_union.name, attempts + 1)
 
         enum_dependencies = {}
@@ -744,7 +743,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 != function.node.location.file.name
             ):
                 continue
-            self.failure_info_add_attempts_element(global_var.name, "global_var")
             global_var_res = self._translate_global_vars_impl(global_var)
             if global_var_res != TranslateResult.SUCCESS:
                 return global_var_res, None
@@ -788,7 +786,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
             for enum_def in enum_definitions:
                 if enum_def not in code_of_enum:
-                    self.failure_info_add_attempts_element(enum_def.name, "enum")
                     self._translate_enum_impl(enum_def)
                     code_path = os.path.join(
                         self.translated_enum_path, enum_def.name + ".rs")
