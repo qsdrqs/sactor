@@ -1,6 +1,5 @@
 import os, json, glob
 import shutil
-import subprocess
 from typing import override, List
 
 from sactor import logging as sactor_logging
@@ -48,13 +47,9 @@ class C2Rust(ThirdParty):
             '--', *search_include_paths, *compile_flags]
         logger.debug("Running c2rust command: %s", cmd)
         # add C_INCLUDE_PATH to the environment if needed
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
+        result = utils.run_command(cmd)
         if result.returncode != 0:
-            logger.error("c2rust failed: %s", result.stderr.decode())
+            logger.error("c2rust failed: %s", result.stderr)
             if os.path.exists(tmp_filename_rs):
                 os.remove(tmp_filename_rs)
             raise RuntimeError("c2rust transpile command failed")

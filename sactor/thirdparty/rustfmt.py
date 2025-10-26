@@ -1,6 +1,7 @@
 import shutil
-import subprocess
 from typing import override
+
+from sactor import utils
 
 from .thirdparty import ThirdParty
 
@@ -18,6 +19,6 @@ class RustFmt(ThirdParty):
 
     def format(self):
         cmd = ["rustfmt", self.file_path]
-        result = subprocess.run(cmd)
+        result = utils.run_command(cmd, capture_output=False)
         if result.returncode != 0:
             raise OSError(f"Failed to format the file: {self.file_path}")

@@ -84,7 +84,7 @@ class E2EVerifier(Verifier):
                     *extra_compile_args,
                 ]
                 logger.debug("Compiling combined program (variant %s): %s", index, c_link_cmd)
-                res = subprocess.run(c_link_cmd)
+                res = utils.run_command(c_link_cmd, capture_output=False)
                 if res.returncode != 0:
                     raise RuntimeError("Error: Failed to compile combined program for variant %s" % index)
 

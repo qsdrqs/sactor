@@ -21,8 +21,6 @@ from sactor.verifier.spec.spec_types import (extract_spec_block, save_spec,
 from .translator import Translator
 from .translator_types import TranslateResult
 
-CONST_VAR_MAX_TRANSLATION_LEN = 2048
-
 
 logger = sactor_logging.get_logger(__name__)
 
@@ -436,7 +434,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     raise RuntimeError(msg)
             code_of_global_var = read_file(
                 f"{self.unidiomatic_result_path}/translated_code_unidiomatic/global_vars/{global_var_name}.rs")
-            if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
+            if len(code_of_global_var) >= self.const_global_max_translation_len:
                 # use ast parser to change libc numeric types to Rust primitive types
                 result = rust_ast_parser.replace_libc_numeric_types_to_rust_primitive_types(code_of_global_var)
                 return return_result(result, verification=False)

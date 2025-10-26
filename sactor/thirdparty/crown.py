@@ -1,7 +1,6 @@
 import json
 import os
 import shutil
-import subprocess
 from enum import Enum, auto
 from typing import override
 
@@ -38,9 +37,10 @@ class Crown(ThirdParty):
             self.build_path, "crown_analysis_results")
 
         # Set up environment variables
-        result = subprocess.run(
-            ['rustc', f'+{CROWN_RUST_VERSION}', '--print', 'sysroot'], stdout=subprocess.PIPE)
-        rust_sysroot = result.stdout.decode().strip()
+        result = utils.run_command(
+            ['rustc', f'+{CROWN_RUST_VERSION}', '--print', 'sysroot']
+        )
+        rust_sysroot = result.stdout.strip()
         env = utils.patched_env("LD_LIBRARY_PATH", f'{rust_sysroot}/lib')
         self.env = env
 
@@ -57,7 +57,7 @@ class Crown(ThirdParty):
     def _try_compile_rust(self, path):
         cmd = ['rustup', 'run', f'{CROWN_RUST_VERSION}-x86_64-unknown-linux-gnu',
                'cargo', 'build', '--manifest-path', path]
-        result = subprocess.run(cmd, env=self.env, capture_output=True)
+        result = utils.run_command(cmd, env=self.env)
         return result.returncode == 0
 
     def analyze(self, target_c2rust_code):
@@ -79,10 +79,11 @@ pub mod {crown_analysis_lib};
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'preprocess', 'in-place']
         logger.debug("Executing crown command: %s", " ".join(cmd))
-        result = subprocess.run(
-            cmd, env=self.env, capture_output=True, cwd=self.analysis_build_path)
+        result = utils.run_command(
+            cmd, env=self.env, cwd=self.analysis_build_path
+        )
         if result.returncode != 0:
-            logger.error("Crown preprocess stderr: %s", result.stderr.decode())
+            logger.error("Crown preprocess stderr: %s", result.stderr)
             raise RuntimeError("crown preprocess failed")
         if not self._try_compile_rust(self.analysis_build_path):
             # preoprocess messes up the code, recover it
@@ -92,8 +93,9 @@ pub mod {crown_analysis_lib};
 
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'explicit-addr', 'in-place']
-        result = subprocess.run(
-            cmd, env=self.env, capture_output=True, cwd=self.analysis_build_path)
+        result = utils.run_command(
+            cmd, env=self.env, cwd=self.analysis_build_path
+        )
         if result.returncode != 0:
             raise RuntimeError("crown explicit-addr failed")
         if not self._try_compile_rust(self.analysis_build_path):
@@ -106,8 +108,9 @@ pub mod {crown_analysis_lib};
         os.makedirs(self.analysis_results_path, exist_ok=True)
         cmd = [*cmd_prefix, os.path.join(
             self.analysis_build_path, "src/lib.rs"), 'analyse', self.analysis_results_path]
-        result = subprocess.run(
-            cmd, env=self.env, capture_output=True, cwd=self.analysis_build_path)
+        result = utils.run_command(
+            cmd, env=self.env, cwd=self.analysis_build_path
+        )
         if result.returncode != 0:
             raise RuntimeError("crown analyse failed")
         self._read_analyze_result()

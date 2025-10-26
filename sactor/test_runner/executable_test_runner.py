@@ -77,20 +77,16 @@ class ExecutableTestRunner(TestRunner):
             if self.feed_as_arguments:
                 feed_input_str = f'{self.target} {test_sample_input}'
                 cmd = feed_input_str.split()
-                result = subprocess.run(
+                result = utils.run_command(
                     cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
                     timeout=self.timeout_seconds,
                 )
             else:
                 cmd = self.target
-                result = subprocess.run(
+                result = utils.run_command(
                     cmd,
-                    input=test_sample_input.encode() + '\n'.encode(),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
                     timeout=self.timeout_seconds,
+                    input_data=f"{test_sample_input}\n",
                 )
         except subprocess.TimeoutExpired as e:
             logger.error('Test %d timed out: %s', test_sample_number, e)
@@ -98,7 +94,7 @@ class ExecutableTestRunner(TestRunner):
 
 
         target_output = utils.normalize_string(
-            result.stdout.decode() + result.stderr.decode())
+            result.stdout + result.stderr)
 
         # compare target output with expected output
         compare_result = self._compare_outputs(target_output, test_sample_output)

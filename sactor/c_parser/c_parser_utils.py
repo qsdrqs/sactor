@@ -175,11 +175,9 @@ def expand_all_macros(input_file, commands: list[list[str]] | None=None):
 
     # expand macros
     # #ifdef __cplusplus will be automatically removed if there is no __cplusplus flag
-    result = subprocess.run(
+    result = utils.run_command(
         ['cpp', '-C', '-P', '-xc', '-std=c99', tmp_file_path, *compile_flags],
-        capture_output=True,
-        text=True,
-        check=True
+        check=True,
     )
 
     # add removed headers

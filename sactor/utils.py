@@ -2,7 +2,7 @@ import os, copy
 import shutil
 import tempfile
 import subprocess
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Sequence
 from pathlib import Path
 from importlib import resources
 import re, shlex
@@ -362,9 +362,8 @@ def get_compiler() -> str:
 def get_compiler_include_paths() -> list[str]:
     compiler = get_compiler()
     cmd = [compiler, '-v', '-E', '-x', 'c', '/dev/null']
-    result = subprocess.run(cmd, stderr=subprocess.PIPE,
-                            stdout=subprocess.DEVNULL)
-    compile_output = result.stderr.decode()
+    result = run_command(cmd)
+    compile_output = result.stderr
     search_include_paths = []
 
     add_include_path = False
@@ -451,7 +450,7 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
                 command.append("-ftrapv")
                 if is_library:
                     command.append("-c")
-            _result = subprocess.run(command, check=to_check)
+            run_command(command, capture_output=False, check=to_check)
     else:
         cmd = [
             compiler,
@@ -462,7 +461,7 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
         ]
         if is_library:
             cmd.append('-c')  # compile to object file instead of executable
-        subprocess.run(cmd, check=True)  # raise exception if failed
+        run_command(cmd, capture_output=False, check=True)  # raise exception if failed
 
     return executable_path
 
@@ -633,6 +632,63 @@ def remove_keys_from_collection(src: dict | list, blacklist: set[str] | None = N
     return result
 
 ProcessResult = namedtuple("ProcessResult", ["stdout", "stderr", "returncode"])
+
+def run_command(
+    cmd: Sequence[str | os.PathLike[str]],
+    *,
+    capture_output: bool = True,
+    text: bool = True,
+    timeout: float | None = None,
+    limit_bytes: int | None = None,
+    env: dict[str, str] | None = None,
+    cwd: str | os.PathLike[str] | None = None,
+    check: bool = False,
+    input_data: str | bytes | None = None,
+) -> ProcessResult:
+    """
+    Unified command execution helper.
+
+    When `limit_bytes` is provided, falls back to `run_command_with_limit`
+    to stream output and enforce byte/time limits. Otherwise delegates to
+    `subprocess.run` with consistent return semantics.
+    """
+    if limit_bytes is not None:
+        if input_data is not None:
+            raise ValueError("run_command_with_limit does not support stdin input")
+        # `run_command_with_limit` enforces both byte and time limits. Preserve
+        # existing defaults when callers do not supply explicit values.
+        time_limit = timeout if timeout is not None else 300
+        byte_limit = limit_bytes
+        result = run_command_with_limit(
+            cmd,
+            limit_bytes=byte_limit,
+            time_limit_sec=time_limit,
+            env=env,
+            cwd=cwd,
+        )
+        if check and result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode, cmd, result.stdout, result.stderr
+            )
+        return result
+
+    completed = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.PIPE if capture_output else None,
+        env=env,
+        cwd=cwd,
+        text=text,
+        timeout=timeout,
+        check=False,
+        input=input_data,
+    )
+    stdout = completed.stdout if capture_output and completed.stdout is not None else ""
+    stderr = completed.stderr if capture_output and completed.stderr is not None else ""
+    result = ProcessResult(stdout, stderr, completed.returncode)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd, stdout, stderr)
+    return result
 
 def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs) -> ProcessResult:
     """

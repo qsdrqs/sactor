@@ -17,8 +17,6 @@ from .translator import Translator
 from .translator_types import TranslateResult
 from ..combiner.rust_code import RustCode
 
-CONST_VAR_MAX_TRANSLATION_LEN = 2048
-
 logger = sactor_logging.get_logger(__name__)
 
 class UnidiomaticTranslator(Translator):
@@ -494,7 +492,7 @@ Directly use these enums in your translation and do **NOT** redefine them.
         if global_var.is_const or has_initializer:
             code_of_global_var = code_of_global_var_def or self.c_parser.extract_global_var_definition_code(
                 global_var.name)
-            if len(code_of_global_var) >= CONST_VAR_MAX_TRANSLATION_LEN:
+            if len(code_of_global_var) >= self.const_global_max_translation_len:
                 result = rust_ast_parser.get_static_item_definition(self.c2rust_translation, global_var.name)
                 return return_result(result, verification=False)
 

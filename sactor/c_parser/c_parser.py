@@ -3,7 +3,7 @@ from collections import deque
 from clang import cindex
 import os
 import re
-from sactor import utils
+import tempfile
 
 from sactor import logging as sactor_logging, utils
 from sactor.utils import read_file, read_file_lines
@@ -143,7 +143,6 @@ class CParser:
         Some type aliases are intrinsic in the compiler and cannot be 
         found through headers. For example, `size_t`. This method extract those aliases.
         """
-        import subprocess, tempfile
         # map from alias type to its intrinsic macro definition name.
         # this function only handles intrinsic aliases in this dict.
         # this dict may be expanded to handle other intrinsic aliases.
@@ -158,12 +157,10 @@ class CParser:
                 pass
             # TODO: make it switchable to gcc
             compiler = "clang"
-            result = subprocess.run(
-                    [compiler, "-E", "-P", "-v", "-dD", path], 
-                    capture_output=True, 
-                    text=True, 
-                    check=True
-                )
+            result = utils.run_command(
+                [compiler, "-E", "-P", "-v", "-dD", path],
+                check=True,
+            )
             config = result.stdout
         intrinsic_canonical = self._build_compiler_intrinsic_define_map(config)
         alias_canonical = {}

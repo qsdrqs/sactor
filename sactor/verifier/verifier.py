@@ -2,7 +2,6 @@
 
 import json, tempfile
 import os, shlex
-import subprocess
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -154,23 +153,21 @@ class Verifier(ABC):
         # Try format the Rust code
         cmd = ["cargo", "fmt", "--manifest-path",
                f"{self.build_attempt_path}/Cargo.toml"]
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = utils.run_command(cmd)
         if result.returncode != 0:
             # Rust code failed to format, unable to compile
             logger.error("Rust code failed to format")
-            return (VerifyResult.COMPILE_ERROR, result.stderr.decode())
+            return (VerifyResult.COMPILE_ERROR, result.stderr)
 
         # Try to compile the Rust code
         cmd = ["cargo", "build", "--manifest-path",
                f"{self.build_attempt_path}/Cargo.toml"]
         logger.debug("Compiling Rust project: %s", ' '.join(cmd))
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = utils.run_command(cmd)
         if result.returncode != 0:
             # Rust code failed to compile
             logger.error("Rust code failed to compile")
-            return (VerifyResult.COMPILE_ERROR, result.stderr.decode())
+            return (VerifyResult.COMPILE_ERROR, result.stderr)
         else:
             # Rust code compiled successfully
             logger.info("Rust code compiled successfully")
@@ -421,8 +418,7 @@ extern "C" {{
         rust_compile_cmd = ["cargo", "build", "--manifest-path",
                             f"{self.embed_test_rust_dir}/Cargo.toml"]
         logger.debug("Compiling embedded Rust crate: %s", " ".join(rust_compile_cmd))
-        res = subprocess.run(rust_compile_cmd, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+        res = utils.run_command(rust_compile_cmd, capture_output=False)
         if res.returncode != 0:
             raise RuntimeError(
                 f"Failed to compile Rust code for function {name}")
@@ -469,7 +465,7 @@ extern "C" {{
                     if is_compile_command(command):
                         to_check = True
                     logger.debug("Running compile command: %s", command)
-                    res = subprocess.run(command)
+                    res = utils.run_command(command, capture_output=False)
                     if to_check and res.returncode != 0:
                         raise RuntimeError(
                             f"Error: Failed to compile C code for function {name}")
@@ -486,7 +482,7 @@ extern "C" {{
 
                 # compile C code
                 logger.debug("Compiling C harness: %s", c_compile_cmd)
-                res = subprocess.run(c_compile_cmd)
+                res = utils.run_command(c_compile_cmd, capture_output=False)
                 if res.returncode != 0:
                     raise RuntimeError(
                         f"Error: Failed to compile C code for function {name}")
@@ -510,14 +506,13 @@ extern "C" {{
                         rust_code, name, "#[sactor_proc_macros::trace_fn]")
                 utils.create_rust_proj(
                     rust_code, name, self.embed_test_rust_dir, is_lib=True, proc_macro=True)
-                res = subprocess.run(rust_compile_cmd, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE)
+                res = utils.run_command(rust_compile_cmd)
                 if res.returncode != 0:
                     logger.error(
                         "Failed to compile Rust code for function %s during feedback rerun",
                         name,
                     )
-                    logger.error("%s", res.stderr.decode())
+                    logger.error("%s", res.stderr)
                     raise RuntimeError(
                         f"Failed to compile Rust code for function {name}")
 

@@ -55,24 +55,22 @@ class ExecutableTestGenerator(TestGenerator):
             if self.feed_as_arguments:
                 feed_input_str = f'{self.executable} {test_sample}'
                 cmd = feed_input_str.split()
-                result = subprocess.run(
+                result = utils.run_command(
                     self.valgrind_cmd + cmd,
-                    capture_output=True,
                     timeout=self.timeout_seconds,
                     cwd=tmp_dir,
                 )
             else:
                 cmd = self.executable
-                result = subprocess.run(
+                result = utils.run_command(
                     self.valgrind_cmd + [cmd],
-                    input=test_sample.encode() + '\n'.encode(),
-                    capture_output=True,
                     timeout=self.timeout_seconds,
                     cwd=tmp_dir,
+                    input_data=f"{test_sample}\n",
                 )
             if result.returncode != 0:
                 raise ValueError(
-                    f"Failed to run the executable with the input: {result.stdout.decode() + result.stderr.decode()}"
+                    f"Failed to run the executable with the input: {result.stdout + result.stderr}"
                 )
         except subprocess.TimeoutExpired as e:
             logger.error("Timeout while executing sample: %s", e)
@@ -82,25 +80,23 @@ class ExecutableTestGenerator(TestGenerator):
         if self.feed_as_arguments:
             feed_input_str = f'{self.executable} {test_sample}'
             cmd = feed_input_str.split()
-            result = subprocess.run(
+            result = utils.run_command(
                 cmd,
-                capture_output=True,
                 timeout=self.timeout_seconds,
                 cwd=tmp_dir,
             )
         else:
             cmd = self.executable
-            result = subprocess.run(
+            result = utils.run_command(
                 cmd,
-                input=test_sample.encode() + '\n'.encode(),
-                capture_output=True,
                 timeout=self.timeout_seconds,
                 cwd=tmp_dir,
+                input_data=f"{test_sample}\n",
             )
         assert result.returncode == 0 # should not fail
         # clean up tmp dir
         shutil.rmtree(tmp_dir)
-        return utils.normalize_string(result.stdout.decode() + result.stderr.decode())
+        return utils.normalize_string(result.stdout + result.stderr)
 
     def _generate_test_impl(
         self,

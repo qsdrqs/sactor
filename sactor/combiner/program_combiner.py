@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import subprocess
 from typing import override, Optional
 
 from sactor import logging as sactor_logging
@@ -140,7 +139,7 @@ class ProgramCombiner(Combiner):
         # copy the combined code to the result directory
         cmd = ["cp", "-f",
                os.path.join(build_program, "src", self.source_name), file_path]
-        result = subprocess.run(cmd, check=True, capture_output=True)
+        result = utils.run_command(cmd, check=True)
 
         # save the warning stat
         with open(os.path.join(result_dir_with_type, "clippy_stat.json"), "w") as f:
@@ -184,37 +183,33 @@ class ProgramCombiner(Combiner):
         # format the code
         cmd = ["cargo", "fmt", "--manifest-path",
                os.path.join(build_dir, "Cargo.toml")]
-        result = subprocess.run(
-            cmd, capture_output=True)
+        result = utils.run_command(cmd)
 
         if result.returncode != 0:
-            logger.error("Failed to format the code: %s", result.stderr.decode(errors='ignore'))
+            logger.error("Failed to format the code: %s", result.stderr)
             return CombineResult.RUSTFMT_FAILED, None
 
         # fix the code
         cmd = ["cargo", "clippy", "--fix", "--allow-no-vcs", "--manifest-path",
                os.path.join(build_dir, "Cargo.toml")]
         logger.debug("Running clippy fix command: %s", " ".join(cmd))
-        result = subprocess.run(
-            cmd, capture_output=True)
+        result = utils.run_command(cmd)
 
         if result.returncode != 0:
-            logger.error("Failed to fix the code: %s", result.stderr.decode(errors='ignore'))
+            logger.error("Failed to fix the code: %s", result.stderr)
             return CombineResult.RUSTFIX_FAILED, None
 
         # cargo clippy
         cmd = ["cargo", "clippy", "--manifest-path",
                os.path.join(build_dir, "Cargo.toml")]
 
-        result = subprocess.run(
-            # Can have both warnings and errors, but this is not compile error
-            cmd, capture_output=True)
+        result = utils.run_command(cmd)
 
         has_error = False
         if result.returncode != 0:
             has_error = True
 
-        compiler_output = result.stderr.decode("utf-8")
+        compiler_output = result.stderr
 
         compiler_output_lines = compiler_output.split("\n")
         total_warnings, total_errors = self._get_warning_error_count(
@@ -259,11 +254,10 @@ class ProgramCombiner(Combiner):
             # re-run cargo clippy
             cmd = ["cargo", "clippy", "--manifest-path",
                    os.path.join(build_dir, "Cargo.toml")]
-            result = subprocess.run(
-                cmd, capture_output=True)
+            result = utils.run_command(cmd)
 
             _, new_error_count = self._get_warning_error_count(
-                result.stderr.decode("utf-8"), has_error)
+                result.stderr, has_error)
             diff = current_count - new_error_count
             self.clippy_stat["errors"][error_type] = diff
             current_count = new_error_count
@@ -285,11 +279,10 @@ class ProgramCombiner(Combiner):
             # re-run cargo clippy
             cmd = ["cargo", "clippy", "--manifest-path",
                    os.path.join(build_dir, "Cargo.toml")]
-            result = subprocess.run(
-                cmd, capture_output=True, check=True) # this should not fail
+            result = utils.run_command(cmd, check=True)
 
             new_warning_cout, _ = self._get_warning_error_count(
-                result.stderr.decode("utf-8"), has_error)
+                result.stderr, has_error)
             diff = current_count - new_warning_cout
             self.clippy_stat["warnings"][warning_type] = diff
             current_count = new_warning_cout

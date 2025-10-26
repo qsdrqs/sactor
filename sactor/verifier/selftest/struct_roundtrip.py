@@ -136,12 +136,9 @@ mod tests {{
 
     def _run_cargo(self, workdir: str) -> Tuple[bool, str]:
         try:
-            p = subprocess.run(
+            p = utils.run_command(
                 [self.cargo_bin, "test", "--quiet"],
                 cwd=workdir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
                 timeout=120,
             )
         except subprocess.TimeoutExpired as e:
