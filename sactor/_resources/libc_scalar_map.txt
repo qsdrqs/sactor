@@ -1,0 +1,22 @@
+# libc scalar numeric aliases mapped to Rust primitives.
+# Format: <libc path> = <rust primitive>
+# Lines beginning with '#' are ignored.
+
+libc::c_char = u8
+libc::c_schar = i8
+libc::c_uchar = u8
+libc::c_short = i16
+libc::c_ushort = u16
+libc::c_int = i32
+libc::c_uint = u32
+libc::c_long = isize
+libc::c_ulong = usize
+libc::c_longlong = i64
+libc::c_ulonglong = u64
+libc::c_float = f32
+libc::c_double = f64
+libc::size_t = usize
+libc::ssize_t = isize
+libc::ptrdiff_t = isize
+libc::intptr_t = isize
+libc::uintptr_t = usize

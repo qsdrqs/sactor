@@ -4,11 +4,12 @@ import textwrap
 import shutil
 import pytest
 import glob
+from types import SimpleNamespace
 
 from clang import cindex
 
 from sactor.c_parser import c_parser_utils
-from sactor.c_parser.c_parser import CParser
+from sactor.c_parser.c_parser import CParser, _discover_intrinsic_aliases
 from sactor.utils import read_file
 from sactor import utils as sactor_utils
 from tests import utils as test_utils
@@ -77,6 +78,31 @@ def test_expand_macro():
 
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_intrinsic_aliases_cached(monkeypatch):
+    _discover_intrinsic_aliases.cache_clear()
+
+    calls = {
+        "count": 0,
+    }
+
+    def fake_run_command(cmd, check=True):
+        calls["count"] += 1
+        assert cmd[:4] == ["clang", "-E", "-P", "-v"]
+        return SimpleNamespace(stdout="#define __SIZE_TYPE__ long unsigned int\n")
+
+    monkeypatch.setattr("sactor.utils.run_command", fake_run_command)
+
+    aliases = _discover_intrinsic_aliases()
+    assert aliases == {"size_t": "long unsigned int"}
+    assert calls["count"] == 1
+
+    aliases_again = _discover_intrinsic_aliases()
+    assert aliases_again == aliases
+    assert calls["count"] == 1
+
+    _discover_intrinsic_aliases.cache_clear()
 
 
 def test_remove_inline_specifiers(tmp_path):

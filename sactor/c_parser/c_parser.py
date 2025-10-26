@@ -1,4 +1,5 @@
 from collections import deque
+from functools import lru_cache
 
 from clang import cindex
 import os
@@ -49,7 +50,7 @@ class CParser:
         self._structs_unions: dict[str, StructInfo] = {}
         self._functions: dict[str, FunctionInfo] = {}
         
-        self._intrinsic_alias = self._get_intrinsic_aliases()
+        self._intrinsic_alias = _discover_intrinsic_aliases()
         self._type_alias: dict[str, str] = self._extract_type_alias()
         self._extract_structs_unions()
         self._update_structs_unions()
@@ -137,38 +138,7 @@ class CParser:
                 res[match.group(1)] = match.group(2)
         return res
 
-    # TODO: dirty implementation. May be improved later
-    def _get_intrinsic_aliases(self) -> dict:
-        """
-        Some type aliases are intrinsic in the compiler and cannot be 
-        found through headers. For example, `size_t`. This method extract those aliases.
-        """
-        # map from alias type to its intrinsic macro definition name.
-        # this function only handles intrinsic aliases in this dict.
-        # this dict may be expanded to handle other intrinsic aliases.
-        alias_intrinsic = {
-            "size_t": "__SIZE_TYPE__",
-        }
-        # get mapping from intrinsic macro definition to canonical type
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # create an empty source file
-            path = os.path.join(tmp_dir, "empty.c")
-            with open(path, "w") as f:
-                pass
-            # TODO: make it switchable to gcc
-            compiler = "clang"
-            result = utils.run_command(
-                [compiler, "-E", "-P", "-v", "-dD", path],
-                check=True,
-            )
-            config = result.stdout
-        intrinsic_canonical = self._build_compiler_intrinsic_define_map(config)
-        alias_canonical = {}
-        for alias, intrinsic in alias_intrinsic.items():
-            alias_canonical[alias] = intrinsic_canonical[intrinsic]
-        return alias_canonical
-
-        # map from instrinsic alias to canonical type
+    # map from instrinsic alias to canonical type
 
     def _extract_type_alias(self):
         """
@@ -527,7 +497,6 @@ class CParser:
                     self._structs_unions[dependency.name]))
 
         return result
-
     def extract_function_code(self, function_name):
         """
         Extracts the code of the function with the given name from the file.
@@ -692,3 +661,26 @@ class CParser:
             result += "-" * 40 + "\n"
 
         return result
+
+
+@lru_cache(maxsize=1)
+def _discover_intrinsic_aliases() -> dict[str, str]:
+    """Probe the active compiler once to discover intrinsic typedef aliases."""
+
+    alias_intrinsic = {
+        "size_t": "__SIZE_TYPE__",
+    }
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "empty.c")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("")
+        compiler = "clang"
+        result = utils.run_command([compiler, "-E", "-P", "-v", "-dD", path], check=True)
+        config = result.stdout
+
+    intrinsic_canonical = CParser._build_compiler_intrinsic_define_map(config)
+    alias_canonical: dict[str, str] = {}
+    for alias, intrinsic in alias_intrinsic.items():
+        alias_canonical[alias] = intrinsic_canonical[intrinsic]
+    return alias_canonical

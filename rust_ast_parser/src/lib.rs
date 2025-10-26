@@ -1,12 +1,13 @@
 #![feature(proc_macro_span)]
 
+use proc_macro2::Span;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
-use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::mem;
+use std::sync::OnceLock;
 use syn::{
     parse::{Parse, ParseStream},
     parse_quote, parse_str,
@@ -17,26 +18,12 @@ use syn::{
     Abi, AttrStyle, Attribute, File, GenericArgument, ItemStatic, LitStr, Meta, PatIdent,
     PathArguments, Result, Token, TypePath,
 };
-const LIBC_SCALAR_TO_PRIMITIVE: &[(&str, &str)] = &[
-    ("libc::c_char", "u8"),
-    ("libc::c_schar", "i8"),
-    ("libc::c_uchar", "u8"),
-    ("libc::c_short", "i16"),
-    ("libc::c_ushort", "u16"),
-    ("libc::c_int", "i32"),
-    ("libc::c_uint", "u32"),
-    ("libc::c_long", "isize"),
-    ("libc::c_ulong", "usize"),
-    ("libc::c_float", "f32"),
-    ("libc::c_double", "f64"),
-    ("libc::c_longlong", "i64"),
-    ("libc::c_ulonglong", "u64"),
-    ("libc::size_t", "usize"),
-    ("libc::ssize_t", "isize"),
-    ("libc::ptrdiff_t", "isize"),
-    ("libc::intptr_t", "isize"),
-    ("libc::uintptr_t", "usize"),
-];
+static LIBC_SCALAR_MAP_TEXT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../sactor/_resources/libc_scalar_map.txt"
+));
+
+static LIBC_SCALAR_TO_PRIMITIVE: OnceLock<Vec<(&'static str, &'static str)>> = OnceLock::new();
 
 const NUMERIC_PRIMITIVES: &[&str] = &[
     "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "usize", "isize", "f32", "f64",
@@ -67,7 +54,7 @@ fn parse_src(source_code: &str) -> PyResult<File> {
     let res = panic::catch_unwind(|| {
         parse_str(source_code).map_err(|e| {
             let msg = format!(
-            "Error: {:?}\nContext:\n{}",
+                "Error: {:?}\nContext:\n{}",
                 e,
                 get_error_context(source_code, &e)
             );
@@ -76,21 +63,15 @@ fn parse_src(source_code: &str) -> PyResult<File> {
     });
     match res {
         Ok(inner_res) => inner_res,
-        Err(e) => {
-            if let Some(msg) = e.downcast_ref::<&str>() {
-                Err(format!("Error when parsing Rust: {}", msg))
-            }
-            else if let Some(msg) = e.downcast_ref::<String>() {
-                Err(format!("Error when parsing Rust: {}", msg))
-            }
-            else {
-                Err("Error when parsing Rust.".to_string())
-            }.map_err(|msg| {
-                pyo3::exceptions::PySyntaxError::new_err(msg)
-            })
+        Err(e) => if let Some(msg) = e.downcast_ref::<&str>() {
+            Err(format!("Error when parsing Rust: {}", msg))
+        } else if let Some(msg) = e.downcast_ref::<String>() {
+            Err(format!("Error when parsing Rust: {}", msg))
+        } else {
+            Err("Error when parsing Rust.".to_string())
         }
+        .map_err(|msg| pyo3::exceptions::PySyntaxError::new_err(msg)),
     }
-    
 }
 
 // Expose a function to C
@@ -160,8 +141,7 @@ fn append_stmt_to_function(
                 continue;
             }
 
-            if f
-                .block
+            if f.block
                 .stmts
                 .iter()
                 .any(|existing| existing.to_token_stream().to_string() == target_tokens)
@@ -172,10 +152,9 @@ fn append_stmt_to_function(
             if let Some(last_idx) = f.block.stmts.len().checked_sub(1) {
                 if matches!(f.block.stmts[last_idx], syn::Stmt::Expr(_, None)) {
                     if let syn::Stmt::Expr(expr, _) = f.block.stmts.remove(last_idx) {
-                        f.block.stmts.push(syn::Stmt::Expr(
-                            expr,
-                            Some(Token![;](Span::call_site())),
-                        ));
+                        f.block
+                            .stmts
+                            .push(syn::Stmt::Expr(expr, Some(Token![;](Span::call_site()))));
                     }
                 }
             }
@@ -502,8 +481,32 @@ fn normalize_token_string(input: &str) -> String {
     result
 }
 
+fn libc_scalar_pairs() -> &'static [(&'static str, &'static str)] {
+    LIBC_SCALAR_TO_PRIMITIVE
+        .get_or_init(|| {
+            let mut pairs: Vec<(&'static str, &'static str)> = Vec::new();
+            for (idx, raw_line) in LIBC_SCALAR_MAP_TEXT.lines().enumerate() {
+                let line = raw_line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let (lhs, rhs) = line.split_once('=').unwrap_or_else(|| {
+                    panic!("Invalid entry in libc_scalar_map.txt on line {}", idx + 1)
+                });
+                let src = lhs.trim();
+                let dst = rhs.trim();
+                if src.is_empty() || dst.is_empty() {
+                    panic!("Invalid entry in libc_scalar_map.txt on line {}", idx + 1);
+                }
+                pairs.push((src, dst));
+            }
+            pairs
+        })
+        .as_slice()
+}
+
 fn map_libc_scalar(name: &str) -> Option<&'static str> {
-    for (src, dst) in LIBC_SCALAR_TO_PRIMITIVE.iter() {
+    for (src, dst) in libc_scalar_pairs().iter() {
         if *src == name {
             return Some(*dst);
         }
@@ -1307,21 +1310,15 @@ fn expand_use_aliases(code: &str) -> PyResult<String> {
     });
     match res {
         Ok(inner_res) => inner_res,
-        Err(e) => {
-            if let Some(msg) = e.downcast_ref::<&str>() {
-                Err(format!("Error when expand_use_aliases: {}", msg))
-            }
-            else if let Some(msg) = e.downcast_ref::<String>() {
-                Err(format!("Error when expand_use_aliases: {}", msg))
-            }
-            else {
-                Err("Error when expand_use_aliases.".to_string())
-            }.map_err(|msg| {
-                pyo3::exceptions::PySyntaxError::new_err(msg)
-            })
+        Err(e) => if let Some(msg) = e.downcast_ref::<&str>() {
+            Err(format!("Error when expand_use_aliases: {}", msg))
+        } else if let Some(msg) = e.downcast_ref::<String>() {
+            Err(format!("Error when expand_use_aliases: {}", msg))
+        } else {
+            Err("Error when expand_use_aliases.".to_string())
         }
+        .map_err(|msg| pyo3::exceptions::PySyntaxError::new_err(msg)),
     }
-
 }
 
 #[gen_stub_pyfunction]
@@ -2204,7 +2201,10 @@ fn rust_ast_parser(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dedup_items, m)?)?;
     m.add_function(wrap_pyfunction!(strip_to_struct_items, m)?)?;
     m.add_function(wrap_pyfunction!(get_value_type_name, m)?)?;
-    m.add_function(wrap_pyfunction!(replace_libc_numeric_types_to_rust_primitive_types, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        replace_libc_numeric_types_to_rust_primitive_types,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(remove_mut_from_type_specifiers, m)?)?;
     #[allow(clippy::unsafe_removed_from_name)]
     m.add_function(wrap_pyfunction!(count_unsafe_tokens, m)?)?;

@@ -3,6 +3,7 @@ import re
 from typing import Optional, Set
 
 from sactor import rust_ast_parser
+from sactor.type_normalization import get_libc_scalar_map
 
 
 logger = logging.getLogger(__name__)
@@ -59,24 +60,14 @@ def canonical_type_string(value: Optional[str]) -> str:
     return " ".join(stripped.split())
 
 
-_RAW_LIBC_SCALAR_TO_PRIMITIVE = {
-    "libc::c_char": "u8",
-    "libc::c_schar": "i8",
-    "libc::c_uchar": "u8",
-    "libc::c_int": "i32",
-    "libc::c_uint": "u32",
-    "libc::c_long": "isize",
-    "libc::c_ulong": "usize",
-    "libc::c_float": "f32",
-    "libc::c_double": "f64",
-}
+_SHARED_LIBC_SCALAR_TO_PRIMITIVE = get_libc_scalar_map()
 
 LIBC_SCALAR_TO_PRIMITIVE = {
     canonical_type_string(key): value
-    for key, value in _RAW_LIBC_SCALAR_TO_PRIMITIVE.items()
+    for key, value in _SHARED_LIBC_SCALAR_TO_PRIMITIVE.items()
 }
 
-_RAW_SCALAR_CAST_OVERRIDES = set(_RAW_LIBC_SCALAR_TO_PRIMITIVE) - {
+_RAW_SCALAR_CAST_OVERRIDES = set(_SHARED_LIBC_SCALAR_TO_PRIMITIVE) - {
     "libc::c_char",
     "libc::c_schar",
     "libc::c_uchar",
