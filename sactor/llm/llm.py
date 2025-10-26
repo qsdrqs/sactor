@@ -11,8 +11,6 @@ from sactor import utils
 
 logger = sactor_logging.get_logger(__name__)
 
-MAX_INPUT_TOKEN_LEN = 20480
-
 class LLM:
     def __init__(self, config, encoding=None, system_msg=None):
         self.config = config
@@ -20,6 +18,9 @@ class LLM:
             system_msg = config['general']['system_message']
 
         self.system_msg = system_msg
+        self.max_input_tokens = int(
+            config['general'].get('max_llm_input_tokens', 20480)
+        )
 
         if not encoding:
             encoding = config['general']['encoding']
@@ -82,9 +83,13 @@ class LLM:
 
     def query(self, prompt, model=None, override_system_message=None) -> str:
         input_tokens = self.enc.encode(prompt)
-        if len(input_tokens) > MAX_INPUT_TOKEN_LEN:
-            logger.warning("Input is too long: %d tokens, truncating to %d tokens", len(input_tokens), MAX_INPUT_TOKEN_LEN)
-            prompt = self.enc.decode(input_tokens[:MAX_INPUT_TOKEN_LEN-2]) + " ..."
+        if len(input_tokens) > self.max_input_tokens:
+            logger.warning(
+                "Input is too long: %d tokens, truncating to %d tokens",
+                len(input_tokens),
+                self.max_input_tokens,
+            )
+            prompt = self.enc.decode(input_tokens[: self.max_input_tokens - 2]) + " ..."
         sactor_logging.log_llm_prompt(prompt)
         old_system_msg = None
         if override_system_message is not None:

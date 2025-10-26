@@ -1,4 +1,4 @@
-import json, subprocess
+import json
 import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -22,6 +22,9 @@ class Translator(ABC):
         self.llm = llm
         self.config = config
         self.max_attempts = config['general']['max_translation_attempts']
+        self.const_global_max_translation_len = int(
+            config['general'].get('const_global_max_translation_len', 2048)
+        )
         self.c_parser = c_parser
         self.failure_info = {}
         if result_path:
@@ -255,10 +258,8 @@ class Translator(ABC):
             return True
         if cached == "missing":
             return False
-        result = subprocess.run(
-            ["find", self.result_path, "-name", f"{item_name}.rs"],
-            capture_output=True,
-            text=True,
+        result = utils.run_command(
+            ["find", self.result_path, "-name", f"{item_name}.rs"]
         )
         found = len(result.stdout.strip()) > 0
         self._dependency_cache[cache_key] = "exists" if found else "missing"

@@ -5,6 +5,8 @@ max_verifier_harness_attempts = 6
 unidiomatic_fallback_c2rust = false
 unidiomatic_fallback_c2rust_fix_attempts = 6
 timeout_seconds = 60 # timeout for the execution of generated code
+const_global_max_translation_len = 2048 # Max accepted length of baseline const global definitions
+max_llm_input_tokens = 20480 # Maximum tokens allowed in a single LLM prompt before truncation
 system_message = '''
 You are an expert in translating code from C to Rust. You will take all information from the user as reference, and will output the translated code into the format that the user wants.
 '''
