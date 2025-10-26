@@ -16,6 +16,7 @@ from sactor import rust_ast_parser
 from sactor.data_types import DataType
 from sactor.thirdparty.rustfmt import RustFmt
 from collections import namedtuple
+from dataclasses import dataclass
 
 
 logger = sactor_logging.get_logger(__name__)
@@ -23,13 +24,46 @@ logger = sactor_logging.get_logger(__name__)
 TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
 
 _CONFIG_SENSITIVE_SUBSTRINGS = (
-    "api",
     "token",
     "secret",
     "password",
-    "_key",
+)
+
+_CONFIG_SENSITIVE_EXACT = (
+    "api_key",
+    "access_key",
+    "secret_key",
+    "client_secret",
+    "refresh_token",
+)
+
+_CONFIG_SENSITIVE_ALLOW = (
+    "capabilities",
 )
 _SANITIZE_REDACTION_TOKEN = "***REDACTED***"
+
+
+@dataclass(frozen=True)
+class ConfigRedactionPolicy:
+    deny_exact: tuple[str, ...] = _CONFIG_SENSITIVE_EXACT
+    deny_substrings: tuple[str, ...] = _CONFIG_SENSITIVE_SUBSTRINGS
+    allow_exact: tuple[str, ...] = _CONFIG_SENSITIVE_ALLOW
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_deny_exact_lower", {entry.lower() for entry in self.deny_exact})
+        object.__setattr__(self, "_allow_exact_lower", {entry.lower() for entry in self.allow_exact})
+        object.__setattr__(self, "_deny_substrings_lower", tuple(fragment.lower() for fragment in self.deny_substrings))
+
+    def should_remove(self, key: str) -> bool:
+        lowered = key.lower()
+        if lowered in self._allow_exact_lower:
+            return False
+        if lowered in self._deny_exact_lower:
+            return True
+        for fragment in self._deny_substrings_lower:
+            if fragment in lowered:
+                return True
+        return False
 
 def _copy_resource_tree(resource_root, destination: Path) -> None:
     """Recursively copy a Traversable resource tree into the destination path."""
@@ -586,15 +620,11 @@ def patched_env(key, value, env=None):
     return env
 
 
-def _is_sensitive_key(key: str) -> bool:
-    lowered = key.lower()
-    return any(fragment in lowered for fragment in _CONFIG_SENSITIVE_SUBSTRINGS)
-
-
 def sanitize_config(
     obj: dict | list | str | int | float | bool | None,
     *,
     redact: bool = False,
+    policy: ConfigRedactionPolicy | None = None,
 ) -> dict | list | str | int | float | bool | None:
     """Recursively sanitize configuration structures.
 
@@ -603,18 +633,20 @@ def sanitize_config(
     replaced with a redaction token.
     """
 
+    active_policy = policy or ConfigRedactionPolicy()
+
     if isinstance(obj, dict):
         cleaned: dict = {}
         for key, value in obj.items():
-            if _is_sensitive_key(key):
+            if active_policy.should_remove(key):
                 if redact:
                     cleaned[key] = _SANITIZE_REDACTION_TOKEN
                 continue
-            cleaned[key] = sanitize_config(value, redact=redact)
+            cleaned[key] = sanitize_config(value, redact=redact, policy=active_policy)
         return cleaned
 
     if isinstance(obj, list):
-        return [sanitize_config(item, redact=redact) for item in obj]
+        return [sanitize_config(item, redact=redact, policy=active_policy) for item in obj]
 
     return obj
 

@@ -1,4 +1,4 @@
-from sactor.utils import sanitize_config
+from sactor.utils import ConfigRedactionPolicy, sanitize_config
 
 
 def test_sanitize_config_removes_sensitive_keys():
@@ -51,3 +51,17 @@ def test_sanitize_config_redacts_when_requested():
     assert sanitized["nested"]["other"] == 42
     assert sanitized["items"][0]["refreshToken"] == "***REDACTED***"
     assert sanitized["items"][1] == "keep"
+
+
+def test_sanitize_config_allow_override():
+    config = {"API_KEY": "value", "auth": {"token": "abc"}}
+    policy = ConfigRedactionPolicy(
+        deny_exact=("auth_token",),
+        deny_substrings=("token",),
+        allow_exact=("api_key",),
+    )
+
+    sanitized = sanitize_config(config, policy=policy)
+
+    assert sanitized["API_KEY"] == "value"
+    assert "token" not in sanitized["auth"]
