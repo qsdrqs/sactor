@@ -22,6 +22,14 @@ logger = sactor_logging.get_logger(__name__)
 
 TO_TRANSLATE_C_FILE_MARKER = "_sactor_to_translate_.c"
 
+_CONFIG_SENSITIVE_SUBSTRINGS = (
+    "api",
+    "token",
+    "secret",
+    "password",
+    "_key",
+)
+_SANITIZE_REDACTION_TOKEN = "***REDACTED***"
 
 def _copy_resource_tree(resource_root, destination: Path) -> None:
     """Recursively copy a Traversable resource tree into the destination path."""
@@ -577,32 +585,38 @@ def patched_env(key, value, env=None):
     env[key] = value if old_value is None else f"{value}:{old_value}"
     return env
 
-def remove_keys_from_collection(src: dict | list, blacklist: set[str] | None = None) -> dict | list:
-    blacklist = set() if not blacklist else blacklist
-    blacklist.add("key")
-    if type(src) == dict:
-        result = {}
-        for key, value in src.items():
-            keep = True
-            for banned in blacklist:
-                if banned in key:
-                    keep = False
-                    break
-            if keep:
-                ty_value = type(value)
-                if ty_value == dict or ty_value == list:
-                    value = remove_keys_from_collection(value, blacklist)
-                result[key] = value
-    elif type(src) == list:
-        result = []
-        for item in src:
-            ty = type(item)
-            if ty == dict or ty == list:
-                item = remove_keys_from_collection(item, blacklist)
-            result.append(item)
-    else:
-        raise TypeError("Type must be dict or list")
-    return result
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(fragment in lowered for fragment in _CONFIG_SENSITIVE_SUBSTRINGS)
+
+
+def sanitize_config(
+    obj: dict | list | str | int | float | bool | None,
+    *,
+    redact: bool = False,
+) -> dict | list | str | int | float | bool | None:
+    """Recursively sanitize configuration structures.
+
+    When ``redact`` is False (default), sensitive keys are removed entirely.
+    When ``redact`` is True, sensitive keys are retained but their values are
+    replaced with a redaction token.
+    """
+
+    if isinstance(obj, dict):
+        cleaned: dict = {}
+        for key, value in obj.items():
+            if _is_sensitive_key(key):
+                if redact:
+                    cleaned[key] = _SANITIZE_REDACTION_TOKEN
+                continue
+            cleaned[key] = sanitize_config(value, redact=redact)
+        return cleaned
+
+    if isinstance(obj, list):
+        return [sanitize_config(item, redact=redact) for item in obj]
+
+    return obj
 
 ProcessResult = namedtuple("ProcessResult", ["stdout", "stderr", "returncode"])
 

@@ -101,7 +101,7 @@ class Sactor:
         logger.info("Continue run when incomplete: %s", self.continue_run_when_incomplete)
         logger.info("-------------End of Configuration-------------")
         # save the config in the result dir. Sensitive info is removed from the saved config
-        safe_config = utils.remove_keys_from_collection(self.config)
+        safe_config = utils.sanitize_config(self.config)
         os.makedirs(self.result_dir, exist_ok=True)
         with open(os.path.join(self.result_dir, "config.json"), "w") as f:
             json.dump(safe_config, f, indent=4)

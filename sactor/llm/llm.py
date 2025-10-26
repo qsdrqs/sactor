@@ -42,13 +42,7 @@ class LLM:
             model_name = model_config.get('model_name', 'MISSING')
             litellm_model = model_config.get('litellm_params', {}).get('model', 'MISSING')
             params = model_config.get('litellm_params', {})
-            logging_params = {}
-            for key, value in params.items():
-                for sensitive in ['api', 'token', 'secret']:
-                    if sensitive in key.lower():
-                        # NOTE: Human review is needed to ensure no sensitive info is logged
-                        value = '***REDACTED***'
-                logging_params[key] = value
+            logging_params = utils.sanitize_config(params, redact=True)
             logger.debug("Model mapping %d: '%s' -> '%s': %s", i, model_name, litellm_model, logging_params)
 
         # Create router with model list and settings
