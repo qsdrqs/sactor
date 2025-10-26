@@ -166,7 +166,7 @@ class Sactor:
                 unidiomatic_translator.print_result_summary("Unidiomatic")
                 msg = f"Failed to translate unidiomatic code: {result}"
                 if self.continue_run_when_incomplete:
-                    print(msg)
+                    logger.error(msg)
                 else:
                     raise ValueError(msg)
             else:
@@ -178,7 +178,7 @@ class Sactor:
                     self.llm.statistic(self.llm_stat)
                     msg = f"Failed to combine translated code for unidiomatic translation: {combine_result}"
                     if self.continue_run_when_incomplete:
-                        print(msg)
+                        logger.error(msg)
                     else:
                         raise ValueError(msg)
         if not self.unidiomatic_only:
@@ -187,17 +187,27 @@ class Sactor:
             idiomatic_translator.save_failure_info(idiomatic_translator.failure_info_path)
             if result != TranslateResult.SUCCESS:
                 self.llm.statistic(self.llm_stat)
-                raise ValueError(
-                    f"Failed to translate idiomatic code: {result}")
-
-            combine_result, _ = self.combiner.combine(
-                os.path.join(self.result_dir, "translated_code_idiomatic"),
-                is_idiomatic=True,
-            )
-            if combine_result != CombineResult.SUCCESS:
-                self.llm.statistic(self.llm_stat)
-                raise ValueError(
-                    f"Failed to combine translated code for idiomatic translation: {combine_result}")
+                idiomatic_translator.print_result_summary("Idiomatic")
+                msg = f"Failed to translate idiomatic code: {result}"
+                if self.continue_run_when_incomplete:
+                    logger.error(msg)
+                else:
+                    raise ValueError(msg)
+            else:
+                combine_result, _ = self.combiner.combine(
+                    os.path.join(self.result_dir, "translated_code_idiomatic"),
+                    is_idiomatic=True,
+                )
+                if combine_result != CombineResult.SUCCESS:
+                    self.llm.statistic(self.llm_stat)
+                    msg = (
+                        "Failed to combine translated code for idiomatic translation: "
+                        f"{combine_result}"
+                    )
+                    if self.continue_run_when_incomplete:
+                        logger.error(msg)
+                    else:
+                        raise ValueError(msg)
 
         # LLM statistics
         self.llm.statistic(self.llm_stat)

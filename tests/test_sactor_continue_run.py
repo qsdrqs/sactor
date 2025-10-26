@@ -1,0 +1,86 @@
+import pytest
+
+from sactor.combiner import CombineResult
+from sactor.sactor import Sactor
+from sactor.translator.translator_types import TranslateResult
+
+
+class DummyLLM:
+    def __init__(self):
+        self.calls = []
+
+    def statistic(self, path):
+        self.calls.append(path)
+
+
+class DummyCombiner:
+    def __init__(self):
+        self.calls = []
+
+    def combine(self, path, is_idiomatic):
+        self.calls.append((path, is_idiomatic))
+        return CombineResult.SUCCESS, None
+
+
+class DummyTranslator:
+    def __init__(self, tmp_path):
+        self.failure_info_path = str(tmp_path / "failure.json")
+        self.saved = []
+        self.summary = []
+
+    def save_failure_info(self, path):
+        self.saved.append(path)
+
+    def print_result_summary(self, title):
+        self.summary.append(title)
+
+
+def make_sactor(tmp_path, continue_flag, idiomatic_result):
+    sactor = object.__new__(Sactor)
+    sactor.idiomatic_only = False
+    sactor.unidiomatic_only = False
+    sactor.continue_run_when_incomplete = continue_flag
+    sactor.result_dir = str(tmp_path)
+    sactor.llm_stat = str(tmp_path / "llm_stat.json")
+    sactor.llm = DummyLLM()
+    sactor.combiner = DummyCombiner()
+    sactor.c2rust_translation = None
+
+    unidiomatic_translator = DummyTranslator(tmp_path)
+    idiomatic_translator = DummyTranslator(tmp_path)
+
+    def run_unidiomatic():
+        return TranslateResult.SUCCESS, unidiomatic_translator
+
+    def run_idiomatic():
+        return idiomatic_result, idiomatic_translator
+
+    sactor._run_unidomatic_translation = run_unidiomatic
+    sactor._run_idiomatic_translation = run_idiomatic
+
+    return sactor, unidiomatic_translator, idiomatic_translator
+
+
+def test_idiomatic_continue_flag_skips_abort(tmp_path):
+    sactor, _, idiomatic_translator = make_sactor(
+        tmp_path, True, TranslateResult.NO_UNIDIOMATIC_CODE
+    )
+
+    sactor.run()
+
+    assert len(sactor.combiner.calls) == 1
+    assert sactor.combiner.calls[0][1] is False
+    assert idiomatic_translator.summary == ["Idiomatic"]
+
+
+def test_idiomatic_continue_flag_raises_without_flag(tmp_path):
+    sactor, _, idiomatic_translator = make_sactor(
+        tmp_path, False, TranslateResult.NO_UNIDIOMATIC_CODE
+    )
+
+    with pytest.raises(ValueError):
+        sactor.run()
+
+    assert len(sactor.combiner.calls) == 1
+    assert sactor.combiner.calls[0][1] is False
+    assert idiomatic_translator.summary == ["Idiomatic"]

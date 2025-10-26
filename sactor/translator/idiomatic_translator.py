@@ -229,7 +229,7 @@ class IdiomaticTranslator(Translator):
             msg = f"Error: Enum {enum.name} is not translated into unidiomatic Rust yet"
             if self.continue_run_when_incomplete:
                 self.append_failure_info(enum.name, "NO_UNIDIOMATIC_CODE_ERROR", msg, "")
-                print(msg)
+                logger.warning(msg)
                 return TranslateResult.NO_UNIDIOMATIC_CODE
             else:
                 raise RuntimeError(msg)
@@ -343,7 +343,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     error_message = f"Error: Global variable name {global_var.name} not found in the translated code, keep the upper/lower case of the global variable name."
                 else:
                     error_message = f"Error: Global variable name {global_var.name} not found in the translated code"
-                    print(error_message)
+                    logger.error("%s", error_message)
                     self.append_failure_info(
                         global_var.name, "COMPILE_ERROR", error_message, global_var_result
                     )
@@ -355,8 +355,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         attempts=attempts+1
                     )
 
-            print("Translated global variable:")
-            print(global_var_result)
+            logger.debug("Translated global variable %s:\n%s", global_var.name, global_var_result)
 
             # TODO: may add verification here
             result = self.verifier.try_compile_rust_code(global_var_result)
@@ -428,7 +427,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                         msg,
                         ""
                         )
-                    print(msg)
+                    logger.warning(msg)
                     return TranslateResult.NO_UNIDIOMATIC_CODE
                 else:
                     raise RuntimeError(msg)
@@ -529,10 +528,6 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     error_translation=global_var_result,
                     attempts=attempts+1
                 )
-
-        logger.debug("Translated global variable %s:", global_var.name)
-        logger.debug("%s", global_var_result)
-
         # TODO: may add verification here
         compile_code = global_var_result
         if enum_dependency_code:
@@ -600,7 +595,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     msg,
                     ""
                 )
-                print(msg)
+                logger.warning(msg)
                 return TranslateResult.NO_UNIDIOMATIC_CODE
             else:
                 raise RuntimeError(msg)
@@ -1178,7 +1173,11 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     type_and_name = rust_ast_parser.get_value_type_name(code_of_global_var, global_var.name)
                 except Exception as e:
                     # Fallback to old method if parsing fails
-                    print(f"Failed to parse global variable {global_var.name} with Rust parser: {e}. Using fallback method.")
+                    logger.warning(
+                        "Failed to parse global variable %s with Rust parser: %s. Using fallback method.",
+                        global_var.name,
+                        e,
+                    )
                     type_and_name = f"{code_of_global_var.rsplit('=')[0]};"
                 used_global_vars[global_var.name] = code_of_global_var
                 used_global_vars_only_type_and_names[global_var.name] = type_and_name
@@ -1226,7 +1225,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     msg,
                     ""
                 )
-                print(msg)
+                logger.warning(msg)
                 return TranslateResult.NO_UNIDIOMATIC_CODE
             else:
                 raise RuntimeError(msg)

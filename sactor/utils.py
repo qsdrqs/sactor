@@ -725,7 +725,7 @@ def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs)
             # --- time check ---
             elapsed = time.monotonic() - start_time
             if elapsed >= time_limit_sec:
-                print("\n--- Time limit reached, terminating process ---", file=sys.stderr)
+                logger.warning("Time limit reached, terminating process")
                 process.terminate()
                 forced_terminate = True
                 is_timeout = True
@@ -740,12 +740,12 @@ def run_command_with_limit(cmd, limit_bytes=40000, time_limit_sec=300, **kwargs)
             if err:
                 captured_err.extend(err)
             if len(captured_out) >= limit_bytes:
-                print("\n--- Stdout byte limit reached, terminating process ---", file=sys.stderr)
+                logger.warning("Stdout byte limit reached, terminating process")
                 process.terminate()
                 forced_terminate = True
                 break
             if len(captured_err) >= limit_bytes:
-                print("\n--- Stderr byte limit reached, terminating process ---", file=sys.stderr)
+                logger.warning("Stderr byte limit reached, terminating process")
                 process.terminate()
                 forced_terminate = True
                 break
