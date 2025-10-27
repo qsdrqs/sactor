@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from sactor.combiner import CombineResult
@@ -59,6 +61,48 @@ def make_sactor(tmp_path, continue_flag, idiomatic_result):
     sactor._run_idiomatic_translation = run_idiomatic
 
     return sactor, unidiomatic_translator, idiomatic_translator
+
+
+def make_base_sactor(tmp_path):
+    sactor = object.__new__(Sactor)
+    sactor.result_dir = str(tmp_path)
+    sactor.llm_stat = str(tmp_path / "llm_stat.json")
+    sactor.llm = DummyLLM()
+    sactor.combiner = DummyCombiner()
+    sactor.c2rust_translation = None
+    return sactor
+
+
+def test_idiomatic_only_skips_unidiomatic(tmp_path):
+    sactor = make_base_sactor(tmp_path)
+    sactor.idiomatic_only = True
+    sactor.unidiomatic_only = False
+    sactor.continue_run_when_incomplete = False
+
+    idiomatic_translator = DummyTranslator(tmp_path)
+    sactor._run_unidomatic_translation = lambda: (_ for _ in ()).throw(AssertionError("unidiomatic stage should not run"))
+    sactor._run_idiomatic_translation = lambda: (TranslateResult.SUCCESS, idiomatic_translator)
+
+    sactor.run()
+
+    assert sactor.combiner.calls == [(os.path.join(sactor.result_dir, "translated_code_idiomatic"), True)]
+    assert idiomatic_translator.saved == [idiomatic_translator.failure_info_path]
+
+
+def test_unidiomatic_only_skips_idiomatic(tmp_path):
+    sactor = make_base_sactor(tmp_path)
+    sactor.idiomatic_only = False
+    sactor.unidiomatic_only = True
+    sactor.continue_run_when_incomplete = False
+
+    unidiomatic_translator = DummyTranslator(tmp_path)
+    sactor._run_unidomatic_translation = lambda: (TranslateResult.SUCCESS, unidiomatic_translator)
+    sactor._run_idiomatic_translation = lambda: (_ for _ in ()).throw(AssertionError("idiomatic stage should not run"))
+
+    sactor.run()
+
+    assert sactor.combiner.calls == [(os.path.join(sactor.result_dir, "translated_code_unidiomatic"), False)]
+    assert unidiomatic_translator.saved == [unidiomatic_translator.failure_info_path]
 
 
 def test_idiomatic_continue_flag_skips_abort(tmp_path):
