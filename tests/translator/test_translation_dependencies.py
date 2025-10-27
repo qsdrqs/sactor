@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from sactor.translator import Translator
-from sactor.translator.translator_types import TranslateResult
+from sactor.translator.translator_types import TranslateResult, TranslationOutcome
 
 
 class DummyTranslator(Translator):
@@ -33,7 +33,7 @@ def translator(tmp_path):
 
 def test_dependency_block_records_failure(translator):
     dep = SimpleNamespace(name="DepA")
-    translator._set_translation_status("unknown", dep.name, "failure")
+    translator._set_translation_status("unknown", dep.name, TranslationOutcome.FAILURE)
 
     ready, blockers = translator.check_dependencies(object(), lambda _: [dep])
 
@@ -43,22 +43,14 @@ def test_dependency_block_records_failure(translator):
     translator.mark_dependency_block("function", "foo", blockers)
 
     assert translator.failure_info["foo"]["status"] == "blocked_by_failed_dependency"
-    assert translator.translation_status["function"]["foo"] == "blocked"
+    assert translator.translation_status["function"]["foo"] == TranslationOutcome.BLOCKED_FAILED
     assert translator.failure_info["foo"]["blockers"] == blockers
 
 
 def test_dependency_block_waits_for_missing(translator):
     dep = SimpleNamespace(name="DepB")
-
-    ready, blockers = translator.check_dependencies(object(), lambda _: [dep])
-
-    assert not ready
-    assert blockers == [{"type": "unknown", "name": "DepB", "status": "missing"}]
-
-    translator.mark_dependency_block("function", "bar", blockers)
-
-    assert translator.failure_info["bar"]["status"] == "waiting_for_dependency"
-    assert translator.translation_status["function"]["bar"] == "blocked"
+    with pytest.raises(RuntimeError):
+        translator.check_dependencies(object(), lambda _: [dep])
 
 
 def test_mark_translation_success_updates_status(translator):
@@ -66,4 +58,30 @@ def test_mark_translation_success_updates_status(translator):
     translator.mark_translation_success("struct", "Item")
 
     assert translator.failure_info["Item"]["status"] == "success"
-    assert translator.translation_status["struct"]["Item"] == "success"
+    assert translator.translation_status["struct"]["Item"] == TranslationOutcome.SUCCESS
+
+
+def test_dependency_detects_existing_artifact(translator, tmp_path):
+    artifact_dir = tmp_path / "existing"
+    artifact_dir.mkdir()
+    (artifact_dir / "DepC.rs").write_text("// artifact\n", encoding="utf-8")
+
+    dep = SimpleNamespace(name="DepC")
+
+    ready, blockers = translator.check_dependencies(object(), lambda _: [dep])
+
+    assert ready
+    assert blockers == []
+
+
+def test_dependency_cache_updates_after_success(translator):
+    dep = SimpleNamespace(name="DepD")
+
+    with pytest.raises(RuntimeError):
+        translator.check_dependencies(object(), lambda _: [dep])
+
+    translator.mark_translation_success("unknown", dep.name)
+
+    ready_again, blockers_again = translator.check_dependencies(object(), lambda _: [dep])
+    assert ready_again
+    assert blockers_again == []

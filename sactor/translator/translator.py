@@ -11,7 +11,7 @@ from sactor.c_parser import (CParser, EnumInfo, FunctionInfo, GlobalVarInfo,
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
-from .translator_types import TranslateResult
+from .translator_types import TranslateResult, TranslationOutcome
 
 
 logger = sactor_logging.get_logger(__name__)
@@ -35,8 +35,8 @@ class Translator(ABC):
         self.failure_info_path = os.path.join(
             self.result_path, "general_failure_info.json")
         self._failure_info_backup_prepared = False
-        self.translation_status: Dict[str, Dict[str, str]] = defaultdict(dict)
-        self._dependency_cache: Dict[Tuple[str, str], str] = {}
+        self.translation_status: Dict[str, Dict[str, TranslationOutcome]] = defaultdict(dict)
+        self._dependency_cache: Dict[Tuple[str, str], bool] = {}
 
     def translate_struct(self, struct_union: StructInfo) -> TranslateResult:
         res = self._translate_struct_impl(struct_union)
@@ -98,10 +98,9 @@ class Translator(ABC):
             "message": error_message,
             "translation": error_translation
         })
-        self.failure_info[item]['status'] = "failure"
         item_type = self.failure_info[item].get("type")
         if item_type:
-            self._set_translation_status(item_type, item, "failure")
+            self._record_outcome(item_type, item, TranslationOutcome.FAILURE)
         self.save_failure_info(self.failure_info_path)
 
     def init_failure_info(self, type, item):
@@ -121,8 +120,7 @@ class Translator(ABC):
                 "attempts": [0]
             }
             self.save_failure_info(self.failure_info_path)
-        if type and item not in self.translation_status[type]:
-            self.translation_status[type][item] = "pending"
+        # Status is recorded only when we reach a terminal outcome.
 
     def failure_info_set_attempts(self, item, attempts):
         info = self.failure_info.get(item)
@@ -166,22 +164,29 @@ class Translator(ABC):
                 continue
             dep_type = self._resolve_dependency_type(dep)
             status = self._get_translation_status(dep_type, dep_name)
-            if status == "success":
+            if status in {
+                TranslationOutcome.SUCCESS,
+                TranslationOutcome.FALLBACK_C2RUST,
+            }:
                 continue
-            if status in {"failure", "blocked"}:
+            if status in {TranslationOutcome.FAILURE, TranslationOutcome.BLOCKED_FAILED}:
                 blockers.append({
                     "type": dep_type,
                     "name": dep_name,
-                    "status": status,
+                    "status": status.value,
                 })
                 continue
             if self._dependency_artifact_exists(dep_type, dep_name):
-                self._set_translation_status(dep_type, dep_name, "success")
+                self._set_translation_status(dep_type, dep_name, TranslationOutcome.SUCCESS)
                 continue
+            if status is None:
+                raise RuntimeError(
+                    f"Dependency '{dep_name}' of type '{dep_type}' should have been translated before use."
+                )
             blockers.append({
                 "type": dep_type,
                 "name": dep_name,
-                "status": status or "missing",
+                "status": status.value,
             })
         return len(blockers) == 0, blockers
 
@@ -190,23 +195,31 @@ class Translator(ABC):
             return
         self.init_failure_info(item_type, item_name)
         any_failed = any(
-            blocker.get("status") in {"failure", "blocked"}
+            blocker.get("status") in {
+                TranslationOutcome.FAILURE.value,
+                TranslationOutcome.BLOCKED_FAILED.value,
+            }
             for blocker in blockers
         )
-        status_label = "blocked_by_failed_dependency" if any_failed else "waiting_for_dependency"
-        self.failure_info[item_name]['status'] = status_label
+        if any_failed:
+            self.failure_info[item_name]['status'] = TranslationOutcome.BLOCKED_FAILED.value
+            outcome = TranslationOutcome.BLOCKED_FAILED
+        else:
+            raise RuntimeError(
+                f"mark_dependency_block called without failed dependencies for '{item_name}'."
+            )
         formatted = [{
             "type": blocker.get("type"),
             "name": blocker.get("name"),
             "status": blocker.get("status"),
         } for blocker in blockers]
         self.failure_info[item_name]['blockers'] = formatted
-        self._set_translation_status(item_type, item_name, "blocked")
+        self._set_translation_status(item_type, item_name, outcome)
 
     def mark_translation_success(self, item_type: str, item_name: str):
-        self._set_translation_status(item_type, item_name, "success")
-        if item_name in self.failure_info:
-            self.failure_info[item_name]['status'] = "success"
+        self._record_outcome(item_type, item_name, TranslationOutcome.SUCCESS)
+        key = (item_type, item_name)
+        self._dependency_cache[key] = True
 
     def _resolve_dependency_type(self, dep) -> str:
         if isinstance(dep, StructInfo):
@@ -219,12 +232,17 @@ class Translator(ABC):
             return "enum"
         return "unknown"
 
-    def _set_translation_status(self, item_type: str, item_name: str, status: str):
+    def _record_outcome(self, item_type: str, item_name: str, outcome: TranslationOutcome):
+        self._set_translation_status(item_type, item_name, outcome)
+        if item_name in self.failure_info:
+            self.failure_info[item_name]['status'] = outcome.value
+
+    def _set_translation_status(self, item_type: str, item_name: str, status: TranslationOutcome):
         if not item_type:
             return
         self.translation_status[item_type][item_name] = status
 
-    def _get_translation_status(self, item_type: str, item_name: str) -> Optional[str]:
+    def _get_translation_status(self, item_type: str, item_name: str) -> Optional[TranslationOutcome]:
         if not item_type:
             return None
         return self.translation_status.get(item_type, {}).get(item_name)
@@ -232,7 +250,12 @@ class Translator(ABC):
     def _dependency_artifact_exists(self, item_type: str, item_name: str) -> bool:
         if not item_name:
             return False
-        candidate_paths: List[str] = []
+
+        cache_key = (item_type, item_name)
+        cached = self._dependency_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         path_attr_map = {
             "struct": "translated_struct_path",
             "function": "translated_function_path",
@@ -243,22 +266,26 @@ class Translator(ABC):
         if attr and hasattr(self, attr):
             base_path = getattr(self, attr)
             if base_path:
-                candidate_paths.append(os.path.join(base_path, f"{item_name}.rs"))
-        for candidate in candidate_paths:
-            if os.path.exists(candidate):
-                return True
-        cache_key = (item_type, item_name)
-        cached = self._dependency_cache.get(cache_key)
-        if cached == "exists":
-            return True
-        if cached == "missing":
-            return False
-        result = utils.run_command(
-            ["find", self.result_path, "-name", f"{item_name}.rs"]
-        )
-        found = len(result.stdout.strip()) > 0
-        self._dependency_cache[cache_key] = "exists" if found else "missing"
+                candidate = os.path.join(base_path, f"{item_name}.rs")
+                if os.path.exists(candidate):
+                    self._dependency_cache[cache_key] = True
+                    return True
+
+        found = self._scan_for_artifact(item_name)
+        self._dependency_cache[cache_key] = found
         return found
+
+    def _scan_for_artifact(self, item_name: str) -> bool:
+        if not os.path.isdir(self.result_path):
+            return False
+        for root, _, files in os.walk(self.result_path):
+            for filename in files:
+                if not filename.endswith(".rs"):
+                    continue
+                stem, _ = os.path.splitext(filename)
+                if stem == item_name:
+                    return True
+        return False
 
     def print_result_summary(self, title: str):
         def count_success(ctype: str) -> int:

@@ -1,4 +1,4 @@
-import os, json, re
+import os, json
 from ctypes import c_buffer
 from typing import Any, Optional, override
 
@@ -14,7 +14,7 @@ from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
 from .translator import Translator
-from .translator_types import TranslateResult
+from .translator_types import TranslateResult, TranslationOutcome
 from ..combiner.rust_code import RustCode
 
 logger = sactor_logging.get_logger(__name__)
@@ -67,41 +67,6 @@ class UnidiomaticTranslator(Translator):
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
         )
-
-
-    def _enum_code_from_c2rust(self, enum: EnumInfo) -> Optional[str]:
-        enumerators = getattr(enum, "enumerators", [])
-        if not enumerators:
-            return None
-
-        alias_name = None
-        for name, _ in enumerators:
-            pattern = rf"pub const {re.escape(name)}\s*:\s*([A-Za-z0-9_]+)\s*="
-            match = re.search(pattern, self.c2rust_translation)
-            if match:
-                alias_name = match.group(1).strip()
-                break
-
-        if alias_name is None:
-            return None
-
-        alias_pattern = rf"pub type {re.escape(alias_name)}\s*=\s*([^;]+);"
-        alias_match = re.search(alias_pattern, self.c2rust_translation)
-        if not alias_match:
-            return None
-        alias_line = f"pub type {alias_name} = {alias_match.group(1).strip()};"
-
-        const_lines: list[str] = []
-        for name, _ in enumerators:
-            const_pattern = rf"pub const {re.escape(name)}\s*:\s*{re.escape(alias_name)}\s*=\s*([^;]+);"
-            const_match = re.search(const_pattern, self.c2rust_translation)
-            if not const_match:
-                return None
-            const_lines.append(
-                f"pub const {name}: {alias_name} = {const_match.group(1).strip()};"
-            )
-
-        return "\n".join([alias_line, *const_lines])
 
     @override
     def _translate_enum_impl(
@@ -212,28 +177,12 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 else:
                     break
 
-
-            self.failure_info[enum.name]['status'] = "fallback_c2rust"
-            self._set_translation_status("enum", enum.name, "success")
+            self._record_outcome("enum", enum.name, TranslationOutcome.FALLBACK_C2RUST)
             utils.save_code(enum_save_path, enum_result)
             return TranslateResult.SUCCESS
 
         logger.info("Translating enum: %s (attempts: %d)", enum.name, attempts)
         self.failure_info_set_attempts(enum.name, attempts + 1)
-
-        c2rust_enum = self._enum_code_from_c2rust(enum)
-        if c2rust_enum:
-            try:
-                result = self.verifier.try_compile_rust_code(c2rust_enum)
-            except Exception as e:
-                logger.warning(
-                    "Failed to compile c2rust-derived enum %s: %s", enum.name, e)
-                result = (VerifyResult.COMPILE_ERROR, str(e))
-            if result[0] == VerifyResult.SUCCESS:
-                self.failure_info[enum.name]['status'] = "c2rust"
-                self._set_translation_status("enum", enum.name, "success")
-                utils.save_code(enum_save_path, c2rust_enum)
-                return TranslateResult.SUCCESS
 
         code_of_enum = self.c_parser.extract_enum_definition_code(enum.name)
         prompt = f'''
@@ -989,8 +938,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 else:
                     break
 
-            self.failure_info[function.name]["status"] = "fallback_c2rust"
-            self._set_translation_status("function", function.name, "success")
+            self._record_outcome("function", function.name, TranslationOutcome.FALLBACK_C2RUST)
             utils.save_code(function_save_path, function_result)
             return TranslateResult.SUCCESS
 
