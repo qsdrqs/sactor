@@ -1893,6 +1893,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },
+    { name = "jinja2" },
     { name = "jsonschema" },
     { name = "libclang" },
     { name = "litellm" },
@@ -1916,6 +1917,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.43.0" },
     { name = "google-genai", specifier = ">=0.5.0" },
+    { name = "jinja2", specifier = ">=3.1.4" },
     { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "libclang", specifier = ">=18.1.1" },
     { name = "litellm", specifier = ">=1.76.1" },

@@ -1,0 +1,94 @@
+{
+    "general": {
+        "max_translation_attempts": 6,
+        "max_verifier_harness_attempts": 6,
+        "unidiomatic_fallback_c2rust": false,
+        "unidiomatic_fallback_c2rust_fix_attempts": 6,
+        "timeout_seconds": 60,
+        "command_output_byte_limit": 40000,
+        "const_global_max_translation_len": 2048,
+        "system_message": "You are an expert in translating code from C to Rust. You will take all information from the user as reference, and will output the translated code into the format that the user wants.\n",
+        "encoding": "o200k_base",
+        "model": "gpt-4o"
+    },
+    "test_generator": {
+        "max_attempts": 3,
+        "timeout_seconds": 2
+    },
+    "test_runner": {
+        "timeout_seconds": 60
+    },
+    "verifier": {
+        "selftest": {
+            "enabled": true,
+            "samples_path": "",
+            "struct_spec_path": ""
+        }
+    },
+    "logging": {
+        "console_level": "DEBUG",
+        "file_level": "DEBUG",
+        "color": true,
+        "jsonl": true,
+        "prompt_trace": false,
+        "filename_pattern": "sactor-{timestamp}.log",
+        "timestamp_format": "%Y%m%dT%H%M%S",
+        "subdir": "logs"
+    },
+    "litellm": {
+        "router_settings": {
+            "routing_strategy": "simple-shuffle",
+            "num_retries": 2,
+            "timeout": 600
+        },
+        "model_list": [
+            {
+                "model_name": "gpt-5",
+                "litellm_params": {
+                    "model": "openai/gpt-5"
+                }
+            },
+            {
+                "model_name": "gpt-4o",
+                "litellm_params": {
+                    "model": "openai/gpt-4o-2024-08-06",
+                    "temperature": 0
+                }
+            },
+            {
+                "model_name": "azure-gpt-4o",
+                "litellm_params": {
+                    "model": "azure/gpt-4o",
+                    "api_base": "https://uiuc1-m1z8wobk-australiaeast.openai.azure.com/",
+                    "api_version": "2024-08-01-preview"
+                }
+            },
+            {
+                "model_name": "deepseek-reasoner",
+                "litellm_params": {
+                    "model": "deepseek/deepseek-reasoner",
+                    "api_base": "https://api.deepseek.com"
+                }
+            },
+            {
+                "model_name": "claude",
+                "litellm_params": {
+                    "model": "anthropic/claude-3-5-sonnet-20241022"
+                }
+            },
+            {
+                "model_name": "gemini-2.0-flash-exp",
+                "litellm_params": {
+                    "model": "gemini/gemini-2.0-flash-exp"
+                }
+            },
+            {
+                "model_name": "ollama-deepseek-r1",
+                "litellm_params": {
+                    "model": "ollama/deepseek-r1:70b",
+                    "api_base": "http://localhost:11434"
+                }
+            }
+        ]
+    }
+}

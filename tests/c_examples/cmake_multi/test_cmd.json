@@ -1,0 +1,9 @@
+[
+  {
+    "command": [
+      "python3",
+      "run_tests.py",
+      "%t"
+    ]
+  }
+]

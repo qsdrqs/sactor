@@ -8,6 +8,7 @@ from sactor import logging as sactor_logging
 from sactor import utils
 from sactor.c_parser import (CParser, EnumInfo, FunctionInfo, GlobalVarInfo,
                              StructInfo)
+from sactor.c_parser.refs import FunctionDependencyRef
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
@@ -163,6 +164,20 @@ class Translator(ABC):
             if not dep_name:
                 continue
             dep_type = self._resolve_dependency_type(dep)
+            # Fast-path: resolve by USR -> TU result dir (project index) for function deps
+            if dep_type == "function":
+                try:
+                    usr = getattr(dep, 'usr', None)
+                except Exception:
+                    usr = None
+                if usr and getattr(self, 'project_usr_to_result_dir', None):
+                    owner_dir = self.project_usr_to_result_dir.get(usr)
+                    if owner_dir:
+                        candidate = os.path.join(owner_dir, 'translated_code_unidiomatic', 'functions', f'{dep_name}.rs')
+                        if os.path.exists(candidate):
+                            # mark success and continue
+                            self._set_translation_status(dep_type, dep_name, TranslationOutcome.SUCCESS)
+                            continue
             status = self._get_translation_status(dep_type, dep_name)
             if status in {
                 TranslationOutcome.SUCCESS,
@@ -226,6 +241,12 @@ class Translator(ABC):
             return "struct"
         if isinstance(dep, FunctionInfo):
             return "function"
+        # Treat unified function dependency refs as function deps
+        try:
+            if isinstance(dep, FunctionDependencyRef):
+                return "function"
+        except Exception:
+            pass
         if isinstance(dep, GlobalVarInfo):
             return "global_var"
         if isinstance(dep, EnumInfo):
@@ -271,9 +292,10 @@ class Translator(ABC):
                     self._dependency_cache[cache_key] = True
                     return True
 
-        found = self._scan_for_artifact(item_name)
-        self._dependency_cache[cache_key] = found
-        return found
+        # No heuristics: design requires dependency artifacts to exist at precise locations.
+        # If not found above, return False and let the caller raise.
+        self._dependency_cache[cache_key] = False
+        return False
 
     def _scan_for_artifact(self, item_name: str) -> bool:
         if not os.path.isdir(self.result_path):

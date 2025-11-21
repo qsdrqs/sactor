@@ -4,6 +4,8 @@ import json, tempfile
 import os, shlex
 from abc import ABC, abstractmethod
 from typing import Optional
+import glob
+import hashlib
 
 from sactor import logging as sactor_logging
 from sactor import rust_ast_parser, utils
@@ -24,9 +26,13 @@ class Verifier(ABC):
         config: dict,
         build_path=None,
         no_feedback=False,
-        extra_compile_command: str | None=None,
-        executable_object: str | list[str] | None=None,
+        extra_compile_command: str | None = None,
+        executable_object: str | list[str] | None = None,
         processed_compile_commands: list[list[str]] = [],
+        link_args: list[str] | None = None,
+        compile_commands_file: str = "",
+        entry_tu_file: str | None = None,
+        link_closure: list[str] | None = None,
     ):
         self.config = config
         if build_path:
@@ -45,6 +51,113 @@ class Verifier(ABC):
         self.executable_object = executable_object
         self._executable_object_variants = self._normalize_executable_object(executable_object)
         self.processed_compile_commands = processed_compile_commands
+        self.link_args = link_args or []
+        self.compile_commands_file = compile_commands_file
+        self.entry_tu_file = entry_tu_file
+        self.link_closure = link_closure or []
+
+    def _discover_cmake_libs(self) -> list[str]:
+        """Discover library flags from CMake link.txt for the entry target, if present.
+
+        Strategy:
+        - Parse compile_commands.json (raw JSON) to map source -> object output path.
+        - Find the CMake target link.txt that mentions the entry TU's object output.
+        - Extract library/linker flags from the link.txt, preserving order; ignore output path and dependency-file flags.
+        Returns an empty list if discovery fails at any step (non-fatal).
+        """
+        try:
+            if not self.compile_commands_file:
+                return []
+            compile_dir = os.path.realpath(os.path.dirname(self.compile_commands_file))
+            with open(self.compile_commands_file, 'r', encoding='utf-8') as f:
+                entries = json.load(f)
+            # Determine the entry .c path
+            entry_src = None
+            if self.entry_tu_file:
+                entry_src = os.path.realpath(self.entry_tu_file)
+            elif self.link_closure:
+                entry_src = os.path.realpath(self.link_closure[0])
+            if not entry_src:
+                return []
+            # Build source->output map
+            output_rel = None
+            for ent in entries:
+                try:
+                    src = os.path.realpath(ent.get('file') or '')
+                except Exception:
+                    continue
+                if not src:
+                    continue
+                if os.path.samefile(src, entry_src):
+                    out = ent.get('output') or ''
+                    if out:
+                        output_rel = out
+                        break
+            if not output_rel:
+                return []
+            # Find link.txt containing that object output
+            patterns = [
+                os.path.join(compile_dir, 'CMakeFiles', '*', 'link.txt'),
+                os.path.join(compile_dir, '*', 'CMakeFiles', '*', 'link.txt'),
+            ]
+            candidates = []
+            for p in patterns:
+                candidates.extend(glob.glob(p))
+            matched: list[str] = []
+            for path in candidates:
+                try:
+                    text = open(path, 'r', encoding='utf-8').read()
+                except Exception:
+                    continue
+                if output_rel in text:
+                    matched.append(path)
+            if not matched:
+                return []
+            if len(matched) > 1 and not self.entry_tu_file:
+                # Ambiguous target selection; require explicit entry selection by TU file to disambiguate.
+                logger.warning("Entry object present in multiple CMake targets: %s", matched)
+                return []
+            matched_link = matched[0]
+            # Parse libraries from link.txt
+            content = open(matched_link, 'r', encoding='utf-8').read().strip()
+            if not content:
+                return []
+            tokens = shlex.split(content)
+            if not tokens:
+                return []
+            # Drop compiler (first token) and handle '-o <path>' pair
+            tokens = tokens[1:]
+            libs: list[str] = []
+            i = 0
+            while i < len(tokens):
+                tok = tokens[i]
+                if tok == '-o' and i + 1 < len(tokens):
+                    i += 2
+                    continue
+                # Ignore dependency-file flag
+                if tok.startswith('-Wl,') and 'dependency-file' in tok:
+                    i += 1
+                    continue
+                # Objects end with .o/.obj and are not flags; skip
+                if (tok.endswith('.o') or tok.endswith('.obj')) and not tok.startswith('-'):
+                    i += 1
+                    continue
+                # Keep typical library flags; allow -Wl, except the dependency-file one filtered above
+                if tok.startswith('-l') or tok.startswith('-L') or tok.startswith('-Wl,'):
+                    libs.append(tok)
+                i += 1
+            # Deduplicate preserving order
+            seen = set()
+            ordered = []
+            for t in libs:
+                if t in seen:
+                    continue
+                seen.add(t)
+                ordered.append(t)
+            return ordered
+        except Exception as exc:  # non-fatal
+            logger.debug("CMake discovery failed: %s", exc, exc_info=True)
+            return []
 
     @staticmethod
     def verify_test_cmd(test_cmd_path: str) -> bool:
@@ -267,15 +380,41 @@ class Verifier(ABC):
         node = c_function.node
         lines = read_file_lines(filename)
 
-        # remove `static` from the function signature in function dependencies
+        # remove `static` from dependencies ONLY when they are defined in the same TU
+        # Rationale: the Rust-translated function may call helpers originally
+        # with internal linkage in the same C file. To make those visible to the
+        # Rust crate at link time, we strip `static` for same-file dependencies.
+        # Cross-TU dependencies must already be non-static in the original
+        # project (otherwise C would not link), so we never touch them here.
         source_code = "".join(lines)
         for function_dependency in c_function.function_dependencies:
-            file = function_dependency.node.location.file.name
-            if file != filename:
+            dep_same_file = False
+            dep_node = getattr(function_dependency, "node", None)
+            # 1) Prefer AST node location to determine file equality
+            try:
+                if dep_node and dep_node.location and dep_node.location.file:
+                    dep_path = dep_node.location.file.name
+                    if dep_path and os.path.samefile(dep_path, filename):
+                        dep_same_file = True
+            except Exception:
+                dep_same_file = False
+            # 2) Fallback to ref.tu_path when available (project-wide backfill)
+            if not dep_same_file:
+                dep_tu_path = getattr(function_dependency, "tu_path", None)
+                try:
+                    if dep_tu_path and os.path.samefile(dep_tu_path, filename):
+                        dep_same_file = True
+                except Exception:
+                    dep_same_file = False
+
+            if not dep_same_file:
+                # Do not attempt to edit other files; avoid false positives
                 continue
 
-            source_code = c_parser_utils.remove_function_static_decorator(
-                function_dependency.name, source_code)
+            dep_name = getattr(function_dependency, "name", "")
+            if dep_name:
+                source_code = c_parser_utils.remove_function_static_decorator(
+                    dep_name, source_code)
         # If the to-be-translated function is static, then it cannot be linked to the Rust definition.
         # So we remove the static attribute.
         # This solution may trigger bugs if other linked object files have functions with the same name.
@@ -452,43 +591,141 @@ extern "C" {{
             variant_suffix = f"_{index}" if multi_variant else ""
             output_path = os.path.join(self.embed_test_c_dir, f"{name}{variant_suffix}")
 
-            if self.processed_compile_commands:
-                commands = process_commands_to_compile(
-                    self.processed_compile_commands,
-                    output_path,
-                    source_path,
-                )
-                # assuming the last command is the linking command
-                # TODO: check if it is a linking command?
-                commands[-1].extend(executable_objects)
-                commands[-1].extend(link_flags)
-                commands[-1].extend(extra_compile_args)
-                for command in commands:
-                    to_check = False
-                    if is_compile_command(command):
-                        to_check = True
-                    logger.debug("Running compile command: %s", command)
-                    res = utils.run_command(command, capture_output=False)
-                    if to_check and res.returncode != 0:
-                        raise RuntimeError(
-                            f"Error: Failed to compile C code for function {name}")
+            # Branch A: project-level relink when a compile database and link closure are available
+            if self.compile_commands_file and self.link_closure:
+                objs_dir = os.path.join(self.embed_test_c_dir, 'objs')
+                os.makedirs(objs_dir, exist_ok=True)
 
-            else:
-                c_compile_cmd = [
+                def obj_path_for(c_path: str) -> str:
+                    h = hashlib.sha1(os.path.realpath(c_path).encode('utf-8')).hexdigest()[:16]
+                    base = os.path.basename(c_path)
+                    return os.path.join(objs_dir, f"{base}.{h}.o")
+
+                object_paths: list[str] = []
+                for c_path in self.link_closure:
+                    # Use mutated source for the TU that contains the target function
+                    use_path = source_path
+                    try:
+                        if not os.path.samefile(c_path, filename):
+                            use_path = c_path
+                    except FileNotFoundError:
+                        use_path = c_path
+                    obj_out = obj_path_for(c_path)
+                    if os.path.exists(obj_out):
+                        os.remove(obj_out)
+
+                    commands = utils.load_compile_commands_from_file(
+                        self.compile_commands_file,
+                        c_path,
+                    )
+                    commands = process_commands_to_compile(
+                        commands,
+                        obj_out,
+                        use_path,
+                    )
+                    for command in commands:
+                        to_check = False
+                        if is_compile_command(command):
+                            to_check = True
+                        logger.debug("Running compile command: %s", command)
+                        res = utils.run_command(command, capture_output=False)
+                        if to_check and res.returncode != 0:
+                            raise RuntimeError(
+                                f"Error: Failed to compile object for {c_path}")
+                    object_paths.append(obj_out)
+
+                cmake_libs = self._discover_cmake_libs()
+                # Merge cmake libs + user link_args (preserve cmake order; append user-specified if not present)
+                merged_libs = list(cmake_libs)
+                for arg in self.link_args:
+                    if arg not in merged_libs:
+                        merged_libs.append(arg)
+
+                link_cmd = [
                     compiler,
-                    '-o', output_path,
-                    source_path,
+                    *object_paths,
                     *executable_objects,
+                    '-o', output_path,
+                    *merged_libs,
                     *link_flags,
                     *extra_compile_args,
                 ]
-
-                # compile C code
-                logger.debug("Compiling C harness: %s", c_compile_cmd)
-                res = utils.run_command(c_compile_cmd, capture_output=False)
+                logger.debug("Project-level objects: %s", [os.path.relpath(p) for p in object_paths])
+                logger.debug("Project-level cmake libs: %s", cmake_libs)
+                logger.debug("Linking project-level harness: %s", link_cmd)
+                res = utils.run_command(link_cmd, capture_output=True)
                 if res.returncode != 0:
+                    # Diagnostics artifact
+                    try:
+                        attempt = {
+                            'objects': [os.path.relpath(p) for p in object_paths],
+                            'cmake_libs': cmake_libs,
+                            'link_args': self.link_args,
+                            'final_cmd': link_cmd,
+                            'stderr': (res.stderr or '')[-4000:],
+                        }
+                        with open(os.path.join(self.embed_test_c_dir, 'link_attempt.json'), 'w', encoding='utf-8') as fh:
+                            json.dump(attempt, fh, indent=2)
+                    except Exception:
+                        logger.debug("Failed to write link_attempt.json", exc_info=True)
                     raise RuntimeError(
-                        f"Error: Failed to compile C code for function {name}")
+                        f"Error: Failed to link project-level harness for function {name}")
+
+            # Branch B: legacy single-file harness
+            else:
+                object_path = output_path + ".o"
+
+                if os.path.exists(object_path):
+                    os.remove(object_path)
+
+                if self.processed_compile_commands:
+                    commands = process_commands_to_compile(
+                        self.processed_compile_commands,
+                        object_path,
+                        source_path,
+                    )
+                    for command in commands:
+                        to_check = False
+                        if is_compile_command(command):
+                            to_check = True
+                        logger.debug("Running compile command: %s", command)
+                        res = utils.run_command(command, capture_output=False)
+                        if to_check and res.returncode != 0:
+                            raise RuntimeError(
+                                f"Error: Failed to compile C code for function {name}")
+
+                    link_cmd = [
+                        compiler,
+                        object_path,
+                        *executable_objects,
+                        '-o', output_path,
+                        *self.link_args,
+                        *link_flags,
+                        *extra_compile_args,
+                    ]
+                    logger.debug("Linking C harness: %s", link_cmd)
+                    res = utils.run_command(link_cmd, capture_output=False)
+                    if res.returncode != 0:
+                        raise RuntimeError(
+                            f"Error: Failed to link C code for function {name}")
+
+                else:
+                    c_compile_cmd = [
+                        compiler,
+                        '-o', output_path,
+                        source_path,
+                        *executable_objects,
+                        *self.link_args,
+                        *link_flags,
+                        *extra_compile_args,
+                    ]
+
+                    # compile C code
+                    logger.debug("Compiling C harness: %s", c_compile_cmd)
+                    res = utils.run_command(c_compile_cmd, capture_output=False)
+                    if res.returncode != 0:
+                        raise RuntimeError(
+                            f"Error: Failed to compile C code for function {name}")
             # run tests
             result = self._run_tests_with_rust(output_path)
             if result[0] != VerifyResult.SUCCESS:

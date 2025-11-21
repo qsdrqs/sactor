@@ -39,6 +39,7 @@ class IdiomaticTranslator(Translator):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        link_args: list[str] | None = None,
         continue_run_when_incomplete=False
     ):
         super().__init__(
@@ -83,6 +84,7 @@ class IdiomaticTranslator(Translator):
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
+            link_args=link_args or [],
         )
         self.crown_result = crown_result
 

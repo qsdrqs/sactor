@@ -32,6 +32,11 @@ class UnidiomaticTranslator(Translator):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        link_args: list[str] | None = None,
+        compile_commands_file: str | None = None,
+        entry_tu_file: str | None = None,
+        link_closure: list[str] | None = None,
+        project_usr_to_result_dir: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             llm=llm,
@@ -66,7 +71,13 @@ class UnidiomaticTranslator(Translator):
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
+            link_args=link_args or [],
+            compile_commands_file=compile_commands_file or "",
+            entry_tu_file=entry_tu_file,
+            link_closure=link_closure or [],
         )
+        # Project-wide artifact index for precise dependency checks
+        self.project_usr_to_result_dir = project_usr_to_result_dir or {}
 
     @override
     def _translate_enum_impl(
@@ -596,11 +607,25 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         function_depedency_signatures: list[str] = []
         all_uses: list[str] = []
 
-        for dep_name in function_name_dependencies:
+        for dep in function_dependencies:
+            dep_name = dep.name
             if dep_name == function.name:
                 continue
-            translated_path = os.path.join(
-                self.translated_function_path, f"{dep_name}.rs")
+            # Prefer local TU output
+            translated_path = os.path.join(self.translated_function_path, f"{dep_name}.rs")
+            if not os.path.exists(translated_path):
+                # Cross-TU: resolve via project index (usr -> result_dir)
+                owner_dir = None
+                try:
+                    usr = getattr(dep, 'usr', None)
+                except Exception:
+                    usr = None
+                if usr and getattr(self, 'project_usr_to_result_dir', None):
+                    owner_dir = self.project_usr_to_result_dir.get(usr)
+                if owner_dir:
+                    candidate = os.path.join(owner_dir, 'translated_code_unidiomatic', 'functions', f'{dep_name}.rs')
+                    if os.path.exists(candidate):
+                        translated_path = candidate
             if not os.path.exists(translated_path):
                 raise RuntimeError(
                     f"Error: Dependency {dep_name} of function {function.name} is not translated yet")
@@ -615,6 +640,15 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 lookup_name = dep_name + "_"
             function_depedency_signatures.append(function_signatures[lookup_name] + ';')
 
+        # Deduplicate dependency signatures and uses
+        if function_depedency_signatures:
+            seen_sigs = set()
+            unique_sigs = []
+            for sig in function_depedency_signatures:
+                if sig not in seen_sigs:
+                    seen_sigs.add(sig)
+                    unique_sigs.append(sig)
+            function_depedency_signatures = unique_sigs
         function_dependency_uses = all_uses
 
         structs_in_function = list(function.struct_dependencies)

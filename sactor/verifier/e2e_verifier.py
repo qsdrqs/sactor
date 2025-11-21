@@ -23,6 +23,7 @@ class E2EVerifier(Verifier):
         is_executable=True,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        link_args: list[str] | None = None,
 
     ):
         super().__init__(
@@ -33,6 +34,7 @@ class E2EVerifier(Verifier):
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
+            link_args=link_args,
         )
         self.is_executable = is_executable
 
@@ -80,6 +82,7 @@ class E2EVerifier(Verifier):
                     compiler,
                     '-o', output_path,
                     *executable_objects,
+                    *self.link_args,
                     *link_flags,
                     *extra_compile_args,
                 ]

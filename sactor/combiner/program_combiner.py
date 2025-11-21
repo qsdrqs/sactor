@@ -28,6 +28,7 @@ class ProgramCombiner(Combiner):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        link_args: list[str] | None = None,
     ):
         self.config = config
         self.c_parser = c_parser
@@ -44,6 +45,7 @@ class ProgramCombiner(Combiner):
             executable_object=executable_object,
             is_executable=is_executable,
             processed_compile_commands=processed_compile_commands,
+            link_args=link_args or [],
         )
         self.is_executable = is_executable
         self.build_path = build_path
@@ -100,6 +102,7 @@ class ProgramCombiner(Combiner):
 
 
         output_code = self._combine_code(function_code, data_type_code)
+        has_main = any(getattr(f, 'name', '') == 'main' for f in self.functions or [])
 
         # verify the combined code
         skip_test = False
@@ -116,6 +119,15 @@ class ProgramCombiner(Combiner):
                 skip_test = True # e2e test can not be run on idiomatic code, because of the api mismatch to C
         else:
             e2e_code = output_code
+            # Binary target but current TU has no main: skip e2e (cannot build as executable)
+            if not has_main:
+                skip_test = True
+
+        # Project mode: when a compilation database is provided, per-TU ProgramCombiner
+        # should only compile (fmt + clippy) but not run its own E2E, because the final
+        # executable semantics are validated by project-level relink/tests.
+        if getattr(self.verifier, "processed_compile_commands", None):
+            skip_test = True
 
         if not skip_test:
             result = self.verifier.e2e_verify(
@@ -133,12 +145,15 @@ class ProgramCombiner(Combiner):
 
         build_program = os.path.join(self.build_path, "program")
 
-        # collect warnings and errors
-        self._stat_warnings_errors(output_code)
+        # Collect warnings and errors; treat non-main TU in bin projects as a library to avoid missing-main errors
+        treat_as_lib = (not self.is_executable) or (self.is_executable and (not has_main or bool(getattr(self.verifier, "processed_compile_commands", None))))
+        self._stat_warnings_errors(output_code, library_mode=treat_as_lib)
 
         # copy the combined code to the result directory
+        # choose the actual source based on how we built (lib vs bin)
+        copy_source_name = 'lib.rs' if treat_as_lib else self.source_name
         cmd = ["cp", "-f",
-               os.path.join(build_program, "src", self.source_name), file_path]
+               os.path.join(build_program, "src", copy_source_name), file_path]
         result = utils.run_command(cmd, check=True)
 
         # save the warning stat
@@ -170,15 +185,17 @@ class ProgramCombiner(Combiner):
 
         return warnings_count, errors_count
 
-    def _stat_warnings_errors(self, output_code):
+    def _stat_warnings_errors(self, output_code, library_mode: bool | None = None):
         # create a rust project
         build_dir = os.path.join(self.build_path, "program")
         utils.create_rust_proj(
             rust_code=output_code,
             proj_name="program",
             path=build_dir,
-            is_lib=not self.is_executable
+            is_lib=(library_mode if library_mode is not None else (not self.is_executable))
         )
+
+        active_source_name = 'lib.rs' if (library_mode if library_mode is not None else (not self.is_executable)) else self.source_name
 
         # format the code
         cmd = ["cargo", "fmt", "--manifest-path",
@@ -243,11 +260,11 @@ class ProgramCombiner(Combiner):
         suppress_lines = 0
         for error_type in error_types:
             # write #![allow(error_type)] to the top of the file to suppress the error
-            with open(os.path.join(build_dir, "src", self.source_name), "r") as f:
+            with open(os.path.join(build_dir, "src", active_source_name), "r") as f:
                 code = f.read()
 
             code = f"#![allow({error_type})]\n{code}"
-            with open(os.path.join(build_dir, "src", self.source_name), "w") as f:
+            with open(os.path.join(build_dir, "src", active_source_name), "w") as f:
                 f.write(code)
             suppress_lines += 1
 
@@ -268,11 +285,11 @@ class ProgramCombiner(Combiner):
         current_count = total_warnings
         for warning_type in warning_types:
             # write #![allow(warning_type)] to the top of the file to suppress the warning
-            with open(os.path.join(build_dir, "src", self.source_name), "r") as f:
+            with open(os.path.join(build_dir, "src", active_source_name), "r") as f:
                 code = f.read()
 
             code = f"#![allow({warning_type})]\n{code}"
-            with open(os.path.join(build_dir, "src", self.source_name), "w") as f:
+            with open(os.path.join(build_dir, "src", active_source_name), "w") as f:
                 f.write(code)
             suppress_lines += 1
 
@@ -291,11 +308,11 @@ class ProgramCombiner(Combiner):
             self.clippy_stat["warnings"]["unknown"] = current_count
 
         # remove the suppress lines
-        with open(os.path.join(build_dir, "src", self.source_name), "r") as f:
+        with open(os.path.join(build_dir, "src", active_source_name), "r") as f:
             code = f.read()
 
         code_lines = code.split("\n")
         code_lines = code_lines[suppress_lines:]
         code = "\n".join(code_lines)
-        with open(os.path.join(build_dir, "src", self.source_name), "w") as f:
+        with open(os.path.join(build_dir, "src", active_source_name), "w") as f:
             f.write(code)

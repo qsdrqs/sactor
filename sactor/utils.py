@@ -7,7 +7,6 @@ from pathlib import Path
 from importlib import resources
 import re, shlex
 import tomli as toml
-from clang.cindex import Cursor, SourceLocation, SourceRange
 import sys
 import time
 import select
@@ -18,6 +17,13 @@ from sactor.thirdparty.rustfmt import RustFmt
 from collections import namedtuple
 from dataclasses import dataclass
 
+from clang.cindex import (
+    Cursor,
+    SourceLocation,
+    SourceRange,
+    CompilationDatabase,
+    CompilationDatabaseError,
+)
 
 logger = sactor_logging.get_logger(__name__)
 
@@ -394,55 +400,197 @@ def get_compiler_include_paths() -> list[str]:
 
     return search_include_paths
 
-def is_compile_command(l: List[str]) -> bool:
-    """Return True if it is a compile or link command. Otherwise, False"""
-    if "gcc" in l or "clang" in l:
-        return True
+def is_compile_command(command: List[str]) -> bool:
+    """Return True if the command invokes a C compiler (gcc/clang/cc variants)."""
+    if not command:
+        return False
+    compilers = ("gcc", "clang", "cc")
+    for token in command:
+        if not isinstance(token, str):
+            continue
+        name = os.path.basename(token)
+        lower = name.lower()
+        if any(comp in lower for comp in compilers):
+            return True
     return False
 
+def load_compile_commands_from_file(path: str, to_translate_file: str) -> List[List[str]]:
+    """Load compile commands for the target C file using libclang's compilation database."""
+    if not path:
+        return []
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"compile commands file not found: {path}")
+
+    compile_commands_dir = os.path.realpath(os.path.dirname(path))
+    target_abs = os.path.realpath(to_translate_file)
+    if not os.path.exists(target_abs):
+        raise FileNotFoundError(f"Target source file not found: {to_translate_file}")
+
+    try:
+        database = CompilationDatabase.fromDirectory(compile_commands_dir)
+    except CompilationDatabaseError as exc:
+        raise ValueError(
+            f"Failed to load compilation database from {compile_commands_dir}: {exc}"
+        ) from exc
+
+    try:
+        entries_iter = database.getCompileCommands(target_abs)
+    except CompilationDatabaseError as exc:
+        raise ValueError(
+            f"Failed to retrieve compile commands for {target_abs}: {exc}"
+        ) from exc
+
+    entries = list(entries_iter or [])
+    if not entries:
+        raise ValueError(
+            f"No compile commands for {to_translate_file} found in {path}"
+        )
+
+    command_lines: list[str] = []
+    for entry in entries:
+        working_dir = entry.directory or compile_commands_dir
+        args = [str(arg) for arg in entry.arguments]
+        if "--" in args:
+            continue
+        filename_abs = entry.filename
+        if filename_abs and not os.path.isabs(filename_abs):
+            filename_abs = os.path.realpath(os.path.join(working_dir, filename_abs))
+        else:
+            filename_abs = os.path.realpath(filename_abs) if filename_abs else filename_abs
+        if filename_abs:
+            try:
+                if not os.path.samefile(filename_abs, target_abs):
+                    continue
+            except FileNotFoundError:
+                continue
+        normalized: list[str] = []
+        for token in args:
+            if token == entry.filename:
+                normalized.append(filename_abs if filename_abs else token)
+                continue
+            if token.endswith(".c") and not os.path.isabs(token):
+                normalized.append(os.path.realpath(os.path.join(working_dir, token)))
+                continue
+            normalized.append(token)
+        command_lines.append(shlex.join(normalized))
+
+    deduped_lines = list(dict.fromkeys(command_lines))
+    if not deduped_lines:
+        raise ValueError(
+            f"No compile commands for {to_translate_file} found in {path}"
+        )
+    return process_commands_to_list("\n".join(deduped_lines), target_abs)
+
+
+def list_c_files_from_compile_commands(path: str) -> list[str]:
+    """Return all distinct .c translation units described by compile_commands.json."""
+    if not path:
+        return []
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"compile commands file not found: {path}")
+
+    compile_commands_dir = os.path.realpath(os.path.dirname(path))
+    try:
+        database = CompilationDatabase.fromDirectory(compile_commands_dir)
+    except CompilationDatabaseError as exc:
+        raise ValueError(
+            f"Failed to load compilation database from {compile_commands_dir}: {exc}"
+        ) from exc
+
+    try:
+        entries = database.getAllCompileCommands()
+    except CompilationDatabaseError as exc:
+        raise ValueError(
+            f"Failed to enumerate compile commands from {compile_commands_dir}: {exc}"
+        ) from exc
+
+    files: list[str] = []
+    seen: set[str] = set()
+    for entry in entries or []:
+        args = [str(arg) for arg in entry.arguments]
+        if "--" in args:
+            continue
+        filename = entry.filename
+        if not filename:
+            continue
+        directory = entry.directory or compile_commands_dir
+        if not os.path.isabs(filename):
+            filename_abs = os.path.realpath(os.path.join(directory, filename))
+        else:
+            filename_abs = os.path.realpath(filename)
+        if not filename_abs.lower().endswith(".c"):
+            continue
+        if not os.path.exists(filename_abs):
+            continue
+        if filename_abs in seen:
+            continue
+        seen.add(filename_abs)
+        files.append(filename_abs)
+    return files
+
 def process_commands_to_list(commands: str, to_translate_file: str) -> List[List[str]]:
-    # parse into list of list of str
-    commands = list(map(lambda s: shlex.split(s), filter(lambda s: len(s) > 0, commands.splitlines())))
-    # add -Og -g flags to all compiler commands
-    for command in commands:
-        if is_compile_command(command):
-            for i, item in enumerate(command[:]):
-                if item.endswith(".c") and os.path.samefile(item, to_translate_file):
-                    command[i] = TO_TRANSLATE_C_FILE_MARKER
-            # The last -O flag overrides all previous -O flags, so don't need to care previous ones
+    result: list[list[str]] = []
+    target_abs = os.path.realpath(to_translate_file)
+    for line in commands.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        command = shlex.split(line)
+        replaced_target = False
+        for i, item in enumerate(command[:]):
+            if item.endswith(".c"):
+                try:
+                    if os.path.samefile(item, target_abs):
+                        command[i] = TO_TRANSLATE_C_FILE_MARKER
+                        replaced_target = True
+                        continue
+                except FileNotFoundError:
+                    pass
+        if replaced_target:
             command.extend(("-Og", "-g"))
+        result.append(command)
+    return result
 
-    return commands
 
-
-def process_commands_to_compile(commands: List[List[str]], executable_path: str, source_path: str | list[str]) -> List[List[str]]:
+def process_commands_to_compile(commands: List[List[str]], output_path: str, source_path: str | list[str]) -> List[List[str]]:
     commands = copy.deepcopy(commands)
     for i, command in enumerate(commands[:]):
         if is_compile_command(command):
+            replaced_marker = False
             for j, item in enumerate(command[:]):
                 if item == TO_TRANSLATE_C_FILE_MARKER:
-                        command[j] = source_path
-            if isinstance(source_path, list):
-                flatten_command = []
-                for item in command:
-                    if isinstance(item, list):
-                        flatten_command.extend(item)
+                    command[j] = source_path
+                    replaced_marker = True
+            if replaced_marker:
+                if isinstance(source_path, list):
+                    flatten_command = []
+                    for token in command:
+                        if isinstance(token, list):
+                            flatten_command.extend(token)
+                        else:
+                            flatten_command.append(token)
+                    command = flatten_command
+                if "-c" not in command:
+                    command.append("-c")
+                try:
+                    out_idx = command.index("-o")
+                except ValueError:
+                    command.extend(["-o", output_path])
+                else:
+                    if out_idx + 1 < len(command):
+                        command[out_idx + 1] = output_path
                     else:
-                        flatten_command.append(item)
-                commands[i] = flatten_command
-
-    # The last command if it contains (`gcc` or `clang`) and `-o [path]`, [path] will be replaced by `executable_path` as defined in the function.
-    if commands and is_compile_command(commands[-1]):
-        try:
-            i = commands[-1].index("-o")
-        except ValueError:
-            commands[-1].extend(("-o", executable_path))
-        else:
-            commands[-1][i + 1] = executable_path
+                        command.append(output_path)
+                commands[i] = command
     return commands
 
 
-def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) -> str:
+def compile_c_code(
+    file_path: str,
+    commands: list[list[str]],
+    link_args: Optional[Sequence[str]] = None,
+    is_library: bool = False,
+) -> str:
     '''
     Compile a C file to a executable file, return the path to the executable
 
@@ -455,17 +603,28 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
     os.makedirs(tmpdir, exist_ok=True)
     executable_path = os.path.join(
         tmpdir, os.path.basename(file_path) + ".out")
+    object_path = executable_path + ".o"
 
-    commands = process_commands_to_compile(commands, executable_path, file_path)
-    if commands:
-        for command in commands:
+    processed_commands = process_commands_to_compile(commands, object_path, file_path)
+    if processed_commands:
+        for command in processed_commands:
             to_check = False
             if is_compile_command(command):
                 to_check = True
-                command.append("-ftrapv")
-                if is_library:
-                    command.append("-c")
+                if "-ftrapv" not in command:
+                    command.append("-ftrapv")
             run_command(command, capture_output=False, check=to_check)
+        if not is_library:
+            link_cmd = [
+                compiler,
+                object_path,
+                '-o',
+                executable_path,
+            ]
+            if link_args:
+                link_cmd.extend(link_args)
+            run_command(link_cmd, capture_output=False, check=True)
+        return object_path if is_library else executable_path
     else:
         cmd = [
             compiler,
@@ -476,6 +635,8 @@ def compile_c_code(file_path: str, commands: list[list[str]], is_library=False) 
         ]
         if is_library:
             cmd.append('-c')  # compile to object file instead of executable
+        if link_args:
+            cmd.extend(link_args)
         run_command(cmd, capture_output=False, check=True)  # raise exception if failed
 
     return executable_path

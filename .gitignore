@@ -3,6 +3,7 @@
 .env
 .direnv/
 .venv/
+.cache
 
 pyrightconfig.json
 __pycache__

@@ -1,0 +1,26 @@
+{
+    "add_integers": {
+        "type": "function",
+        "errors": [],
+        "status": "success",
+        "attempts": [
+            1
+        ]
+    },
+    "multiply_integers": {
+        "type": "function",
+        "errors": [],
+        "status": "success",
+        "attempts": [
+            1
+        ]
+    },
+    "dot_product": {
+        "type": "function",
+        "errors": [],
+        "status": "success",
+        "attempts": [
+            1
+        ]
+    }
+}

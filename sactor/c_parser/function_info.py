@@ -6,6 +6,7 @@ from sactor import logging as sactor_logging, utils
 from .enum_info import EnumInfo, EnumValueInfo
 from .struct_info import StructInfo
 from .global_var_info import GlobalVarInfo
+from .refs import FunctionDependencyRef, StructRef, EnumRef, GlobalVarRef
 
 
 logger = sactor_logging.get_logger(__name__)
@@ -24,19 +25,28 @@ class FunctionInfo:
         used_enum_values=None,
         used_enums=None,
         used_type_aliases=None,
-        standard_io=None
+        standard_io=None,
+        called_function_names=None,
     ):
         self.node: Cursor = node
         self.name: str = name
         self.return_type = return_type
         self.arguments = arguments
         self.location = f"{node.location.file}:{node.location.line}"
-        self.function_dependencies: list[FunctionInfo] = called_functions if called_functions is not None else []
+        # Breaking change: function_dependencies now stores unified refs (intra/inter TU)
+        self.function_dependencies: list[FunctionDependencyRef] = []
         self.struct_dependencies: list[StructInfo] = used_structs if used_structs is not None else []
         self.global_vars_dependencies: list[GlobalVarInfo] = used_global_vars if used_global_vars is not None else []
         self.enum_values_dependencies: list[EnumValueInfo] = used_enum_values if used_enum_values is not None else []
         self.enum_dependencies: list[EnumInfo] = used_enums if used_enums is not None else []
         self.type_alias_dependencies: dict[str, str] = used_type_aliases if used_type_aliases is not None else {}
+        self.called_function_names: list[str] = called_function_names if called_function_names is not None else []
+
+        # New fields
+        self.usr: str = ""
+        self.struct_dependency_refs: list[StructRef] = []
+        self.enum_dependency_refs: list[EnumRef] = []
+        self.global_dependency_refs: list[GlobalVarRef] = []
 
         self.stdio_list = []
 

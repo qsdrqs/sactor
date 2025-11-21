@@ -6,7 +6,11 @@ class Divider():
         structs = c_parser.get_structs()
         self.struct_order = self._extract_order(structs, lambda s: s.dependencies)
         functions = c_parser.get_functions()
-        self.function_order = self._extract_order(functions, lambda f: f.function_dependencies)
+        # Only use intra-TU function deps (refs with local targets)
+        self.function_order = self._extract_order(
+            functions,
+            lambda f: [ref.target for ref in getattr(f, 'function_dependencies', []) if getattr(ref, 'target', None) is not None],
+        )
 
     def get_struct_order(self) -> list[list[StructInfo]]:
         return self.struct_order

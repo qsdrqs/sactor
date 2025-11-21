@@ -144,6 +144,36 @@ def test_e2e_extra_compile_args_are_split(tmp_path, monkeypatch, e2e_config):
     assert "-pthread" in link_cmd and "-s" in link_cmd
 
 
+def test_e2e_link_args_are_included(tmp_path, monkeypatch, e2e_config):
+    link_calls: list[list[str]] = []
+
+    monkeypatch.setattr(E2EVerifier, "try_compile_rust_code", _ok_compile)
+    monkeypatch.setattr(utils, "get_compiler", lambda: "cc")
+    monkeypatch.setattr(utils, "patched_env", lambda *args, **kwargs: {})
+
+    def fake_run(cmd, *_, **__):
+        link_calls.append(cmd)
+        return _Result(0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(E2EVerifier, "_run_tests", lambda *a, **k: (VerifyResult.SUCCESS, None, None))
+
+    verifier = E2EVerifier(
+        test_cmd_path="tests/verifier/test_cmd.json",
+        config=e2e_config,
+        build_path=str(tmp_path),
+        is_executable=False,
+        executable_object="tests/verifier/mock_results/test1.o",
+        link_args=["-static", "-lpthread"],
+    )
+
+    result = verifier.e2e_verify("fn main() {}")
+    assert result == (VerifyResult.SUCCESS, None)
+    assert len(link_calls) == 1
+    link_cmd = link_calls[0]
+    assert "-static" in link_cmd and "-lpthread" in link_cmd
+
+
 def test_e2e_library_without_objects_raises(tmp_path, monkeypatch, e2e_config):
     monkeypatch.setattr(E2EVerifier, "try_compile_rust_code", _ok_compile)
 

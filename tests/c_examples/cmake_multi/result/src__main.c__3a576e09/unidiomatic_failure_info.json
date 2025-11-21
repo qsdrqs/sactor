@@ -1,0 +1,16 @@
+{
+    "main": {
+        "type": "function",
+        "errors": [
+            {
+                "type": "COMPILE_ERROR",
+                "message": "    Updating crates.io index\n     Locking 1 package to latest compatible version\n   Compiling libc v0.2.177\n   Compiling build_attempt v0.1.0 (/tmp/sactor/tmp103txcvg/build/build_attempt)\nerror[E0133]: call to unsafe function `add_integers` is unsafe and requires unsafe function or block\n  --> src/lib.rs:18:22\n   |\n18 |     let sum: c_int = add_integers(values[0], values[1]);\n   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function\n   |\n   = note: consult the function's documentation for information on how to avoid undefined behavior\n\nerror[E0133]: call to unsafe function `multiply_integers` is unsafe and requires unsafe function or block\n  --> src/lib.rs:19:26\n   |\n19 |     let product: c_int = multiply_integers(values[2], values[3]);\n   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function\n   |\n   = note: consult the function's documentation for information on how to avoid undefined behavior\n\nFor more information about this error, try `rustc --explain E0133`.\nerror: could not compile `build_attempt` (lib) due to 2 previous errors\n",
+                "translation": "pub fn main() -> () {\n    use libc::{c_int, size_t};\n    let values: [c_int; 5] = [1, 2, 3, 4, 5];\n    let length: size_t = values.len() as size_t;\n    let sum: c_int = add_integers(values[0], values[1]);\n    let product: c_int = multiply_integers(values[2], values[3]);\n    let avg: f64;\n    let max: c_int;\n    let dot: c_int;\n    unsafe {\n        avg = average(values.as_ptr(), length);\n        max = max_value(values.as_ptr(), length);\n    }\n    let other: [c_int; 5] = [5, 4, 3, 2, 1];\n    unsafe {\n        dot = dot_product(values.as_ptr(), other.as_ptr(), length);\n    }\n    println!(\"sum={} product={} avg={:.2} max={} dot={}\", sum, product, avg, max, dot);\n}\n"
+            }
+        ],
+        "status": "success",
+        "attempts": [
+            2
+        ]
+    }
+}

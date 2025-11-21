@@ -1,3 +1,5 @@
+import json
+import os
 import subprocess
 import sys
 
@@ -195,3 +197,116 @@ def test_run_command_limit_requires_capture_output():
             limit_bytes=128,
             capture_output=False,
         )
+
+
+def test_load_compile_commands_from_file_arguments(tmp_path):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    source = src_dir / "main.c"
+    source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+
+    compile_commands = [
+        {
+            "directory": str(src_dir),
+            "file": str(source),
+            "arguments": ["clang", "-I", "include", "-c", "main.c", "-o", "main.o"],
+        }
+    ]
+    commands_path = tmp_path / "compile_commands.json"
+    commands_path.write_text(json.dumps(compile_commands), encoding="utf-8")
+
+    commands = utils.load_compile_commands_from_file(str(commands_path), str(source))
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[0] == "clang"
+    assert utils.TO_TRANSLATE_C_FILE_MARKER in command
+    assert command[-2:] == ["-Og", "-g"]
+
+
+def test_load_compile_commands_from_file_command_field(tmp_path):
+    src_dir = tmp_path / "project"
+    src_dir.mkdir()
+    source = src_dir / "entry.c"
+    source.write_text("int x(void) { return 1; }\n", encoding="utf-8")
+
+    compile_commands = [
+        {
+            "directory": str(src_dir),
+            "file": str(source),
+            "command": "clang -DMODE=1 -c entry.c -o entry.o",
+        }
+    ]
+    commands_path = tmp_path / "compile_commands.json"
+    commands_path.write_text(json.dumps(compile_commands), encoding="utf-8")
+
+    commands = utils.load_compile_commands_from_file(str(commands_path), str(source))
+    assert len(commands) == 1
+    command = commands[0]
+    assert "-DMODE=1" in command
+    assert utils.TO_TRANSLATE_C_FILE_MARKER in command
+    assert command[-2:] == ["-Og", "-g"]
+
+
+def test_load_compile_commands_from_file_missing_entry(tmp_path):
+    source = tmp_path / "missing.c"
+    source.write_text("int q(void) { return 2; }\n", encoding="utf-8")
+    compile_commands = [
+        {
+            "directory": str(tmp_path),
+            "file": os.path.join(str(tmp_path), "other.c"),
+            "arguments": ["clang", "-c", "other.c", "-o", "other.o"],
+        }
+    ]
+    commands_path = tmp_path / "compile_commands.json"
+    commands_path.write_text(json.dumps(compile_commands), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        utils.load_compile_commands_from_file(str(commands_path), str(source))
+
+
+def test_list_c_files_from_compile_commands(tmp_path):
+    proj_dir = tmp_path / "proj"
+    proj_dir.mkdir()
+
+    a_c = proj_dir / "a.c"
+    b_c = proj_dir / "dir" / "b.c"
+    b_c.parent.mkdir()
+    a_c.write_text("int a(void){return 1;}\n", encoding="utf-8")
+    b_c.write_text("int b(void){return 2;}\n", encoding="utf-8")
+
+    compile_commands = [
+        {
+            "directory": str(proj_dir),
+            "file": str(a_c),
+            "arguments": ["clang", "-c", "a.c"],
+        },
+        {
+            "directory": str(b_c.parent),
+            "file": str(b_c),
+            "command": "clang -c b.c",
+        },
+        {
+            # Duplicate entry should be ignored
+            "directory": str(proj_dir),
+            "file": str(a_c),
+            "arguments": ["clang", "-c", "a.c"],
+        },
+        {
+            # Fallback style entry should be ignored
+            "directory": str(proj_dir),
+            "file": str(a_c),
+            "arguments": ["clang", "-c", "--", str(a_c)],
+        },
+        {
+            # Non C source should be ignored
+            "directory": str(proj_dir),
+            "file": str(proj_dir / "not_c.cpp"),
+            "arguments": ["clang++", "-c", "not_c.cpp"],
+        },
+    ]
+
+    commands_path = proj_dir / "compile_commands.json"
+    commands_path.write_text(json.dumps(compile_commands), encoding="utf-8")
+
+    files = utils.list_c_files_from_compile_commands(str(commands_path))
+    assert sorted(files) == sorted([str(a_c.resolve()), str(b_c.resolve())])

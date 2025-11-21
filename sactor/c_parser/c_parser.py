@@ -14,6 +14,7 @@ from .function_info import FunctionInfo
 from .global_var_info import GlobalVarInfo
 from .struct_info import StructInfo
 from clang.cindex import CursorKind
+from .refs import FunctionDependencyRef, StructRef, EnumRef, GlobalVarRef, SymbolRef
 
 standard_io = [
     "stdin",
@@ -59,6 +60,68 @@ class CParser:
         self._update_functions()
         # only structs used by functions are preserved. Otherwise c2rust does not have corresponding translation
         self._structs_unions = self._get_all_used_structs()
+
+    def backfill_nonfunc_refs(
+        self,
+        struct_def_map: dict[str, str] | None,
+        enum_def_map: dict[str, str] | None,
+        global_def_map: dict[str, str] | None,
+    ) -> None:
+        """Backfill project-level ownership for non-function refs based on USR maps.
+
+        For each FunctionInfo in this parser, iterate `struct_dependency_refs`,
+        `enum_dependency_refs`, and `global_dependency_refs`. If a ref has a USR
+        and its `tu_path` is empty, set `tu_path` from the corresponding
+        definition map. If the ref still cannot resolve (non-system symbols are
+        the only ones recorded here), raise ValueError with actionable hints.
+        """
+        struct_def_map = struct_def_map or {}
+        enum_def_map = enum_def_map or {}
+        global_def_map = global_def_map or {}
+
+        filled = {"struct": 0, "enum": 0, "global": 0}
+        unresolved = 0
+
+        def _resolve_list(kind: str, refs: list[SymbolRef], def_map: dict[str, str], owner_loc: str) -> None:
+            nonlocal unresolved
+            for ref in refs or []:
+                if getattr(ref, "tu_path", None):
+                    continue
+                usr = getattr(ref, "usr", None)
+                name = getattr(ref, "name", "<unknown>")
+                if usr:
+                    target = def_map.get(usr)
+                    if target:
+                        ref.tu_path = target
+                        filled[kind] += 1
+                        continue
+                    unresolved += 1
+                    raise ValueError(
+                        (
+                            f"Unresolved non-function reference: {kind} '{name}' (USR={usr}) at {owner_loc}. "
+                            "Hint: ensure defining file is present in compile_commands.json and flags are correct."
+                        )
+                    )
+                else:
+                    unresolved += 1
+                    raise ValueError(
+                        (
+                            f"Unresolved non-function reference: {kind} '{name}' (USR=None) at {owner_loc}. "
+                            "Hint: ensure libclang can obtain USR; check headers and compile flags."
+                        )
+                    )
+
+        for func in self.get_functions():
+            owner_loc = getattr(func, "location", self.filename)
+            _resolve_list("struct", getattr(func, "struct_dependency_refs", []), struct_def_map, owner_loc)
+            _resolve_list("enum", getattr(func, "enum_dependency_refs", []), enum_def_map, owner_loc)
+            _resolve_list("global", getattr(func, "global_dependency_refs", []), global_def_map, owner_loc)
+
+        logger.info(
+            "Backfill non-function refs complete: structs=%d, enums=%d, globals=%d, unresolved=%d",
+            filled["struct"], filled["enum"], filled["global"], unresolved,
+        )
+
     @staticmethod
     def is_func_type(t: cindex.Type) -> bool:
         try:
@@ -199,17 +262,31 @@ class CParser:
         Updates the depedencies of each function.
         """
         node = function.node
-        function_names = set(self._functions.keys())
-        called_function_names = self._collect_function_dependencies(
-            node, function_names)
-        called_functions = set()
-        for called_function_name in called_function_names:
-            # Add the function to the dependencies if it exists and is not the same as the current function
-            if called_function_name in self._functions and called_function_name != function.name:
-                called_functions.add(
-                    self._functions[called_function_name])
+        # Collect references (with USR when available)
+        refs = self._collect_function_dependency_refs(node)
 
-        function.function_dependencies = list(called_functions)
+        # Convert same-TU dependencies to refs with targets
+        local_funcs = self._functions
+        unified_refs: list[FunctionDependencyRef] = []
+        called_function_names = set()
+        for ref in refs:
+            called_function_names.add(ref.name)
+            if ref.name in local_funcs and local_funcs[ref.name].node is not None:
+                # Same TU target
+                target = local_funcs[ref.name]
+                local_ref = FunctionDependencyRef(
+                    name=ref.name,
+                    usr=getattr(target, 'usr', None) or ref.usr,
+                    tu_path=self.filename,
+                    target=target,
+                    location=ref.location,
+                )
+                unified_refs.append(local_ref)
+            else:
+                unified_refs.append(ref)
+
+        function.function_dependencies = unified_refs
+        function.called_function_names = sorted(called_function_names)
 
     def _update_struct_dependencies(self, struct_union: StructInfo):
         """
@@ -357,50 +434,163 @@ class CParser:
                         list(used_global_vars),
                         list(used_enum_values),
                         list(used_enum_definitions),
-                        used_type_aliases
+                        used_type_aliases,
+                        called_function_names=[]
                     )
+                    try:
+                        function_info.usr = node.get_usr()
+                    except Exception:
+                        function_info.usr = ""
+                    # Populate new reference lists (struct/enum/global) for this function
+                    function_info.struct_dependency_refs = self._collect_struct_refs(node)
+                    function_info.enum_dependency_refs = self._collect_enum_refs(node)
+                    function_info.global_dependency_refs = self._collect_global_refs(node)
                     self._functions[name] = function_info
                     self._collect_global_variable_dependencies(
                         node, True, name)
         for child in node.get_children():
             self._extract_function_info(child)
 
-    def _collect_function_dependencies(self, node, function_names):
+    def _collect_function_dependency_refs(self, node) -> list[FunctionDependencyRef]:
         """
-        Recursively collects the names of functions called within the given node,
-        excluding standard library functions.
+        Recursively collect function dependency references with USR when available.
+        Raises ValueError for unresolved non-system references.
         """
+        refs: list[FunctionDependencyRef] = []
+        if not node:
+            return refs
 
         def is_function_reference(cursor: cindex.Cursor) -> bool:
             if cursor.kind == CursorKind.DECL_REF_EXPR:
-                if cursor.referenced and cursor.referenced.kind == CursorKind.FUNCTION_DECL:
-                    return True
+                return bool(cursor.referenced and cursor.referenced.kind == CursorKind.FUNCTION_DECL)
             return False
-        
-        called_functions = set()
-        if not node:
-            return called_functions
 
         for child in node.get_children():
-            # functions in function calls and references (e.g., assign the function to a function pointer) are tracked
             if child.kind == CursorKind.CALL_EXPR or is_function_reference(child):
-                called_func_cursor = child.referenced
-                if called_func_cursor:
-                    # Exclude functions declared in system headers
-                    if called_func_cursor.location and not self._is_in_system_header(called_func_cursor):
-                        called_functions.add(called_func_cursor.spelling)
+                called = child.referenced
+                if called:
+                    if called.location and not self._is_in_system_header(called):
+                        usr = None
+                        try:
+                            usr = called.get_usr()
+                        except Exception:
+                            usr = None
+                        loc = None
+                        try:
+                            if child.location and child.location.file:
+                                loc = f"{child.location.file.name}:{child.location.line}"
+                        except Exception:
+                            loc = None
+                        refs.append(FunctionDependencyRef(
+                            name=called.spelling,
+                            usr=usr,
+                            tu_path=None,
+                            target=None,
+                            location=loc,
+                        ))
                 else:
-                    # For unresolved references, include if in function_names
-                    called_func_name = child.spelling or child.displayname
-                    if called_func_name in function_names:
-                        called_functions.add(called_func_name)
-                # TODO: Optimize algorithm to be more efficient.
-                #       It seems when traversing all functions to calculate dependencies of 
-                #       each function, duplicate calculations will occur. Store visited functions and 
-                #       do not visit them again.
-            called_functions.update(
-                self._collect_function_dependencies(child, function_names))
-        return called_functions
+                    # Unresolved reference not in system header -> raise
+                    if not self._is_in_system_header(child):
+                        callee = child.spelling or child.displayname or "<unknown>"
+                        loc = None
+                        try:
+                            if child.location and child.location.file:
+                                loc = f"{child.location.file.name}:{child.location.line}"
+                        except Exception:
+                            loc = None
+                        raise ValueError(
+                            f"Unresolved reference: {callee} (USR=None) at {loc or self.filename}. "
+                            f"Hint: ensure defining .c is in compile_commands.json and flags are correct."
+                        )
+            refs.extend(self._collect_function_dependency_refs(child))
+        return refs
+
+    def _collect_struct_refs(self, node) -> list[StructRef]:
+        refs: list[StructRef] = []
+        if not node:
+            return refs
+        for child in node.get_children():
+            kind = child.kind
+            if kind in (cindex.CursorKind.TYPE_REF, cindex.CursorKind.STRUCT_DECL, cindex.CursorKind.UNION_DECL):
+                ref_cursor = child.referenced if kind == cindex.CursorKind.TYPE_REF else child
+                if ref_cursor and not self._is_in_system_header(ref_cursor):
+                    name = ref_cursor.spelling
+                    usr = None
+                    try:
+                        usr = ref_cursor.get_usr()
+                    except Exception:
+                        usr = None
+                    tu_path = None
+                    try:
+                        decl = ref_cursor.get_definition() or ref_cursor
+                        if decl and decl.location and decl.location.file and os.path.samefile(decl.location.file.name, self.filename):
+                            tu_path = self.filename
+                    except Exception:
+                        tu_path = None
+                    refs.append(StructRef(name=name, usr=usr, tu_path=tu_path))
+            refs.extend(self._collect_struct_refs(child))
+        return refs
+
+    def _collect_enum_refs(self, node) -> list[EnumRef]:
+        refs: list[EnumRef] = []
+        if not node:
+            return refs
+        for child in node.get_children():
+            if child.kind in (cindex.CursorKind.TYPE_REF, cindex.CursorKind.ENUM_DECL, cindex.CursorKind.DECL_REF_EXPR):
+                ref_cursor = None
+                if child.kind == cindex.CursorKind.TYPE_REF:
+                    candidate = child.referenced
+                    if candidate and candidate.kind == cindex.CursorKind.ENUM_DECL:
+                        ref_cursor = candidate
+                elif child.kind == cindex.CursorKind.ENUM_DECL:
+                    ref_cursor = child
+                elif child.kind == cindex.CursorKind.DECL_REF_EXPR and child.referenced and child.referenced.kind == cindex.CursorKind.ENUM_CONSTANT_DECL:
+                    ref_cursor = child.referenced.semantic_parent
+                if ref_cursor and not self._is_in_system_header(ref_cursor):
+                    name = ref_cursor.spelling
+                    usr = None
+                    try:
+                        usr = ref_cursor.get_usr()
+                    except Exception:
+                        usr = None
+                    tu_path = None
+                    try:
+                        decl = ref_cursor.get_definition() or ref_cursor
+                        if decl and decl.location and decl.location.file and os.path.samefile(decl.location.file.name, self.filename):
+                            tu_path = self.filename
+                    except Exception:
+                        tu_path = None
+                    refs.append(EnumRef(name=name, usr=usr, tu_path=tu_path))
+            refs.extend(self._collect_enum_refs(child))
+        return refs
+
+    def _collect_global_refs(self, node) -> list[GlobalVarRef]:
+        refs: list[GlobalVarRef] = []
+        if not node:
+            return refs
+        for child in node.get_children():
+            if child.kind == cindex.CursorKind.DECL_REF_EXPR and not self._is_in_system_header(child):
+                ref_cursor = child.referenced
+                if ref_cursor and ref_cursor.kind == cindex.CursorKind.VAR_DECL:
+                    if ref_cursor.spelling in standard_io:
+                        pass
+                    else:
+                        name = ref_cursor.spelling
+                        usr = None
+                        try:
+                            usr = ref_cursor.get_usr()
+                        except Exception:
+                            usr = None
+                        tu_path = None
+                        try:
+                            decl = ref_cursor.get_definition() or ref_cursor
+                            if decl and decl.location and decl.location.file and os.path.samefile(decl.location.file.name, self.filename):
+                                tu_path = self.filename
+                        except Exception:
+                            tu_path = None
+                        refs.append(GlobalVarRef(name=name, usr=usr, tu_path=tu_path))
+            refs.extend(self._collect_global_refs(child))
+        return refs
 
     def _collect_structs_unions_dependencies(self, node):
         """
@@ -565,10 +755,26 @@ class CParser:
         Determines if the location is in a system header.
         """
         node_definition = node.get_definition()
-        if node_definition is None:
+        subject = node_definition
+        if subject is None:
+            # Prefer referenced entity for references
+            try:
+                if node.kind == cindex.CursorKind.DECL_REF_EXPR and node.referenced is not None:
+                    subject = node.referenced
+            except Exception:
+                subject = None
+        if subject is None:
+            # Fallback to node's own location heuristic
+            location = getattr(node, "location", None)
+            if location and getattr(location, "file", None):
+                node_file_name = location.file.name
+                for include_path in self.compiler_include_paths:
+                    if node_file_name.startswith(include_path):
+                        return True
+                return bool(cindex.conf.lib.clang_Location_isInSystemHeader(location))
             return True
         try:
-            node_file_name = node_definition.location.file.name
+            node_file_name = subject.location.file.name
         except AttributeError:
             return False
         # search for the file in the include paths
@@ -576,7 +782,7 @@ class CParser:
             if node_file_name.startswith(include_path):
                 return True
 
-        return bool(cindex.conf.lib.clang_Location_isInSystemHeader(node.location))
+        return bool(cindex.conf.lib.clang_Location_isInSystemHeader(getattr(subject, "location", node.location)))
 
     def print_ast(self, node=None, indent=0):
         """

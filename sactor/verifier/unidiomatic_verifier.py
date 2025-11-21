@@ -23,6 +23,10 @@ class UnidiomaticVerifier(Verifier):
         extra_compile_command=None,
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
+        link_args: list[str] | None = None,
+        compile_commands_file: str = "",
+        entry_tu_file: str | None = None,
+        link_closure: list[str] | None = None,
 
     ):
         super().__init__(
@@ -33,6 +37,10 @@ class UnidiomaticVerifier(Verifier):
             extra_compile_command=extra_compile_command,
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
+            link_args=link_args,
+            compile_commands_file=compile_commands_file,
+            entry_tu_file=entry_tu_file,
+            link_closure=link_closure,
         )
 
     @override

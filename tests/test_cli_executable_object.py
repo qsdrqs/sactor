@@ -24,11 +24,12 @@ def _run_translate(monkeypatch, translate_parser, minimal_config, argv):
     monkeypatch.setattr(cli, "_configure_logging_from_args", lambda *args, **kwargs: None)
 
     class DummySactor:
-        def __init__(self, *args, executable_object, **kwargs):
+        @classmethod
+        def translate(cls, *, executable_object, **kwargs):
             captured["value"] = executable_object
-
-        def run(self):
-            return None
+            class _R:
+                any_failed = False
+            return _R()
 
     monkeypatch.setattr(cli, "Sactor", DummySactor)
 
