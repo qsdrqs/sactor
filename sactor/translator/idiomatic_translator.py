@@ -1125,6 +1125,9 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         logger.info("Translating function: %s (attempts: %d)", function.name, attempts)
         self.failure_info_set_attempts(function.name, attempts + 1)
 
+        # Get macro definitions, not used in idiomatic translation for now
+        macro_definitions = self.c_parser.get_macro_definitions_for_function(function.name)
+
         # Get used struct, unions
         structs_in_function = function.struct_dependencies
         code_of_structs = {}

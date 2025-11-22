@@ -49,7 +49,7 @@ def test_c_parser_struct_dependency():
 
 
 def test_structs_in_signature():
-    file_path = 'tests/c_parser/c_example.c'
+    file_path = 'tests/c_parser/fixtures/c_example.c'
     c_parser = CParser(file_path)
 
     printpoint = c_parser.get_function_info('printPoint')
@@ -72,7 +72,7 @@ def test_structs_in_signature():
 
 
 def test_clang_compile():
-    file_path = 'tests/c_parser/c_example.c'
+    file_path = 'tests/c_parser/fixtures/c_example.c'
     with tempfile.TemporaryDirectory() as tmpdir:
         cmd = ['clang', file_path, '-o', f'{tmpdir}/c_example']
         subprocess.run(cmd, check=True)
@@ -80,7 +80,7 @@ def test_clang_compile():
 
 
 def test_c_parser2():
-    file_path = 'tests/c_parser/c_example_size_t.c'
+    file_path = 'tests/c_parser/fixtures/c_example_size_t.c'
     c_parser = CParser(file_path)
     c_parser.print_ast()
 
@@ -95,7 +95,7 @@ def test_c_parser2():
 
 
 def test_function_get_declaration():
-    file_path = 'tests/c_parser/c_example_size_t.c'
+    file_path = 'tests/c_parser/fixtures/c_example_size_t.c'
     c_parser = CParser(file_path)
 
     foo = c_parser.get_function_info('foo')
@@ -114,7 +114,7 @@ def test_function_get_declaration():
 
 
 def test_global_var():
-    file_path = 'tests/c_parser/c_example_global_var.c'
+    file_path = 'tests/c_parser/fixtures/c_example_global_var.c'
     c_parser = CParser(file_path)
 
     assert len(c_parser.get_functions()) == 1

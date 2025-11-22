@@ -27,8 +27,9 @@ logger = sactor_logging.get_logger(__name__)
 
 
 class CParser:
-    def __init__(self, filename, extra_args=None, omit_error=False):
+    def __init__(self, filename, extra_args=None, omit_error=False, raw_filename=None):
         self.filename = filename
+        self.raw_filename = raw_filename if raw_filename else filename
 
         # Parse the C file
         index = cindex.Index.create()
@@ -37,6 +38,11 @@ class CParser:
         args.extend([f"-I{path}" for path in self.compiler_include_paths])
         self.translation_unit = index.parse(
             self.filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+        if os.path.samefile(self.raw_filename, self.filename):
+            self.raw_translation_unit = self.translation_unit
+        else:
+            self.raw_translation_unit = index.parse(
+                self.raw_filename, args=args, options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
         # check diagnostics
         if not omit_error and len(self.translation_unit.diagnostics) > 0:
             for diag in self.translation_unit.diagnostics:
@@ -50,6 +56,15 @@ class CParser:
         self._enums: dict[str, EnumInfo] = {}
         self._structs_unions: dict[str, StructInfo] = {}
         self._functions: dict[str, FunctionInfo] = {}
+        self._raw_func_cursor_cache: dict[str, cindex.Cursor | None] = {}
+        self._macro_index_built: bool = False
+        self._macro_def_cursors: list[cindex.Cursor] = []
+        self._macro_expand_cursors: list[cindex.Cursor] = []
+        self._macro_def_map: dict[str, cindex.Cursor] = {}
+        self._macro_defs_for_function: dict[str, list[str]] = {}
+        self._raw_file_cache: dict[str, str] = {}
+        self._skipped_ranges_cache: dict[str, list[tuple[int, int]]] = {}
+        self._manual_skip_cache: dict[str, list[tuple[int, int]]] = {}
         
         self._intrinsic_alias = _discover_intrinsic_aliases()
         self._type_alias: dict[str, str] = self._extract_type_alias()
@@ -135,6 +150,306 @@ class CParser:
     def get_code(self):
         code = read_file(self.filename)
         return code
+
+    def _read_raw_file(self, path: str) -> str:
+        """
+        Read a source file with a small cache to avoid repeated IO.
+        """
+        cached = self._raw_file_cache.get(path)
+        if cached is not None:
+            return cached
+        content = read_file(path)
+        self._raw_file_cache[path] = content
+        return content
+
+    def _get_raw_function_cursor(self, func_name: str) -> cindex.Cursor | None:
+        """
+        Locate the function definition cursor in the raw (un-preprocessed) TU.
+        Prefer the cursor that belongs to `raw_filename` to avoid header inlines.
+        """
+        if func_name in self._raw_func_cursor_cache:
+            return self._raw_func_cursor_cache[func_name]
+
+        target = None
+        try:
+            for cursor in self.raw_translation_unit.cursor.walk_preorder():
+                if cursor.kind != CursorKind.FUNCTION_DECL:
+                    continue
+                if cursor.spelling != func_name:
+                    continue
+                if not cursor.is_definition():
+                    continue
+                if cursor.location and cursor.location.file and cursor.location.file.name:
+                    try:
+                        if os.path.samefile(cursor.location.file.name, self.raw_filename):
+                            target = cursor
+                            break
+                    except Exception:
+                        # If samefile fails (e.g., missing file), fall through to best-effort match
+                        pass
+                if target is None:
+                    target = cursor
+        except Exception:
+            target = None
+
+        self._raw_func_cursor_cache[func_name] = target
+        return target
+
+    def _build_macro_index(self) -> None:
+        """
+        Build macro definition / expansion cursor lists from the raw TU.
+        """
+        if self._macro_index_built:
+            return
+        try:
+            expansion_kind = getattr(cindex.CursorKind, "MACRO_EXPANSION", None)
+            for cursor in self.raw_translation_unit.cursor.walk_preorder():
+                if cursor.kind == cindex.CursorKind.MACRO_DEFINITION:
+                    self._macro_def_cursors.append(cursor)
+                    self._macro_def_map[cursor.spelling] = cursor
+                elif cursor.kind == cindex.CursorKind.MACRO_INSTANTIATION or (
+                    expansion_kind and cursor.kind == expansion_kind
+                ):
+                    self._macro_expand_cursors.append(cursor)
+        except Exception as exc:
+            logger.warning("Failed to build macro index: %s", exc)
+        self._macro_index_built = True
+
+    @staticmethod
+    def _extent_contains(outer, inner) -> bool:
+        """
+        Check if `inner` extent is fully contained in `outer` (same file, offset range).
+        """
+        try:
+            if outer is None or inner is None:
+                return False
+            if not outer.start or not inner.start or not outer.end or not inner.end:
+                return False
+            if not outer.start.file or not inner.start.file:
+                return False
+            if outer.start.file.name != inner.start.file.name:
+                return False
+            return (
+                inner.start.offset >= outer.start.offset
+                and inner.end.offset <= outer.end.offset
+            )
+        except Exception:
+            return False
+
+    def _render_extent_text(self, extent) -> str | None:
+        """
+        Slice raw source text for a given extent. Best effort fallbacks on failure.
+        """
+        try:
+            if not extent or not extent.start or not extent.end or not extent.start.file:
+                return None
+            path = extent.start.file.name
+            content = self._read_raw_file(path)
+            return content[extent.start.offset:extent.end.offset]
+        except Exception as exc:
+            try:
+                lines = read_file_lines(path)
+                return "".join(lines[extent.start.line - 1:extent.end.line])
+            except Exception:
+                logger.debug("Failed to render extent text: %s", exc)
+                return None
+
+    def _get_skipped_byte_ranges(self, path: str) -> list[tuple[int, int]]:
+        """
+        Retrieve skipped (inactive preprocessor) ranges for a file, cached.
+        """
+        if path in self._skipped_ranges_cache:
+            return self._skipped_ranges_cache[path]
+        ranges: list[tuple[int, int]] = []
+        try:
+            cx_file = self.raw_translation_unit.get_file(path)
+            tu_ranges = self.raw_translation_unit.get_skipped_ranges(cx_file) if cx_file else []
+            for r in tu_ranges:
+                try:
+                    ranges.append((r.start.offset, r.end.offset))
+                except Exception:
+                    continue
+        except AttributeError:
+            # get_skipped_ranges not available in this clang binding; fall back to manual heuristic
+            ranges = self._manual_compute_inactive_ranges(path)
+        except Exception as exc:
+            logger.debug("Failed to get skipped ranges for %s: %s", path, exc)
+        ranges.sort()
+        self._skipped_ranges_cache[path] = ranges
+        return ranges
+
+    def _manual_compute_inactive_ranges(self, path: str) -> list[tuple[int, int]]:
+        """
+        Heuristic fallback: remove blocks guarded by '#if 0' ... '#else/#endif'.
+        Only handles literal 0; does not evaluate macros. Uses bytes offsets to remain
+        correct under non-ASCII.
+        """
+        if path in self._manual_skip_cache:
+            return self._manual_skip_cache[path]
+
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except Exception:
+            return []
+
+        lines = data.splitlines(keepends=True)
+        offsets: list[tuple[int, int]] = []
+        byte_pos = 0
+        stack: list[dict[str, int | bool]] = []
+
+        for line in lines:
+            stripped = line.lstrip()
+            starts_with_if0 = bool(re.match(rb"#if\s+0\b", stripped))
+            starts_with_else = stripped.startswith(b"#else")
+            starts_with_endif = stripped.startswith(b"#endif")
+
+            if starts_with_if0:
+                # start skipping after this line
+                stack.append({"skip_from": byte_pos + len(line), "skipping": True})
+            elif starts_with_else:
+                if stack and stack[-1]["skipping"]:
+                    start = stack[-1]["skip_from"]
+                    end = byte_pos
+                    if start < end:
+                        offsets.append((start, end))
+                    stack[-1]["skipping"] = False  # else part active now
+            elif starts_with_endif:
+                if stack:
+                    frame = stack.pop()
+                    if frame.get("skipping"):
+                        start = frame.get("skip_from", byte_pos)
+                        end = byte_pos
+                        if start < end:
+                            offsets.append((start, end))
+            byte_pos += len(line)
+
+        # Unclosed blocks
+        for frame in stack:
+            if frame.get("skipping"):
+                start = frame.get("skip_from", byte_pos)
+                end = byte_pos
+                if start < end:
+                    offsets.append((start, end))
+
+        offsets.sort()
+        self._manual_skip_cache[path] = offsets
+        return offsets
+
+    def _extract_extent_without_skipped(self, extent) -> str | None:
+        """
+        Extract text for an extent, removing skipped preprocessor ranges using byte->string mapping.
+        """
+        if not extent or not extent.start or not extent.end or not extent.start.file:
+            return None
+        path = extent.start.file.name
+        try:
+            text_str, data_bytes, b2s, _ = utils.load_text_with_mappings(path)
+            func_start_b = extent.start.offset
+            func_end_b = extent.end.offset
+            skipped = self._get_skipped_byte_ranges(path)
+            segments: list[tuple[int, int]] = []
+            cursor = func_start_b
+            for s, e in skipped:
+                if e <= func_start_b or s >= func_end_b:
+                    continue
+                if s > cursor:
+                    segments.append((cursor, min(s, func_end_b)))
+                cursor = max(cursor, e)
+            if cursor < func_end_b:
+                segments.append((cursor, func_end_b))
+            if not segments:
+                return ""
+            parts = []
+            for a, b in segments:
+                start_s = utils.byte_to_str_index(b2s, a)
+                end_s = utils.byte_to_str_index(b2s, b)
+                parts.append(text_str[start_s:end_s])
+            return "".join(parts)
+        except Exception as exc:
+            logger.debug("Failed to extract extent without skipped ranges: %s", exc)
+            return self._render_extent_text(extent)
+
+    def _render_macro_definition(self, cursor: cindex.Cursor | None) -> str | None:
+        """
+        Render a macro definition using extent slicing with byte->string mapping
+        to avoid offset issues on non-ASCII sources. Token reconstruction is
+        deliberately avoided per current design choice.
+        """
+        if cursor is None or not cursor.extent or not cursor.extent.start or not cursor.extent.end:
+            return None
+        try:
+            path = cursor.location.file.name if cursor.location and cursor.location.file else cursor.extent.start.file.name
+            text_str, data_bytes, b2s, _ = utils.load_text_with_mappings(path)
+            start_b = cursor.extent.start.offset
+            end_b = cursor.extent.end.offset
+            start_s = utils.byte_to_str_index(b2s, start_b)
+            end_s = utils.byte_to_str_index(b2s, end_b)
+            span = text_str[start_s:end_s]
+            if not span.lstrip().startswith("#"):
+                span = f"#define {span}"
+            return span
+        except Exception as exc:
+            logger.debug("Fallback to extent text for macro definition: %s", exc)
+            return self._render_extent_text(cursor.extent)
+
+    @staticmethod
+    def _parse_macro_parameters(tokens: list[cindex.Token]) -> set[str]:
+        """
+        Extract parameter identifiers from a function-like macro token list.
+        Assumes tokens follow #define NAME (params...) body
+        """
+        params: set[str] = set()
+        if len(tokens) < 3:
+            return params
+        # tokens[0] usually '#', tokens[1] 'define', tokens[2] name
+        idx = 3
+        if idx < len(tokens) and tokens[idx].spelling == '(':
+            idx += 1
+            while idx < len(tokens) and tokens[idx].spelling != ')':
+                spelling = tokens[idx].spelling
+                if spelling not in {",", " ", "\n"} and spelling != "":
+                    params.add(spelling)
+                idx += 1
+        return params
+
+    def _collect_macro_dependencies(self, cursor: cindex.Cursor) -> set[str]:
+        """
+        Find macros referenced inside a macro definition body.
+        """
+        deps: set[str] = set()
+        try:
+            tokens = list(cursor.get_tokens())
+        except Exception:
+            return deps
+        params = self._parse_macro_parameters(tokens)
+        # skip leading directive tokens until past macro name/params
+        seen_name = False
+        paren_depth = 0
+        start_body = False
+        for tok in tokens:
+            spelling = tok.spelling
+            if spelling == "#":
+                continue
+            if not seen_name:
+                # consume 'define' and name
+                if spelling == "define":
+                    continue
+                seen_name = True
+                continue
+            if not start_body:
+                if spelling == "(":
+                    paren_depth += 1
+                    continue
+                if spelling == ")":
+                    paren_depth = max(paren_depth - 1, 0)
+                    continue
+                # body starts after name/params section
+                start_body = True
+            if spelling.isidentifier() and spelling not in params:
+                if spelling in self._macro_def_map:
+                    deps.add(spelling)
+        return deps
 
     def get_struct_info(self, struct_name):
         """
@@ -693,6 +1008,17 @@ class CParser:
 
         Raises ValueError if the function is not found
         """
+        raw_cursor = self._get_raw_function_cursor(function_name)
+        if raw_cursor and raw_cursor.location and raw_cursor.location.file:
+            # Prefer removal of inactive preprocessor branches
+            cleaned = self._extract_extent_without_skipped(raw_cursor.extent)
+            if cleaned is not None:
+                return cleaned
+            lines = read_file_lines(raw_cursor.location.file.name)
+            start_line = raw_cursor.extent.start.line - 1
+            end_line = raw_cursor.extent.end.line
+            return "".join(lines[start_line:end_line])
+
         function = self.get_function_info(function_name)
         function_node = function.node
         if not function_node.is_definition():
@@ -749,6 +1075,59 @@ class CParser:
         start_line = global_var_node.extent.start.line - 1
         end_line = global_var_node.extent.end.line
         return "".join(lines[start_line:end_line])
+
+    def get_macro_definitions_for_function(self, function_name: str) -> list[str]:
+        """
+        Collect macro definitions used in the given function, including nested macro
+        dependencies (macro bodies referencing other macros). Builtins/__* are skipped.
+        """
+        if function_name in self._macro_defs_for_function:
+            return self._macro_defs_for_function[function_name]
+
+        raw_cursor = self._get_raw_function_cursor(function_name)
+        if raw_cursor is None:
+            self._macro_defs_for_function[function_name] = []
+            return []
+
+        self._build_macro_index()
+        func_extent = raw_cursor.extent
+        direct_names: set[str] = set()
+        for macro_cursor in self._macro_expand_cursors:
+            if not self._extent_contains(func_extent, macro_cursor.extent):
+                continue
+            name = macro_cursor.spelling
+            if name.startswith("__"):
+                continue
+            direct_names.add(name)
+
+        # BFS to collect macro dependency closure
+        closure: list[tuple[str, cindex.Cursor | None]] = []
+        seen: set[str] = set()
+        queue: list[str] = list(direct_names)
+        while queue:
+            name = queue.pop(0)
+            if name in seen:
+                continue
+            seen.add(name)
+            cursor = self._macro_def_map.get(name)
+            closure.append((name, cursor))
+            if cursor:
+                deps = self._collect_macro_dependencies(cursor)
+                for dep in deps:
+                    if dep.startswith("__"):
+                        continue
+                    if dep not in seen:
+                        queue.append(dep)
+
+        macro_defs: list[str] = []
+        for name, cursor in closure:
+            rendered = self._render_macro_definition(cursor)
+            if not rendered:
+                rendered = f"#define {name} /* definition unavailable */"
+            macro_defs.append(rendered)
+
+        self._macro_defs_for_function[function_name] = macro_defs
+        return macro_defs
 
     def _is_in_system_header(self, node):
         """

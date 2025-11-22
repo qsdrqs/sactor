@@ -601,6 +601,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
     def _prepare_function_context(
         self, function: FunctionInfo
     ) -> tuple[TranslateResult, Optional[dict[str, Any]]]:
+        macro_definitions = self.c_parser.get_macro_definitions_for_function(function.name)
         function_dependencies = function.function_dependencies
         function_name_dependencies = [f.name for f in function_dependencies]
 
@@ -776,6 +777,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         context: dict[str, Any] = {
             "function_dependencies": function_dependencies,
+            "macro_definitions": macro_definitions,
             "function_dependency_signatures": function_depedency_signatures,
             "function_dependency_uses": function_dependency_uses,
             "code_of_structs_full": code_of_structs_full,
@@ -814,6 +816,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
             return prepare_status
 
         function_dependencies = func_ctx["function_dependencies"]
+        macro_definitions: list[str] = func_ctx["macro_definitions"]
         function_depedency_signatures: list[str] = func_ctx["function_dependency_signatures"]
         function_dependency_uses: list[str] = func_ctx["function_dependency_uses"]
         code_of_structs_full: dict[str, str] = func_ctx["code_of_structs_full"]
@@ -995,6 +998,15 @@ The function is the `main` function, which is the entry point of the program. Th
 For `return 0;`, you can directly `return;` in Rust or ignore it if it's the last statement.
 For other return values, you can use `std::process::exit()` to return the value.
 For `argc` and `argv`, you can use `std::env::args()` to get the arguments.
+'''
+
+        if len(macro_definitions) > 0:
+            joined_macro_defs = '\n'.join(macro_definitions)
+            prompt += f'''
+The function body above may reference the following macros. Use these definitions to understand the semantics; do **NOT** redefine them in Rust—expand or replicate their behavior as needed in the translation.
+```c
+{joined_macro_defs}
+```
 '''
 
         if len(code_of_structs_prompt) > 0:

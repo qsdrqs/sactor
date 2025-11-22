@@ -755,7 +755,11 @@ class Sactor:
         compile_only_flags = utils.get_compile_flags_from_commands(self.processed_compile_commands)
         self.compile_only_flags = compile_only_flags
         include_flags = list(filter(lambda s: s.startswith("-I"), compile_only_flags))
-        self.c_parser = CParser(self.input_file_preprocessed, extra_args=include_flags)
+        self.c_parser = CParser(
+            self.input_file_preprocessed,
+            extra_args=include_flags,
+            raw_filename=self.input_file,
+        )
 
         # Project-wide backfill for non-function refs when a compilation database is provided
         if self.compile_commands_file:
@@ -916,6 +920,8 @@ class Sactor:
             for function in function_pairs:
                 struct_ready, struct_blockers = translator.check_dependencies(
                     function, lambda s: s.struct_dependencies)
+                logger.debug("Checking function %s: struct_ready=%s, struct_blockers=%s",
+                             function.name, struct_ready, struct_blockers)
                 func_ready, func_blockers = translator.check_dependencies(
                     function, lambda s: s.function_dependencies)
                 if not struct_ready or not func_ready:
