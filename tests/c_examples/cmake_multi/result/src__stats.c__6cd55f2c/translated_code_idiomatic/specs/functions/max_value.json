@@ -1,0 +1,45 @@
+{
+  "function_name": "max_value",
+  "fields": [
+    {
+      "u_field": {
+        "name": "values",
+        "type": "*const i32",
+        "shape": {
+          "ptr": {
+            "kind": "slice",
+            "len_from": "length"
+          }
+        }
+      },
+      "i_field": {
+        "name": "values",
+        "type": "&[i32]"
+      },
+      "ownership": "transient"
+    },
+    {
+      "u_field": {
+        "name": "length",
+        "type": "libc::size_t",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "values.len",
+        "type": "usize"
+      }
+    },
+    {
+      "u_field": {
+        "name": "ret",
+        "type": "i32",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "ret",
+        "type": "i32"
+      }
+    }
+  ],
+  "idiomatic_name": "max_value"
+}

@@ -109,6 +109,11 @@ class LLM:
 
         return response
 
+    def reset_statistics(self) -> None:
+        self.costed_input_tokens = []
+        self.costed_output_tokens = []
+        self.costed_time = []
+
     def statistic(self, path: str) -> None:
         if os.path.isdir(path):
             path = os.path.join(path, "llm_stat.json")

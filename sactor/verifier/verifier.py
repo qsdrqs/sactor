@@ -320,6 +320,11 @@ class Verifier(ABC):
     def _run_tests(self, target, env=None, test_number=None, valgrind=False) -> tuple[VerifyResult, Optional[str], Optional[int]]:
         if env is None:
             env = os.environ.copy()
+        # Ensure deterministic locale and avoid shell locale warnings leaking into test output.
+        # Some environments set LC_ALL to a locale not installed (e.g. C.UTF-8), which causes
+        # /bin/sh or bash to emit warnings that break output-based tests.
+        env["LC_ALL"] = "C"
+        env["LANG"] = "C"
         test_cmds = self._load_test_cmd(target)
         valgrind_cmd = [
             'valgrind',

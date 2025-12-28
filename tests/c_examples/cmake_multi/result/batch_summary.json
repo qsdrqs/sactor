@@ -1,0 +1,23 @@
+[
+  {
+    "input": "/home/qsdrqs/sactor/tests/c_examples/cmake_multi/src/math_utils.c",
+    "result_dir": "result/src__math_utils.c__3c8e7223",
+    "slug": "src__math_utils.c__3c8e7223",
+    "status": "success",
+    "error": null
+  },
+  {
+    "input": "/home/qsdrqs/sactor/tests/c_examples/cmake_multi/src/stats.c",
+    "result_dir": "result/src__stats.c__6cd55f2c",
+    "slug": "src__stats.c__6cd55f2c",
+    "status": "success",
+    "error": null
+  },
+  {
+    "input": "/home/qsdrqs/sactor/tests/c_examples/cmake_multi/src/main.c",
+    "result_dir": "result/src__main.c__3a576e09",
+    "slug": "src__main.c__3a576e09",
+    "status": "success",
+    "error": null
+  }
+]

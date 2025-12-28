@@ -1,6 +1,7 @@
 import os
 import json
 import shlex
+import shutil
 from dataclasses import dataclass
 from typing import Optional
 
@@ -14,12 +15,12 @@ logger = sactor_logging.get_logger(__name__)
 @dataclass
 class TuArtifact:
     tu_path: str
-    result_dir: str  # per-TU result directory (root), contains translated_code_unidiomatic/
+    result_dir: str  # per-TU result directory (root), contains translated_code_{variant}/
 
 
 class ProjectCombiner:
     """
-    Combine all TU-level Rust artefacts (unidiomatic) into a single Cargo project.
+    Combine all TU-level Rust artefacts (unidiomatic/idiomatic) into a single Cargo project.
 
     Rules:
     - Preserve relative path hierarchy of C sources beneath the project root;
@@ -42,6 +43,7 @@ class ProjectCombiner:
         compile_commands_file: str,
         entry_tu_file: Optional[str],
         tu_artifacts: list[TuArtifact],
+        variant: str = "unidiomatic",
     ) -> None:
         self.config = config
         self.test_cmd_path = test_cmd_path
@@ -49,14 +51,23 @@ class ProjectCombiner:
         self.compile_commands_file = os.path.realpath(compile_commands_file)
         self.entry_tu_file = os.path.realpath(entry_tu_file) if entry_tu_file else None
         self.tu_artifacts = tu_artifacts
+        if variant not in {"unidiomatic", "idiomatic"}:
+            raise ValueError(f"Unknown ProjectCombiner variant: {variant}")
+        self.variant = variant
 
     # --------------- helpers ---------------
     def _project_root_dir(self) -> str:
-        # compile_commands.json is typically in <proj>/build/compile_commands.json
-        # Project root is one directory up from its containing directory.
+        tus = self._list_translation_units()
+        if tus:
+            tu_dirs = [os.path.dirname(os.path.realpath(tu)) for tu in tus]
+            common = os.path.commonpath(tu_dirs)
+            if os.path.basename(common) == "src":
+                return os.path.dirname(common)
+            return common
+
+        # Fallback: compile_commands.json is typically in <proj>/build/compile_commands.json.
         cc_dir = os.path.dirname(self.compile_commands_file)
-        root = os.path.realpath(os.path.join(cc_dir, os.pardir))
-        return root
+        return os.path.realpath(os.path.join(cc_dir, os.pardir))
 
     def _crate_name(self) -> str:
         # Keep crate/bin name equal to project directory name
@@ -135,7 +146,7 @@ class ProjectCombiner:
         return patched
 
     def _collect_rs_code_for_tu(self, unit_result_dir: str) -> str:
-        base = os.path.join(unit_result_dir, "translated_code_unidiomatic")
+        base = os.path.join(unit_result_dir, f"translated_code_{self.variant}")
         chunks: list[str] = []
         for sub in ("structs", "enums", "global_vars", "functions"):
             subdir = os.path.join(base, sub)
@@ -217,6 +228,10 @@ class ProjectCombiner:
                 f"name = \"{crate_name}\"",
                 "path = \"src/main.rs\"",
             ]
+        manifest += [
+            "",
+            "[workspace]",
+        ]
         with open(os.path.join(crate_dir, "Cargo.toml"), "w", encoding="utf-8") as fh:
             fh.write("\n".join(manifest) + "\n")
 
@@ -253,6 +268,8 @@ class ProjectCombiner:
 
         os.makedirs(self.output_root, exist_ok=True)
         crate_dir = os.path.join(self.output_root, crate_name)
+        if os.path.isdir(crate_dir):
+            shutil.rmtree(crate_dir)
         src_dir = os.path.join(crate_dir, "src")
         os.makedirs(src_dir, exist_ok=True)
 
@@ -298,7 +315,7 @@ class ProjectCombiner:
             # Gather code for entry
             entry_code = self._collect_rs_code_for_tu(tu_map[entry_tu])
             # In main.rs, declare all other modules
-            root = ["#![allow(unused_imports, unused_variables, dead_code)"]
+            root = ["#![allow(unused_imports, unused_variables, dead_code)]"]
             root.extend(module_decls)
 
             # Bring cross-TU deps used in entry into scope
@@ -316,7 +333,7 @@ class ProjectCombiner:
             utils.save_code(os.path.join(src_dir, "main.rs"), main_rs)
         else:
             # No entry: build a library root that declares all modules
-            root = ["#![allow(unused_imports, unused_variables, dead_code)"]
+            root = ["#![allow(unused_imports, unused_variables, dead_code)]"]
             root.extend(module_decls)
             lib_rs = "\n".join(root) + "\n"
             utils.save_code(os.path.join(src_dir, "lib.rs"), lib_rs)

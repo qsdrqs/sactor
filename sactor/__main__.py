@@ -91,7 +91,10 @@ def parse_translate(parser):
         '--llm-stat',
         '-l',
         type=str,
-        help='The path to output the LLM statistics json file, default to {result_dir}/llm_stat.json'
+        help=(
+            'The base path for LLM statistics json files; per-stage suffixes '
+            '(_unidiomatic/_idiomatic) are added. Default to {result_dir}/llm_stat.json'
+        )
     )
 
     parser.add_argument(

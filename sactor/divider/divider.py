@@ -6,10 +6,24 @@ class Divider():
         structs = c_parser.get_structs()
         self.struct_order = self._extract_order(structs, lambda s: s.dependencies)
         functions = c_parser.get_functions()
-        # Only use intra-TU function deps (refs with local targets)
+        # Build a fast lookup table so we can recover unresolved refs by name.
+        func_by_name = {f.name: f for f in functions}
+
+        # Use intra-TU function deps; if a ref's target is missing but its name
+        # exists in this translation unit, treat it as a dependency too. This
+        # guards against cases where Clang returns a ref without the target
+        # attached (e.g., forward-declared prototypes), which would otherwise
+        # make the topological order incomplete and trigger runtime dependency
+        # errors later.
         self.function_order = self._extract_order(
             functions,
-            lambda f: [ref.target for ref in getattr(f, 'function_dependencies', []) if getattr(ref, 'target', None) is not None],
+            lambda f: [
+                ref.target if getattr(ref, 'target', None) is not None
+                else func_by_name.get(getattr(ref, 'name', None))
+                for ref in getattr(f, 'function_dependencies', [])
+                if getattr(ref, 'target', None) is not None
+                   or getattr(ref, 'name', None) in func_by_name
+            ],
         )
 
     def get_struct_order(self) -> list[list[StructInfo]]:

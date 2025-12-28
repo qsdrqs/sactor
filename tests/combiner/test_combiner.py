@@ -1,8 +1,9 @@
+import json
 import os
 import shutil
 import tempfile
 
-from sactor import utils
+from sactor import rust_ast_parser, utils
 from sactor.utils import read_file
 from sactor.c_parser import CParser
 from sactor.combiner import ProgramCombiner
@@ -76,11 +77,17 @@ def test_combine(config):
         combined_code = read_file(os.path.join(result_path, 'combined.rs'))
         expected_code = read_file('tests/c_examples/course_manage/result/translated_code_unidiomatic/combined.rs')
 
-        stat = read_file(os.path.join(result_path, 'clippy_stat.json'))
-        expected_stat = read_file('tests/c_examples/course_manage/result/translated_code_unidiomatic/clippy_stat.json')
+        stat = json.loads(read_file(os.path.join(result_path, 'clippy_stat.json')))
+        expected_stat = json.loads(read_file('tests/c_examples/course_manage/result/translated_code_unidiomatic/clippy_stat.json'))
 
-        assert utils.normalize_string(
-            stat) == utils.normalize_string(expected_stat)
+        for key in ("total_warnings", "total_errors", "warnings", "errors"):
+            assert stat[key] == expected_stat[key]
+
+        total_tokens, unsafe_tokens = rust_ast_parser.count_unsafe_tokens(combined_code)
+        unsafe_fraction = (unsafe_tokens / total_tokens) if total_tokens else 0.0
+        assert stat["total_tokens"] == total_tokens
+        assert stat["unsafe_tokens"] == unsafe_tokens
+        assert stat["unsafe_fraction"] == unsafe_fraction
         assert utils.normalize_string(
             combined_code) == utils.normalize_string(expected_code)
 
@@ -112,10 +119,16 @@ def test_combine_idiomatic(config):
         combined_code = read_file(os.path.join(result_path, 'combined.rs'))
         expected_code = read_file('tests/c_examples/course_manage/result/translated_code_idiomatic/combined.rs')
 
-        stat = read_file(os.path.join(result_path, 'clippy_stat.json'))
-        expected_stat = read_file('tests/c_examples/course_manage/result/translated_code_idiomatic/clippy_stat.json')
+        stat = json.loads(read_file(os.path.join(result_path, 'clippy_stat.json')))
+        expected_stat = json.loads(read_file('tests/c_examples/course_manage/result/translated_code_idiomatic/clippy_stat.json'))
 
-        assert utils.normalize_string(
-            stat) == utils.normalize_string(expected_stat)
+        for key in ("total_warnings", "total_errors", "warnings", "errors"):
+            assert stat[key] == expected_stat[key]
+
+        total_tokens, unsafe_tokens = rust_ast_parser.count_unsafe_tokens(combined_code)
+        unsafe_fraction = (unsafe_tokens / total_tokens) if total_tokens else 0.0
+        assert stat["total_tokens"] == total_tokens
+        assert stat["unsafe_tokens"] == unsafe_tokens
+        assert stat["unsafe_fraction"] == unsafe_fraction
         assert utils.normalize_string(
             combined_code) == utils.normalize_string(expected_code)

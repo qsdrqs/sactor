@@ -4,7 +4,7 @@
     {
       "u_field": {
         "name": "lhs",
-        "type": "i32",
+        "type": "libc::c_int",
         "shape": "scalar"
       },
       "i_field": {
@@ -15,7 +15,7 @@
     {
       "u_field": {
         "name": "rhs",
-        "type": "i32",
+        "type": "libc::c_int",
         "shape": "scalar"
       },
       "i_field": {
@@ -26,7 +26,7 @@
     {
       "u_field": {
         "name": "ret",
-        "type": "i32",
+        "type": "libc::c_int",
         "shape": "scalar"
       },
       "i_field": {

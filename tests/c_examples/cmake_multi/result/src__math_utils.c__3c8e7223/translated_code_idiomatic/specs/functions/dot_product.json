@@ -1,0 +1,64 @@
+{
+  "function_name": "dot_product",
+  "fields": [
+    {
+      "u_field": {
+        "name": "lhs",
+        "type": "*const i32",
+        "shape": {
+          "ptr": {
+            "kind": "slice",
+            "len_from": "length",
+            "null": "forbidden"
+          }
+        }
+      },
+      "i_field": {
+        "name": "lhs",
+        "type": "&[i32]"
+      },
+      "ownership": "transient"
+    },
+    {
+      "u_field": {
+        "name": "rhs",
+        "type": "*const i32",
+        "shape": {
+          "ptr": {
+            "kind": "slice",
+            "len_from": "length",
+            "null": "forbidden"
+          }
+        }
+      },
+      "i_field": {
+        "name": "rhs",
+        "type": "&[i32]"
+      },
+      "ownership": "transient"
+    },
+    {
+      "u_field": {
+        "name": "length",
+        "type": "usize",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "length",
+        "type": "usize"
+      }
+    },
+    {
+      "u_field": {
+        "name": "ret",
+        "type": "i32",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "ret",
+        "type": "i32"
+      }
+    }
+  ],
+  "idiomatic_name": "dot_product"
+}

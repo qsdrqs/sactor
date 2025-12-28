@@ -156,11 +156,30 @@ class ProgramCombiner(Combiner):
                os.path.join(build_program, "src", copy_source_name), file_path]
         result = utils.run_command(cmd, check=True)
 
+        with open(file_path, "r", encoding="utf-8") as fh:
+            combined_for_stat = fh.read()
+
         # save the warning stat
+        self._stat_unsafe_blocks(combined_for_stat)
         with open(os.path.join(result_dir_with_type, "clippy_stat.json"), "w") as f:
             json.dump(self.clippy_stat, f, indent=4)
 
         return CombineResult.SUCCESS, output_code
+
+    def _stat_unsafe_blocks(self, code: str) -> None:
+        """
+        Compute unsafe usage ratio for the combined Rust code.
+
+        - total_tokens: number of tokens in the crate.
+        - unsafe_tokens: tokens that reside in unsafe blocks or unsafe fns.
+        - unsafe_fraction: unsafe_tokens / total_tokens (0 when total_tokens == 0).
+        """
+        total_tokens, unsafe_tokens = rust_ast_parser.count_unsafe_tokens(code)
+        unsafe_fraction = (unsafe_tokens / total_tokens) if total_tokens else 0.0
+
+        self.clippy_stat["total_tokens"] = total_tokens
+        self.clippy_stat["unsafe_tokens"] = unsafe_tokens
+        self.clippy_stat["unsafe_fraction"] = unsafe_fraction
 
     def _get_warning_error_count(self, compiler_output: str, has_error: bool) -> tuple[int, int]:
         warnings_count = 0

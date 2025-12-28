@@ -37,6 +37,9 @@ class UnidiomaticTranslator(Translator):
         entry_tu_file: str | None = None,
         link_closure: list[str] | None = None,
         project_usr_to_result_dir: dict[str, str] | None = None,
+        project_struct_usr_to_result_dir: dict[str, str] | None = None,
+        project_enum_usr_to_result_dir: dict[str, str] | None = None,
+        project_global_usr_to_result_dir: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             llm=llm,
@@ -78,6 +81,9 @@ class UnidiomaticTranslator(Translator):
         )
         # Project-wide artifact index for precise dependency checks
         self.project_usr_to_result_dir = project_usr_to_result_dir or {}
+        self.project_struct_usr_to_result_dir = project_struct_usr_to_result_dir or {}
+        self.project_enum_usr_to_result_dir = project_enum_usr_to_result_dir or {}
+        self.project_global_usr_to_result_dir = project_global_usr_to_result_dir or {}
 
     @override
     def _translate_enum_impl(
@@ -624,7 +630,7 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 if usr and getattr(self, 'project_usr_to_result_dir', None):
                     owner_dir = self.project_usr_to_result_dir.get(usr)
                 if owner_dir:
-                    candidate = os.path.join(owner_dir, 'translated_code_unidiomatic', 'functions', f'{dep_name}.rs')
+                    candidate = os.path.join(owner_dir, self.base_name, 'functions', f'{dep_name}.rs')
                     if os.path.exists(candidate):
                         translated_path = candidate
             if not os.path.exists(translated_path):

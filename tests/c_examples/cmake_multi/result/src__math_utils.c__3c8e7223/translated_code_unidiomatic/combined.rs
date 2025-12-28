@@ -1,14 +1,13 @@
-use libc::size_t;
-pub fn add_integers(lhs: i32, rhs: i32) -> i32 {
+pub fn add_integers(lhs: libc::c_int, rhs: libc::c_int) -> libc::c_int {
     lhs + rhs
 }
-pub unsafe fn multiply_integers(lhs: libc::c_int, rhs: libc::c_int) -> libc::c_int {
+pub fn multiply_integers(lhs: libc::c_int, rhs: libc::c_int) -> libc::c_int {
     lhs * rhs
 }
-pub unsafe fn dot_product(lhs: *const i32, rhs: *const i32, length: size_t) -> i32 {
-    let mut total = 0;
+pub unsafe fn dot_product(lhs: *const i32, rhs: *const i32, length: usize) -> i32 {
+    let mut total: i32 = 0;
     for i in 0..length {
-        total += *lhs.add(i) * *rhs.add(i);
+        total = total.wrapping_add((*lhs.add(i)).wrapping_mul(*rhs.add(i)));
     }
     total
 }

@@ -1,0 +1,49 @@
+{
+  "function_name": "average",
+  "fields": [
+    {
+      "u_field": {
+        "name": "values",
+        "type": "*const libc::c_int",
+        "shape": {
+          "ptr": {
+            "kind": "slice",
+            "len_from": "length",
+            "null": "forbidden"
+          }
+        }
+      },
+      "i_field": {
+        "name": "values",
+        "type": "&[i32]"
+      },
+      "ownership": "transient",
+      "compare": "by_slice"
+    },
+    {
+      "u_field": {
+        "name": "length",
+        "type": "libc::size_t",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "values.len",
+        "type": "usize"
+      },
+      "compare": "by_value"
+    },
+    {
+      "u_field": {
+        "name": "ret",
+        "type": "f64",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "ret",
+        "type": "f64"
+      },
+      "compare": "by_value"
+    }
+  ],
+  "idiomatic_name": "average"
+}

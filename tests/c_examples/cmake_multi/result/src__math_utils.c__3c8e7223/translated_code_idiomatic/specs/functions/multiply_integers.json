@@ -1,0 +1,39 @@
+{
+  "function_name": "multiply_integers",
+  "fields": [
+    {
+      "u_field": {
+        "name": "lhs",
+        "type": "libc::c_int",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "lhs",
+        "type": "i32"
+      }
+    },
+    {
+      "u_field": {
+        "name": "rhs",
+        "type": "libc::c_int",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "rhs",
+        "type": "i32"
+      }
+    },
+    {
+      "u_field": {
+        "name": "ret",
+        "type": "libc::c_int",
+        "shape": "scalar"
+      },
+      "i_field": {
+        "name": "ret",
+        "type": "i32"
+      }
+    }
+  ],
+  "idiomatic_name": "multiply_integers"
+}

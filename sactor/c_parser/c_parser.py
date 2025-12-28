@@ -784,6 +784,10 @@ class CParser:
             if child.kind == CursorKind.CALL_EXPR or is_function_reference(child):
                 called = child.referenced
                 if called:
+                    # Skip calls through function pointers/variables; only treat real function decls as deps.
+                    if called.kind != CursorKind.FUNCTION_DECL:
+                        refs.extend(self._collect_function_dependency_refs(child))
+                        continue
                     if called.location and not self._is_in_system_header(called):
                         usr = None
                         try:

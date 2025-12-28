@@ -38,7 +38,9 @@ def llm():
 
 def test_usr_to_result_dir_resolution_cross_tu(tmp_path, llm):
     proj = tmp_path / 'proj'
+    build_dir = proj / 'build'
     proj.mkdir()
+    build_dir.mkdir()
 
     util_c = proj / 'util.c'
     util_h = proj / 'util.h'
@@ -56,19 +58,19 @@ def test_usr_to_result_dir_resolution_cross_tu(tmp_path, llm):
 
     cc = [
         {
-            'directory': str(proj),
+            'directory': str(build_dir),
             'file': str(util_c),
             'command': f'clang -I{proj} -std=c99 -c {util_c}',
             'output': 'util.o',
         },
         {
-            'directory': str(proj),
+            'directory': str(build_dir),
             'file': str(main_c),
             'command': f'clang -I{proj} -std=c99 -c {main_c}',
             'output': 'main.o',
         },
     ]
-    cc_path = proj / 'compile_commands.json'
+    cc_path = build_dir / 'compile_commands.json'
     cc_path.write_text(json.dumps(cc, indent=2), encoding='utf-8')
 
     test_cmd = proj / 'test_cmd.json'
@@ -80,12 +82,15 @@ def test_usr_to_result_dir_resolution_cross_tu(tmp_path, llm):
         test_cmd_path=str(test_cmd),
         compile_commands_file=str(cc_path),
         result_dir=str(outdir),
+        unidiomatic_only=True,
         configure_logging=False,
     )
 
     assert res.any_failed is False
-    # Ensure both TUs produced unidiomatic combined outputs
-    combined_root = Path(res.base_result_dir) / 'combined' / 'unidiomatic'
-    assert (combined_root / f"{str(util_c.resolve()).replace(os.sep,'__')}__").exists() is False  # smoke: pattern not strict
-    # The critical assertion is that translation passed without dependency error.
 
+    combined_root = Path(res.base_result_dir) / 'combined'
+    uni_crate_dir = combined_root / 'unidiomatic' / 'proj'
+    assert (uni_crate_dir / 'Cargo.toml').exists()
+    assert (uni_crate_dir / 'src' / 'main.rs').exists()
+    assert list((combined_root / 'unidiomatic').glob('*.rs')) == []
+    assert (combined_root / 'idiomatic').exists() is False

@@ -1,16 +1,26 @@
 {
     "add_integers": {
         "type": "function",
-        "errors": [
-            {
-                "type": "COMPILE_ERROR",
-                "message": "Error: Failed to link C code for function add_integers",
-                "translation": "pub fn add_integers(lhs: i32, rhs: i32) -> i32 {\n    lhs + rhs\n}\n"
-            }
-        ],
-        "status": "failure",
+        "errors": [],
+        "status": "success",
         "attempts": [
-            2
+            1
+        ]
+    },
+    "multiply_integers": {
+        "type": "function",
+        "errors": [],
+        "status": "success",
+        "attempts": [
+            1
+        ]
+    },
+    "dot_product": {
+        "type": "function",
+        "errors": [],
+        "status": "success",
+        "attempts": [
+            1
         ]
     }
 }

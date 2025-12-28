@@ -50,26 +50,33 @@ def _slug_for_path(path: str) -> str:
     return f"{sanitized}__{digest}"
 
 
-def _derive_llm_stat_path(base_path: str, slug: str) -> str:
+def _derive_llm_stat_path(
+    base_path: str,
+    *,
+    slug: str | None = None,
+    stage: str | None = None,
+) -> str:
+    suffix_parts = []
+    if slug:
+        suffix_parts.append(slug)
+    if stage:
+        suffix_parts.append(stage)
+
+    if os.path.isdir(base_path):
+        filename = "llm_stat"
+        if suffix_parts:
+            filename = f"{filename}_{'_'.join(suffix_parts)}"
+        filename = f"{filename}.json"
+        return os.path.join(base_path, filename)
+
+    if not suffix_parts:
+        return base_path
+
     root, ext = os.path.splitext(base_path)
+    suffix = "_".join(suffix_parts)
     if ext:
-        return f"{root}_{slug}{ext}"
-    return f"{base_path}_{slug}"
-
-
-def _collect_combined_outputs(unit_result_dir: str, slug: str, combined_root: str) -> None:
-    variants = {
-        "translated_code_unidiomatic": "unidiomatic",
-        "translated_code_idiomatic": "idiomatic",
-    }
-    for subdir, variant in variants.items():
-        source = os.path.join(unit_result_dir, subdir, "combined.rs")
-        if not os.path.exists(source):
-            continue
-        dest_dir = os.path.join(combined_root, variant)
-        os.makedirs(dest_dir, exist_ok=True)
-        dest = os.path.join(dest_dir, f"{slug}.rs")
-        shutil.copy2(source, dest)
+        return f"{root}_{suffix}{ext}"
+    return f"{base_path}_{suffix}"
 
 
 def _order_translation_units_by_dependencies(
@@ -176,7 +183,30 @@ def _build_function_usr_owner_map(
 
     Parses each TU with its own compile flags to discover function definitions.
     """
+    func_usr_to_tu, _, _, _ = _build_project_usr_owner_maps(
+        translation_units,
+        compile_commands_file,
+    )
+    return func_usr_to_tu
+
+
+def _build_project_usr_owner_maps(
+    translation_units: list[str],
+    compile_commands_file: str,
+) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
+    """Return project-wide USR owner maps for symbols visible in the compile DB.
+
+    Returns (func_usr_to_tu, struct_usr_to_tu, enum_usr_to_tu, global_usr_to_tu),
+    where values are the owning translation unit absolute paths.
+
+    Ownership rule:
+    - First writer wins in `translation_units` order (stable).
+    - We warn on conflicting ownership (same USR seen from different TUs).
+    """
     function_usr_to_tu: dict[str, str] = {}
+    struct_usr_to_tu: dict[str, str] = {}
+    enum_usr_to_tu: dict[str, str] = {}
+    global_usr_to_tu: dict[str, str] = {}
     for tu_path in translation_units:
         commands = utils.load_compile_commands_from_file(
             compile_commands_file,
@@ -196,7 +226,58 @@ def _build_function_usr_owner_map(
                 )
             else:
                 function_usr_to_tu.setdefault(usr, tu_path)
-    return function_usr_to_tu
+
+        for struct in parser.get_structs() or []:
+            usr = None
+            try:
+                usr = struct.node.get_usr()  # type: ignore[attr-defined]
+            except Exception:
+                usr = None
+            if not usr:
+                continue
+            existing_owner = struct_usr_to_tu.get(usr)
+            if existing_owner and existing_owner != tu_path:
+                logger.warning(
+                    'Struct USR %s observed in multiple translation units (%s, %s); owner selection may be ambiguous.',
+                    usr, existing_owner, tu_path,
+                )
+            else:
+                struct_usr_to_tu.setdefault(usr, tu_path)
+
+        for enum in parser.get_enums() or []:
+            usr = None
+            try:
+                usr = enum.node.get_usr()  # type: ignore[attr-defined]
+            except Exception:
+                usr = None
+            if not usr:
+                continue
+            existing_owner = enum_usr_to_tu.get(usr)
+            if existing_owner and existing_owner != tu_path:
+                logger.warning(
+                    'Enum USR %s observed in multiple translation units (%s, %s); owner selection may be ambiguous.',
+                    usr, existing_owner, tu_path,
+                )
+            else:
+                enum_usr_to_tu.setdefault(usr, tu_path)
+
+        for g in parser.get_global_vars() or []:
+            usr = None
+            try:
+                usr = g.node.get_usr()  # type: ignore[attr-defined]
+            except Exception:
+                usr = None
+            if not usr:
+                continue
+            existing_owner = global_usr_to_tu.get(usr)
+            if existing_owner and existing_owner != tu_path:
+                logger.warning(
+                    'Global USR %s observed in multiple translation units (%s, %s); owner selection may be ambiguous.',
+                    usr, existing_owner, tu_path,
+                )
+            else:
+                global_usr_to_tu.setdefault(usr, tu_path)
+    return function_usr_to_tu, struct_usr_to_tu, enum_usr_to_tu, global_usr_to_tu
 
 def _build_link_closure(
     entry_tu_file: Optional[str],
@@ -416,6 +497,9 @@ class Sactor:
         log_dir_override: str | None = None,
         configure_logging: bool = True,
     ) -> TranslateBatchResult:
+        if unidiomatic_only and idiomatic_only:
+            raise ValueError("Only one of unidiomatic_only and idiomatic_only can be set")
+
         if isinstance(target_type, str):
             target_lower = target_type.lower()
             if target_lower not in {"bin", "lib"}:
@@ -485,7 +569,27 @@ class Sactor:
             raise ValueError('No C translation units found in compile_commands.json')
 
         combined_root = os.path.join(base_result_dir, "combined")
+        if compile_commands_file:
+            tu_dirs = [os.path.dirname(os.path.realpath(tu)) for tu in translation_units]
+            if tu_dirs:
+                project_root = os.path.commonpath(tu_dirs)
+                if os.path.basename(project_root) == "src":
+                    project_root = os.path.dirname(project_root)
+                legacy_crate_dir = os.path.join(combined_root, os.path.basename(project_root))
+                if os.path.isdir(legacy_crate_dir) and os.path.isfile(os.path.join(legacy_crate_dir, "Cargo.toml")):
+                    shutil.rmtree(legacy_crate_dir)
+
+        # Clean up legacy flat per-TU combined copies under combined/{unidiomatic,idiomatic}/*.rs.
+        for variant in ("unidiomatic", "idiomatic"):
+            variant_dir = os.path.join(combined_root, variant)
+            if not os.path.isdir(variant_dir):
+                continue
+            for entry in os.listdir(variant_dir):
+                if entry.endswith(".rs"):
+                    os.remove(os.path.join(variant_dir, entry))
         any_failed = False
+        run_unidiomatic_phase = not idiomatic_only
+        run_idiomatic_phase = not unidiomatic_only
         # Pre-create per-TU result slots
         per_tu: dict[str, dict[str, object]] = {}
         for tu_path in translation_units:
@@ -499,16 +603,38 @@ class Sactor:
                 "status": "success",
                 "error": None,
                 "_uni_success": False,
+                "_ido_success": False,
             }
 
         # Build function USR -> result_dir mapping for precise dependency resolution
         project_usr_to_result_dir: dict[str, str] = {}
+        project_struct_usr_to_result_dir: dict[str, str] = {}
+        project_enum_usr_to_result_dir: dict[str, str] = {}
+        project_global_usr_to_result_dir: dict[str, str] = {}
         if compile_commands_file:
-            usr_owner = _build_function_usr_owner_map(translation_units, compile_commands_file)
-            for usr, tu in usr_owner.items():
+            (
+                func_usr_owner,
+                struct_usr_owner,
+                enum_usr_owner,
+                global_usr_owner,
+            ) = _build_project_usr_owner_maps(translation_units, compile_commands_file)
+
+            for usr, tu in func_usr_owner.items():
                 meta = per_tu.get(tu)
                 if meta:
                     project_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
+            for usr, tu in struct_usr_owner.items():
+                meta = per_tu.get(tu)
+                if meta:
+                    project_struct_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
+            for usr, tu in enum_usr_owner.items():
+                meta = per_tu.get(tu)
+                if meta:
+                    project_enum_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
+            for usr, tu in global_usr_owner.items():
+                meta = per_tu.get(tu)
+                if meta:
+                    project_global_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
 
         # Helper to build per-TU runner
         def _make_runner(tu_path: str, unit_build_dir: str | None, unit_llm_stat: str | None, *, uni: bool, ido: bool):
@@ -530,82 +656,141 @@ class Sactor:
                 idiomatic_only=ido,
                 continue_run_when_incomplete=continue_run_when_incomplete,
                 project_usr_to_result_dir=project_usr_to_result_dir,
+                project_struct_usr_to_result_dir=project_struct_usr_to_result_dir,
+                project_enum_usr_to_result_dir=project_enum_usr_to_result_dir,
+                project_global_usr_to_result_dir=project_global_usr_to_result_dir,
             )
 
         # Detect stubbed runner in tests (e.g., tests/test_translate_batch.py)
         is_stub_mode = hasattr(cls, 'instances') and isinstance(getattr(cls, 'instances'), list)
 
-        # Phase 1: unidiomatic for all TUs
-        for tu_path in translation_units:
-            meta = per_tu[tu_path]
-            slug = meta["slug"]  # type: ignore[index]
-            unit_result_dir = meta["result_dir"]  # type: ignore[index]
-            unit_build_dir = os.path.join(build_dir, slug) if build_dir else None
-            if unit_build_dir:
-                os.makedirs(unit_build_dir, exist_ok=True)
-            unit_llm_stat = None
-            if llm_stat:
-                unit_llm_stat = _derive_llm_stat_path(llm_stat, slug)
-                llm_stat_dir = os.path.dirname(unit_llm_stat)
-                if llm_stat_dir:
-                    os.makedirs(llm_stat_dir, exist_ok=True)
+        def _run_project_combiner(*, variant: str, tu_ok_flag: str) -> Optional[str]:
+            nonlocal any_failed
+            if not compile_commands_file or is_stub_mode:
+                return None
+            if variant not in {"unidiomatic", "idiomatic"}:
+                raise ValueError(f"Unsupported project combine variant: {variant}")
 
-            logger.info("Translating (unidiomatic) %s (result dir: %s)", tu_path, unit_result_dir)
-            try:
-                runner = _make_runner(tu_path, unit_build_dir, unit_llm_stat, uni=True, ido=False)
-                runner.run()
-                meta["_uni_success"] = True
-            except Exception as exc:  # pylint: disable=broad-except
-                meta["status"] = "failed"
-                meta["error"] = str(exc)
+            output_root = os.path.join(combined_root, variant)
+            if os.path.isdir(output_root):
+                for entry in os.listdir(output_root):
+                    if not entry.endswith(".rs"):
+                        continue
+                    path = os.path.join(output_root, entry)
+                    if os.path.isfile(path):
+                        os.remove(path)
+
+            tu_artifacts: list[TuArtifact] = []
+            for tu_path, meta in per_tu.items():
+                if not meta.get(tu_ok_flag):
+                    continue
+                tu_artifacts.append(TuArtifact(tu_path=tu_path, result_dir=str(meta["result_dir"])))  # type: ignore[index]
+
+            if not tu_artifacts:
+                return None
+
+            logger.info("Combining project artefacts into a single Rust crate (%s) and running project-level tests", variant)
+            pc = ProjectCombiner(
+                config=config,
+                test_cmd_path=test_cmd_path,
+                output_root=output_root,
+                compile_commands_file=compile_commands_file,
+                entry_tu_file=entry_tu_file,
+                tu_artifacts=tu_artifacts,
+                variant=variant,
+            )
+            ok, crate_dir, _bin_path = pc.combine_and_build()
+            if not ok:
                 any_failed = True
-                logger.error("Unidiomatic translation failed for %s: %s", tu_path, exc, exc_info=True)
+            return crate_dir
 
-        # If phase 1 had failures and continue flag is not set, stop here
-        if any_failed and not continue_run_when_incomplete:
-            summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
-            summary_path = os.path.join(base_result_dir, "batch_summary.json")
-            with open(summary_path, "w", encoding="utf-8") as handle:
-                json.dump(summary, handle, indent=2)
-            logger.info("Batch summary written to %s", summary_path)
-            return TranslateBatchResult(entries=summary, any_failed=True, base_result_dir=base_result_dir, combined_dir=combined_root)
+        # Phase 1: unidiomatic for all TUs (unless idiomatic_only)
+        if run_unidiomatic_phase:
+            for tu_path in translation_units:
+                meta = per_tu[tu_path]
+                slug = meta["slug"]  # type: ignore[index]
+                unit_result_dir = meta["result_dir"]  # type: ignore[index]
+                unit_build_dir = os.path.join(build_dir, slug) if build_dir else None
+                if unit_build_dir:
+                    os.makedirs(unit_build_dir, exist_ok=True)
+                unit_llm_stat = None
+                if llm_stat:
+                    unit_llm_stat = _derive_llm_stat_path(llm_stat, slug=slug)
+                    llm_stat_dir = os.path.dirname(unit_llm_stat)
+                    if llm_stat_dir:
+                        os.makedirs(llm_stat_dir, exist_ok=True)
 
-        # Phase 2: idiomatic only for those with successful unidiomatic (or when continue flag allows partials)
-        if is_stub_mode:
-            # In stub mode, the single run already created both unidiomatic/idiomatic artefacts.
-            summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
-            summary_path = os.path.join(base_result_dir, "batch_summary.json")
-            with open(summary_path, "w", encoding="utf-8") as handle:
-                json.dump(summary, handle, indent=2)
-            logger.info("Batch summary written to %s", summary_path)
-            return TranslateBatchResult(entries=summary, any_failed=any_failed, base_result_dir=base_result_dir, combined_dir=combined_root)
+                logger.info("Translating (unidiomatic) %s (result dir: %s)", tu_path, unit_result_dir)
+                try:
+                    runner = _make_runner(tu_path, unit_build_dir, unit_llm_stat, uni=True, ido=False)
+                    runner.run()
+                    meta["_uni_success"] = True
+                except Exception as exc:  # pylint: disable=broad-except
+                    meta["status"] = "failed"
+                    meta["error"] = str(exc)
+                    any_failed = True
+                    logger.error("Unidiomatic translation failed for %s: %s", tu_path, exc, exc_info=True)
 
-        for tu_path in translation_units:
-            meta = per_tu[tu_path]
-            if not meta.get("_uni_success"):
-                # skip idiomatic for TUs without unidiomatic success
-                continue
-            slug = meta["slug"]  # type: ignore[index]
-            unit_result_dir = meta["result_dir"]  # type: ignore[index]
-            unit_build_dir = os.path.join(build_dir, slug) if build_dir else None
-            if unit_build_dir:
-                os.makedirs(unit_build_dir, exist_ok=True)
-            unit_llm_stat = None
-            if llm_stat:
-                unit_llm_stat = _derive_llm_stat_path(llm_stat, slug)
-                llm_stat_dir = os.path.dirname(unit_llm_stat)
-                if llm_stat_dir:
-                    os.makedirs(llm_stat_dir, exist_ok=True)
-
-            logger.info("Translating (idiomatic) %s (result dir: %s)", tu_path, unit_result_dir)
             try:
-                runner = _make_runner(tu_path, unit_build_dir, unit_llm_stat, uni=False, ido=True)
-                runner.run()
+                _run_project_combiner(variant="unidiomatic", tu_ok_flag="_uni_success")
             except Exception as exc:  # pylint: disable=broad-except
-                meta["status"] = "failed"
-                meta["error"] = str(exc)
                 any_failed = True
-                logger.error("Idiomatic translation failed for %s: %s", tu_path, exc, exc_info=True)
+                logger.error("Unidiomatic ProjectCombiner failed: %s", exc, exc_info=True)
+
+            # If phase 1 had failures and continue flag is not set, stop here
+            if any_failed and not continue_run_when_incomplete:
+                summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
+                summary_path = os.path.join(base_result_dir, "batch_summary.json")
+                with open(summary_path, "w", encoding="utf-8") as handle:
+                    json.dump(summary, handle, indent=2)
+                logger.info("Batch summary written to %s", summary_path)
+                return TranslateBatchResult(entries=summary, any_failed=True, base_result_dir=base_result_dir, combined_dir=combined_root)
+
+        # Phase 2: idiomatic (unless unidiomatic_only)
+        if run_idiomatic_phase:
+            if is_stub_mode and run_unidiomatic_phase:
+                # In stub mode, the unidiomatic pass already created both artefacts.
+                summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
+                summary_path = os.path.join(base_result_dir, "batch_summary.json")
+                with open(summary_path, "w", encoding="utf-8") as handle:
+                    json.dump(summary, handle, indent=2)
+                logger.info("Batch summary written to %s", summary_path)
+                return TranslateBatchResult(entries=summary, any_failed=any_failed, base_result_dir=base_result_dir, combined_dir=combined_root)
+
+            eligible_units = translation_units
+            if run_unidiomatic_phase:
+                eligible_units = [tu for tu in translation_units if per_tu[tu].get("_uni_success")]
+
+            for tu_path in eligible_units:
+                meta = per_tu[tu_path]
+                slug = meta["slug"]  # type: ignore[index]
+                unit_result_dir = meta["result_dir"]  # type: ignore[index]
+                unit_build_dir = os.path.join(build_dir, slug) if build_dir else None
+                if unit_build_dir:
+                    os.makedirs(unit_build_dir, exist_ok=True)
+                unit_llm_stat = None
+                if llm_stat:
+                    unit_llm_stat = _derive_llm_stat_path(llm_stat, slug=slug)
+                    llm_stat_dir = os.path.dirname(unit_llm_stat)
+                    if llm_stat_dir:
+                        os.makedirs(llm_stat_dir, exist_ok=True)
+
+                logger.info("Translating (idiomatic) %s (result dir: %s)", tu_path, unit_result_dir)
+                try:
+                    runner = _make_runner(tu_path, unit_build_dir, unit_llm_stat, uni=False, ido=True)
+                    runner.run()
+                    meta["_ido_success"] = True
+                except Exception as exc:  # pylint: disable=broad-except
+                    meta["status"] = "failed"
+                    meta["error"] = str(exc)
+                    any_failed = True
+                    logger.error("Idiomatic translation failed for %s: %s", tu_path, exc, exc_info=True)
+
+            try:
+                _run_project_combiner(variant="idiomatic", tu_ok_flag="_ido_success")
+            except Exception as exc:  # pylint: disable=broad-except
+                any_failed = True
+                logger.error("Idiomatic ProjectCombiner failed: %s", exc, exc_info=True)
 
         summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
         summary_path = os.path.join(base_result_dir, "batch_summary.json")
@@ -613,39 +798,11 @@ class Sactor:
             json.dump(summary, handle, indent=2)
         logger.info("Batch summary written to %s", summary_path)
 
-        # Project-level combine and test (bin only) when in project mode
-        combined_project_dir = None
-        if compile_commands_file:
-            try:
-                tu_artifacts: list[TuArtifact] = []
-                for tu_path, meta in per_tu.items():
-                    if not meta.get("_uni_success"):
-                        continue
-                    tu_artifacts.append(TuArtifact(tu_path=tu_path, result_dir=str(meta["result_dir"]) ))  # type: ignore[index]
-
-                if tu_artifacts:
-                    logger.info("Combining project artefacts into a single Rust crate and running project-level tests")
-                    pc = ProjectCombiner(
-                        config=config,
-                        test_cmd_path=test_cmd_path,
-                        output_root=os.path.join(base_result_dir, "combined"),
-                        compile_commands_file=compile_commands_file,
-                        entry_tu_file=entry_tu_file,
-                        tu_artifacts=tu_artifacts,
-                    )
-                    ok, crate_dir, bin_path = pc.combine_and_build()
-                    combined_project_dir = crate_dir
-                    if not ok:
-                        any_failed = True
-            except Exception as exc:
-                any_failed = True
-                logger.error("ProjectCombiner failed: %s", exc, exc_info=True)
-
         return TranslateBatchResult(
             entries=summary,
             any_failed=any_failed,
             base_result_dir=base_result_dir,
-            combined_dir=combined_project_dir or combined_root,
+            combined_dir=combined_root,
         )
 
     def __init__(
@@ -668,6 +825,9 @@ class Sactor:
         idiomatic_only=False,
         continue_run_when_incomplete=False,
         project_usr_to_result_dir: dict[str, str] | None = None,
+        project_struct_usr_to_result_dir: dict[str, str] | None = None,
+        project_enum_usr_to_result_dir: dict[str, str] | None = None,
+        project_global_usr_to_result_dir: dict[str, str] | None = None,
     ):
         self.config_file = config_file
         self.config = utils.try_load_config(self.config_file)
@@ -712,6 +872,9 @@ class Sactor:
         self.idiomatic_only = idiomatic_only
         self.continue_run_when_incomplete = continue_run_when_incomplete
         self.project_usr_to_result_dir = project_usr_to_result_dir or {}
+        self.project_struct_usr_to_result_dir = project_struct_usr_to_result_dir or {}
+        self.project_enum_usr_to_result_dir = project_enum_usr_to_result_dir or {}
+        self.project_global_usr_to_result_dir = project_global_usr_to_result_dir or {}
             
         exec_obj_missing = executable_object is None or (
             isinstance(executable_object, list) and len(executable_object) == 0)
@@ -732,7 +895,7 @@ class Sactor:
         logger.info("Config file: %s", self.config_file)
         logger.info("No verify: %s", self.no_verify)
         logger.info("Unidiomatic only: %s", self.unidiomatic_only)
-        logger.info("LLM statistics file: %s", self.llm_stat)
+        logger.info("LLM statistics base path: %s", self.llm_stat)
         logger.info("Extra compile command: %s", self.extra_compile_command)
         logger.info("Compile commands file: %s", self.compile_commands_file)
         logger.info("Link args: %s", self.link_args)
@@ -821,61 +984,68 @@ class Sactor:
         self.c2rust_translation = None
 
     def run(self):
+        def _stage_stat_path(stage: str) -> str:
+            return _derive_llm_stat_path(self.llm_stat, stage=stage)
+
         if not self.idiomatic_only:
+            self.llm.reset_statistics()
+            unidiomatic_stat_path = _stage_stat_path("unidiomatic")
             result, unidiomatic_translator = self._run_unidomatic_translation()
             # Collect failure info
             unidiomatic_translator.save_failure_info(unidiomatic_translator.failure_info_path)
-            
+
+            stage_error = None
             if result != TranslateResult.SUCCESS:
-                self.llm.statistic(self.llm_stat)
                 unidiomatic_translator.print_result_summary("Unidiomatic")
-                msg = f"Failed to translate unidiomatic code: {result}"
-                if self.continue_run_when_incomplete:
-                    logger.error(msg)
-                else:
-                    raise ValueError(msg)
+                stage_error = f"Failed to translate unidiomatic code: {result}"
             else:
                 combine_result, _ = self.combiner.combine(
                     os.path.join(self.result_dir, "translated_code_unidiomatic"),
                     is_idiomatic=False,
                 )
                 if combine_result != CombineResult.SUCCESS:
-                    self.llm.statistic(self.llm_stat)
-                    msg = f"Failed to combine translated code for unidiomatic translation: {combine_result}"
-                    if self.continue_run_when_incomplete:
-                        logger.error(msg)
-                    else:
-                        raise ValueError(msg)
+                    stage_error = (
+                        "Failed to combine translated code for unidiomatic translation: "
+                        f"{combine_result}"
+                    )
+
+            self.llm.statistic(unidiomatic_stat_path)
+
+            if stage_error:
+                if self.continue_run_when_incomplete:
+                    logger.error(stage_error)
+                else:
+                    raise ValueError(stage_error)
+
         if not self.unidiomatic_only:
+            self.llm.reset_statistics()
+            idiomatic_stat_path = _stage_stat_path("idiomatic")
             result, idiomatic_translator = self._run_idiomatic_translation()
             # Collect failure info
             idiomatic_translator.save_failure_info(idiomatic_translator.failure_info_path)
+
+            stage_error = None
             if result != TranslateResult.SUCCESS:
-                self.llm.statistic(self.llm_stat)
                 idiomatic_translator.print_result_summary("Idiomatic")
-                msg = f"Failed to translate idiomatic code: {result}"
-                if self.continue_run_when_incomplete:
-                    logger.error(msg)
-                else:
-                    raise ValueError(msg)
+                stage_error = f"Failed to translate idiomatic code: {result}"
             else:
                 combine_result, _ = self.combiner.combine(
                     os.path.join(self.result_dir, "translated_code_idiomatic"),
                     is_idiomatic=True,
                 )
                 if combine_result != CombineResult.SUCCESS:
-                    self.llm.statistic(self.llm_stat)
-                    msg = (
+                    stage_error = (
                         "Failed to combine translated code for idiomatic translation: "
                         f"{combine_result}"
                     )
-                    if self.continue_run_when_incomplete:
-                        logger.error(msg)
-                    else:
-                        raise ValueError(msg)
 
-        # LLM statistics
-        self.llm.statistic(self.llm_stat)
+            self.llm.statistic(idiomatic_stat_path)
+
+            if stage_error:
+                if self.continue_run_when_incomplete:
+                    logger.error(stage_error)
+                else:
+                    raise ValueError(stage_error)
 
     def _new_unidiomatic_translator(self):
         if self.c2rust_translation is None:
@@ -897,6 +1067,9 @@ class Sactor:
             entry_tu_file=self.entry_tu_file,
             link_closure=self.project_link_closure,
             project_usr_to_result_dir=self.project_usr_to_result_dir,
+            project_struct_usr_to_result_dir=self.project_struct_usr_to_result_dir,
+            project_enum_usr_to_result_dir=self.project_enum_usr_to_result_dir,
+            project_global_usr_to_result_dir=self.project_global_usr_to_result_dir,
         )
         return translator
 
@@ -958,6 +1131,13 @@ class Sactor:
             executable_object=self.executable_object,
             processed_compile_commands=self.processed_compile_commands,
             link_args=self.link_args,
+            compile_commands_file=self.compile_commands_file,
+            entry_tu_file=self.entry_tu_file,
+            link_closure=self.project_link_closure,
+            project_usr_to_result_dir=self.project_usr_to_result_dir,
+            project_struct_usr_to_result_dir=self.project_struct_usr_to_result_dir,
+            project_enum_usr_to_result_dir=self.project_enum_usr_to_result_dir,
+            project_global_usr_to_result_dir=self.project_global_usr_to_result_dir,
             continue_run_when_incomplete=self.continue_run_when_incomplete
         )
 

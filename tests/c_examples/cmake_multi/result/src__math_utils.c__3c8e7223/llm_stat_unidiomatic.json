@@ -1,21 +1,21 @@
 {
     "total_queries": 3,
     "total_costed_input_tokens": 470,
-    "total_costed_output_tokens": 172,
-    "total_costed_time": 3.1932857036590576,
+    "total_costed_output_tokens": 178,
+    "total_costed_time": 4.0536088943481445,
     "costed_input_tokens": [
         143,
         143,
         184
     ],
     "costed_output_tokens": [
-        37,
-        49,
+        44,
+        48,
         86
     ],
     "costed_time": [
-        0.7521896362304688,
-        1.0907626152038574,
-        1.3503334522247314
+        1.3218908309936523,
+        1.2342863082885742,
+        1.497431755065918
     ]
 }

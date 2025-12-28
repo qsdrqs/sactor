@@ -1,0 +1,13 @@
+[package]
+name = "cmake_multi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2.159"
+
+[[bin]]
+name = "cmake_multi"
+path = "src/main.rs"
+
+[workspace]

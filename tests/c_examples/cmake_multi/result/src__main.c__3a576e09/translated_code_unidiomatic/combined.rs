@@ -1,24 +1,24 @@
 pub fn main() -> () {
-    use libc::{c_int, size_t};
-    let values: [c_int; 5] = [1, 2, 3, 4, 5];
-    let length: size_t = values.len() as size_t;
-    let sum: c_int;
-    let product: c_int;
-    let avg: f64;
-    let max: c_int;
-    let dot: c_int;
     unsafe {
-        sum = add_integers(values[0], values[1]);
-        product = multiply_integers(values[2], values[3]);
-        avg = average(values.as_ptr(), length);
-        max = max_value(values.as_ptr(), length);
+        let values: [libc::c_int; 5] = [1, 2, 3, 4, 5];
+        let length: libc::size_t = (values.len()) as libc::size_t;
+        let sum: libc::c_int = add_integers(values[0], values[1]);
+        let product: libc::c_int = multiply_integers(values[2], values[3]);
+        let avg: f64 = average(values.as_ptr(), length);
+        let max: i32 = max_value(values.as_ptr() as *const i32, length);
+        let other: [libc::c_int; 5] = [5, 4, 3, 2, 1];
+        let dot: i32 = dot_product(
+            values.as_ptr() as *const i32,
+            other.as_ptr() as *const i32,
+            length as usize,
+        );
+        libc::printf(
+            b"sum=%d product=%d avg=%.2f max=%d dot=%d\n\0".as_ptr() as *const libc::c_char,
+            sum,
+            product,
+            avg,
+            max,
+            dot,
+        );
     }
-    let other: [c_int; 5] = [5, 4, 3, 2, 1];
-    unsafe {
-        dot = dot_product(values.as_ptr(), other.as_ptr(), length);
-    }
-    println!(
-        "sum={} product={} avg={:.2} max={} dot={}",
-        sum, product, avg, max, dot
-    );
 }

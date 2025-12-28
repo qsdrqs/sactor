@@ -14,6 +14,9 @@ class DummyLLM:
     def statistic(self, path):
         self.calls.append(path)
 
+    def reset_statistics(self):
+        pass
+
 
 class DummyCombiner:
     def __init__(self):
@@ -87,6 +90,7 @@ def test_idiomatic_only_skips_unidiomatic(tmp_path):
 
     assert sactor.combiner.calls == [(os.path.join(sactor.result_dir, "translated_code_idiomatic"), True)]
     assert idiomatic_translator.saved == [idiomatic_translator.failure_info_path]
+    assert sactor.llm.calls == [str(tmp_path / "llm_stat_idiomatic.json")]
 
 
 def test_unidiomatic_only_skips_idiomatic(tmp_path):
@@ -103,6 +107,7 @@ def test_unidiomatic_only_skips_idiomatic(tmp_path):
 
     assert sactor.combiner.calls == [(os.path.join(sactor.result_dir, "translated_code_unidiomatic"), False)]
     assert unidiomatic_translator.saved == [unidiomatic_translator.failure_info_path]
+    assert sactor.llm.calls == [str(tmp_path / "llm_stat_unidiomatic.json")]
 
 
 def test_idiomatic_continue_flag_skips_abort(tmp_path):
@@ -115,6 +120,19 @@ def test_idiomatic_continue_flag_skips_abort(tmp_path):
     assert len(sactor.combiner.calls) == 1
     assert sactor.combiner.calls[0][1] is False
     assert idiomatic_translator.summary == ["Idiomatic"]
+
+
+def test_llm_stat_split_by_stage(tmp_path):
+    sactor, _, _ = make_sactor(
+        tmp_path, False, TranslateResult.SUCCESS
+    )
+
+    sactor.run()
+
+    assert sactor.llm.calls == [
+        str(tmp_path / "llm_stat_unidiomatic.json"),
+        str(tmp_path / "llm_stat_idiomatic.json"),
+    ]
 
 
 def test_idiomatic_continue_flag_raises_without_flag(tmp_path):

@@ -21,6 +21,18 @@ class FunctionDependencyRef(SymbolRef):
         return []
 
     @property
+    def global_vars_dependencies(self):
+        if getattr(self, "target", None) is not None:
+            return getattr(self.target, "global_vars_dependencies", [])
+        return []
+
+    @property
+    def function_dependencies(self):
+        if getattr(self, "target", None) is not None:
+            return getattr(self.target, "function_dependencies", [])
+        return []
+
+    @property
     def node(self):
         # For compatibility with code paths that expect FunctionInfo-like objects
         if getattr(self, "target", None) is not None:
@@ -38,4 +50,3 @@ class EnumRef(SymbolRef):
 
 class GlobalVarRef(SymbolRef):
     pass
-

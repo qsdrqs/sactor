@@ -4,5 +4,8 @@
     "warnings": {
         "clippy::missing_safety_doc": 2
     },
-    "errors": {}
+    "errors": {},
+    "total_tokens": 117,
+    "unsafe_tokens": 117,
+    "unsafe_fraction": 1.0
 }

@@ -1,3 +1,3 @@
-pub fn add_integers(lhs: i32, rhs: i32) -> i32 {
+pub fn add_integers(lhs: libc::c_int, rhs: libc::c_int) -> libc::c_int {
     lhs + rhs
 }

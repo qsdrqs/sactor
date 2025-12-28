@@ -5,6 +5,7 @@ import pytest
 
 from sactor.translator import Translator
 from sactor.translator.translator_types import TranslateResult, TranslationOutcome
+from sactor.c_parser.refs import EnumRef, FunctionDependencyRef, GlobalVarRef, StructRef
 
 
 class DummyTranslator(Translator):
@@ -66,7 +67,10 @@ def test_dependency_detects_existing_artifact(translator, tmp_path):
     artifact_dir.mkdir()
     (artifact_dir / "DepC.rs").write_text("// artifact\n", encoding="utf-8")
 
-    dep = SimpleNamespace(name="DepC")
+    # Point the translator's function output dir at the pre-existing artifact.
+    translator.translated_function_path = str(artifact_dir)
+
+    dep = FunctionDependencyRef(name="DepC", usr="usr_depc")
 
     ready, blockers = translator.check_dependencies(object(), lambda _: [dep])
 
@@ -85,3 +89,37 @@ def test_dependency_cache_updates_after_success(translator):
     ready_again, blockers_again = translator.check_dependencies(object(), lambda _: [dep])
     assert ready_again
     assert blockers_again == []
+
+
+def test_dependency_fast_path_uses_base_name_and_project_maps(translator, tmp_path):
+    owner_dir = tmp_path / "owner"
+    base_name = "translated_code_idiomatic"
+
+    # Create fake project artifacts under the owner dir.
+    (owner_dir / base_name / "functions").mkdir(parents=True)
+    (owner_dir / base_name / "structs").mkdir(parents=True)
+    (owner_dir / base_name / "enums").mkdir(parents=True)
+    (owner_dir / base_name / "global_vars").mkdir(parents=True)
+
+    (owner_dir / base_name / "functions" / "dep_fn.rs").write_text("// fn\n", encoding="utf-8")
+    (owner_dir / base_name / "structs" / "DepStruct.rs").write_text("// struct\n", encoding="utf-8")
+    (owner_dir / base_name / "enums" / "DepEnum.rs").write_text("// enum\n", encoding="utf-8")
+    (owner_dir / base_name / "global_vars" / "dep_global.rs").write_text("// gv\n", encoding="utf-8")
+
+    # Configure translator to emulate idiomatic multi-TU mode.
+    translator.base_name = base_name
+    translator.project_usr_to_result_dir = {"usr_fn": str(owner_dir)}
+    translator.project_struct_usr_to_result_dir = {"usr_struct": str(owner_dir)}
+    translator.project_enum_usr_to_result_dir = {"usr_enum": str(owner_dir)}
+    translator.project_global_usr_to_result_dir = {"usr_gv": str(owner_dir)}
+
+    deps = [
+        FunctionDependencyRef(name="dep_fn", usr="usr_fn"),
+        StructRef(name="DepStruct", usr="usr_struct"),
+        EnumRef(name="DepEnum", usr="usr_enum"),
+        GlobalVarRef(name="dep_global", usr="usr_gv"),
+    ]
+
+    ready, blockers = translator.check_dependencies(object(), lambda _: deps)
+    assert ready
+    assert blockers == []

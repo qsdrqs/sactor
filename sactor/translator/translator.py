@@ -8,7 +8,12 @@ from sactor import logging as sactor_logging
 from sactor import utils
 from sactor.c_parser import (CParser, EnumInfo, FunctionInfo, GlobalVarInfo,
                              StructInfo)
-from sactor.c_parser.refs import FunctionDependencyRef
+from sactor.c_parser.refs import (
+    EnumRef,
+    FunctionDependencyRef,
+    GlobalVarRef,
+    StructRef,
+)
 from sactor.llm import LLM
 from sactor.verifier import VerifyResult
 
@@ -164,19 +169,55 @@ class Translator(ABC):
             if not dep_name:
                 continue
             dep_type = self._resolve_dependency_type(dep)
-            # Fast-path: resolve by USR -> TU result dir (project index) for function deps
-            if dep_type == "function":
+
+            def _get_dep_usr(obj) -> Optional[str]:
                 try:
-                    usr = getattr(dep, 'usr', None)
+                    usr = getattr(obj, "usr", None)
                 except Exception:
                     usr = None
-                if usr and getattr(self, 'project_usr_to_result_dir', None):
-                    owner_dir = self.project_usr_to_result_dir.get(usr)
+                if isinstance(usr, str) and usr.strip():
+                    return usr.strip()
+                node = getattr(obj, "node", None)
+                if node is not None:
+                    try:
+                        usr2 = node.get_usr()  # type: ignore[attr-defined]
+                    except Exception:
+                        usr2 = None
+                    if isinstance(usr2, str) and usr2.strip():
+                        return usr2.strip()
+                return None
+
+            # Fast-path: resolve by USR -> TU result dir (project index) for multi-TU deps.
+            base_name = getattr(self, "base_name", None)
+            owner_map_attr = {
+                "function": "project_usr_to_result_dir",
+                "struct": "project_struct_usr_to_result_dir",
+                "enum": "project_enum_usr_to_result_dir",
+                "global_var": "project_global_usr_to_result_dir",
+            }
+            subdir_by_type = {
+                "function": "functions",
+                "struct": "structs",
+                "enum": "enums",
+                "global_var": "global_vars",
+            }
+            map_attr = owner_map_attr.get(dep_type)
+            if isinstance(base_name, str) and base_name and map_attr:
+                usr = _get_dep_usr(dep)
+                owner_map = getattr(self, map_attr, None)
+                if usr and owner_map:
+                    owner_dir = owner_map.get(usr)
                     if owner_dir:
-                        candidate = os.path.join(owner_dir, 'translated_code_unidiomatic', 'functions', f'{dep_name}.rs')
+                        candidate = os.path.join(
+                            owner_dir,
+                            base_name,
+                            subdir_by_type[dep_type],
+                            f"{dep_name}.rs",
+                        )
                         if os.path.exists(candidate):
-                            # mark success and continue
-                            self._set_translation_status(dep_type, dep_name, TranslationOutcome.SUCCESS)
+                            self._set_translation_status(
+                                dep_type, dep_name, TranslationOutcome.SUCCESS
+                            )
                             continue
             status = self._get_translation_status(dep_type, dep_name)
             if status in {
@@ -245,6 +286,15 @@ class Translator(ABC):
         try:
             if isinstance(dep, FunctionDependencyRef):
                 return "function"
+        except Exception:
+            pass
+        try:
+            if isinstance(dep, StructRef):
+                return "struct"
+            if isinstance(dep, EnumRef):
+                return "enum"
+            if isinstance(dep, GlobalVarRef):
+                return "global_var"
         except Exception:
             pass
         if isinstance(dep, GlobalVarInfo):

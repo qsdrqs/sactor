@@ -40,6 +40,13 @@ class IdiomaticTranslator(Translator):
         executable_object=None,
         processed_compile_commands: list[list[str]] = [],
         link_args: list[str] | None = None,
+        compile_commands_file: str | None = None,
+        entry_tu_file: str | None = None,
+        link_closure: list[str] | None = None,
+        project_usr_to_result_dir: dict[str, str] | None = None,
+        project_struct_usr_to_result_dir: dict[str, str] | None = None,
+        project_enum_usr_to_result_dir: dict[str, str] | None = None,
+        project_global_usr_to_result_dir: dict[str, str] | None = None,
         continue_run_when_incomplete=False
     ):
         super().__init__(
@@ -85,8 +92,17 @@ class IdiomaticTranslator(Translator):
             executable_object=executable_object,
             processed_compile_commands=processed_compile_commands,
             link_args=link_args or [],
+            compile_commands_file=compile_commands_file or "",
+            entry_tu_file=entry_tu_file,
+            link_closure=link_closure or [],
         )
         self.crown_result = crown_result
+
+        # Project-wide artifact indexes for multi-TU dependency resolution.
+        self.project_usr_to_result_dir = project_usr_to_result_dir or {}
+        self.project_struct_usr_to_result_dir = project_struct_usr_to_result_dir or {}
+        self.project_enum_usr_to_result_dir = project_enum_usr_to_result_dir or {}
+        self.project_global_usr_to_result_dir = project_global_usr_to_result_dir or {}
 
         self.specs_base_path = os.path.join(
             self.result_path, base_name, "specs")
@@ -1143,8 +1159,31 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                 struct_path = os.path.join(
                     self.translated_struct_path, struct_name + ".rs")
                 if not os.path.exists(struct_path):
+                    usr = None
+                    try:
+                        info = self.c_parser.get_struct_info(struct_name)
+                        try:
+                            usr = info.node.get_usr()  # type: ignore[attr-defined]
+                        except Exception:
+                            usr = None
+                    except Exception:
+                        usr = None
+                    if usr and self.project_struct_usr_to_result_dir:
+                        owner_dir = self.project_struct_usr_to_result_dir.get(usr)
+                        if owner_dir:
+                            candidate = os.path.join(
+                                owner_dir,
+                                self.base_name,
+                                "structs",
+                                struct_name + ".rs",
+                            )
+                            if os.path.exists(candidate):
+                                struct_path = candidate
+
+                if not os.path.exists(struct_path):
                     raise RuntimeError(
-                        f"Error: Struct {struct_name} is not translated yet")
+                        f"Error: Struct {struct_name} is not translated yet"
+                    )
                 code_of_structs[struct_name] = read_file(struct_path)
                 visited_structs.add(struct_name)
 
@@ -1183,25 +1222,47 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
 
         # Get used functions
         function_dependencies = function.function_dependencies
-        function_name_dependencies = [f.name for f in function_dependencies]
         function_depedency_signatures = []
-        for f in function_name_dependencies:
-            if f == function.name:
+        for dep in function_dependencies:
+            dep_name = getattr(dep, "name", None)
+            if not dep_name:
+                continue
+            if dep_name == function.name:
                 # Skip self dependencies
                 continue
-            if not os.path.exists(f"{self.translated_function_path}/{f}.rs"):
+
+            translated_path = os.path.join(
+                self.translated_function_path, f"{dep_name}.rs"
+            )
+            if not os.path.exists(translated_path):
+                owner_dir = None
+                usr = getattr(dep, "usr", None)
+                if isinstance(usr, str) and usr and self.project_usr_to_result_dir:
+                    owner_dir = self.project_usr_to_result_dir.get(usr)
+                if owner_dir:
+                    candidate = os.path.join(
+                        owner_dir,
+                        self.base_name,
+                        "functions",
+                        f"{dep_name}.rs",
+                    )
+                    if os.path.exists(candidate):
+                        translated_path = candidate
+
+            if not os.path.exists(translated_path):
                 raise RuntimeError(
-                    f"Error: Dependency {f} of function {function.name} is not translated yet")
+                    f"Error: Dependency {dep_name} of function {function.name} is not translated yet"
+                )
             # get the translated function signatures
-            code = read_file(f"{self.translated_function_path}/{f}.rs")
+            code = read_file(translated_path)
             function_signatures = rust_ast_parser.get_func_signatures(code)
             resolved_name = self._resolve_dependency_decl_name(
-                f, function_signatures
+                dep_name, function_signatures
             )
             if resolved_name is None:
                 available = ', '.join(function_signatures.keys())
                 raise RuntimeError(
-                    f"Error: Unable to determine idiomatic name for dependency {f} when translating {function.name}. Available declarations: [{available}]"
+                    f"Error: Unable to determine idiomatic name for dependency {dep_name} when translating {function.name}. Available declarations: [{available}]"
                 )
             function_depedency_signatures.append(
                 # add a semicolon to the end
@@ -1288,7 +1349,30 @@ The function uses the following const global variables, whose types and names ar
 
             for enum_def in enum_definitions:
                 self._translate_enum_impl(enum_def)
-                with open(os.path.join(self.translated_enum_path, enum_def.name + ".rs"), "r") as file:
+                enum_path = os.path.join(
+                    self.translated_enum_path, enum_def.name + ".rs")
+                if not os.path.exists(enum_path):
+                    usr = None
+                    try:
+                        usr = enum_def.node.get_usr()  # type: ignore[attr-defined]
+                    except Exception:
+                        usr = None
+                    if usr and self.project_enum_usr_to_result_dir:
+                        owner_dir = self.project_enum_usr_to_result_dir.get(usr)
+                        if owner_dir:
+                            candidate = os.path.join(
+                                owner_dir,
+                                self.base_name,
+                                "enums",
+                                enum_def.name + ".rs",
+                            )
+                            if os.path.exists(candidate):
+                                enum_path = candidate
+                if not os.path.exists(enum_path):
+                    raise RuntimeError(
+                        f"Error: Enum {enum_def.name} is not translated yet"
+                    )
+                with open(enum_path, "r") as file:
                     code_of_enum[enum_def] = file.read()
 
             joint_used_enums = '\n'.join(used_enum_names)
@@ -1594,19 +1678,29 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
                     attempts=attempts+1
                 )
 
-        # fetch all struct dependencies
+        # fetch all struct/global/function dependencies (follow transitive closure)
         all_structs = set()
         all_global_vars = set()
         all_dependency_functions = set()
+        visited_functions: set[str] = set()
 
-        def get_all_dependencies(function: FunctionInfo):
-            for struct in function.struct_dependencies:
+        def get_all_dependencies(function_like):
+            target = getattr(function_like, "target", None) or function_like
+            func_name = getattr(target, "name", getattr(function_like, "name", None))
+            if func_name:
+                if func_name in visited_functions:
+                    return
+                visited_functions.add(func_name)
+
+            for struct in getattr(target, "struct_dependencies", []) or []:
                 all_structs.add(struct.name)
-            for g_var in function.global_vars_dependencies:
+            for g_var in getattr(target, "global_vars_dependencies", []) or []:
                 all_global_vars.add(g_var.name)
 
-            for f in function.function_dependencies:
-                all_dependency_functions.add(f.name)
+            for f in getattr(target, "function_dependencies", []) or []:
+                dep_name = getattr(f, "name", None)
+                if dep_name:
+                    all_dependency_functions.add(dep_name)
                 get_all_dependencies(f)
 
         get_all_dependencies(function)
@@ -1619,19 +1713,115 @@ Error: Failed to parse the result from LLM, result is not wrapped by the tags as
         for struct in structs_in_function:
             get_all_struct_dependencies(struct)
 
-        all_dt_code = {}
-        for struct in all_structs:
-            all_dt_code[struct] = read_file(
-                f"{self.translated_struct_path}/{struct}.rs")
+        def _resolve_project_artifact_path(
+            item_type: str,
+            item_name: str,
+            usr: str | None,
+            local_dir: str,
+        ) -> str:
+            local_path = os.path.join(local_dir, f"{item_name}.rs")
+            if os.path.exists(local_path):
+                return local_path
 
-        for g_var in all_global_vars:
-            all_dt_code[g_var] = read_file(
-                f"{self.translated_global_var_path}/{g_var}.rs")
+            owner_map_attr = {
+                "function": "project_usr_to_result_dir",
+                "struct": "project_struct_usr_to_result_dir",
+                "enum": "project_enum_usr_to_result_dir",
+                "global_var": "project_global_usr_to_result_dir",
+            }
+            subdir_by_type = {
+                "function": "functions",
+                "struct": "structs",
+                "enum": "enums",
+                "global_var": "global_vars",
+            }
+            map_attr = owner_map_attr.get(item_type)
+            if not map_attr:
+                return local_path
+            if not usr:
+                return local_path
+            owner_map = getattr(self, map_attr, None)
+            if not owner_map:
+                return local_path
+            owner_dir = owner_map.get(usr)
+            if not owner_dir:
+                return local_path
+            candidate = os.path.join(
+                owner_dir,
+                self.base_name,
+                subdir_by_type[item_type],
+                f"{item_name}.rs",
+            )
+            if os.path.exists(candidate):
+                return candidate
+            return local_path
+
+        all_dt_code = {}
+        for struct_name in all_structs:
+            usr = None
+            try:
+                info = self.c_parser.get_struct_info(struct_name)
+                try:
+                    usr = info.node.get_usr()  # type: ignore[attr-defined]
+                except Exception:
+                    usr = None
+            except Exception:
+                usr = None
+            struct_path = _resolve_project_artifact_path(
+                "struct",
+                struct_name,
+                usr,
+                self.translated_struct_path,
+            )
+            if not os.path.exists(struct_path):
+                raise RuntimeError(
+                    f"Error: Struct {struct_name} required by {function.name} is not translated yet"
+                )
+            all_dt_code[struct_name] = read_file(struct_path)
+
+        for g_var_name in all_global_vars:
+            usr = None
+            try:
+                info = self.c_parser.get_global_var_info(g_var_name)
+                try:
+                    usr = info.node.get_usr()  # type: ignore[attr-defined]
+                except Exception:
+                    usr = None
+            except Exception:
+                usr = None
+            gv_path = _resolve_project_artifact_path(
+                "global_var",
+                g_var_name,
+                usr,
+                self.translated_global_var_path,
+            )
+            if not os.path.exists(gv_path):
+                raise RuntimeError(
+                    f"Error: Global var {g_var_name} required by {function.name} is not translated yet"
+                )
+            all_dt_code[g_var_name] = read_file(gv_path)
 
         all_dependency_functions_code = {}
-        for f in all_dependency_functions:
-            all_dependency_functions_code[f] = read_file(
-                f"{self.translated_function_path}/{f}.rs")
+        dep_name_to_usr: dict[str, str] = {}
+        for dep in getattr(function, "function_dependencies", []) or []:
+            dep_name = getattr(dep, "name", None)
+            dep_usr = getattr(dep, "usr", None)
+            if isinstance(dep_name, str) and dep_name and isinstance(dep_usr, str) and dep_usr:
+                dep_name_to_usr[dep_name] = dep_usr
+
+        for dep_name in all_dependency_functions:
+            dep_usr = dep_name_to_usr.get(dep_name)
+            dep_path = _resolve_project_artifact_path(
+                "function",
+                dep_name,
+                dep_usr,
+                self.translated_function_path,
+            )
+            if not os.path.exists(dep_path):
+                raise RuntimeError(
+                    f"Error: Dependency {dep_name} of function {function.name} is not translated yet"
+                )
+            all_dependency_functions_code[dep_name] = read_file(dep_path)
 
         data_type_code = all_dt_code | used_global_vars | code_of_enum
 
