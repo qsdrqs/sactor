@@ -1,4 +1,5 @@
 import os, copy
+import hashlib
 import shutil
 import tempfile
 import subprocess
@@ -58,6 +59,8 @@ class ConfigRedactionPolicy:
     def __post_init__(self) -> None:
         object.__setattr__(self, "_deny_exact_lower", {entry.lower() for entry in self.deny_exact})
         object.__setattr__(self, "_allow_exact_lower", {entry.lower() for entry in self.allow_exact})
+
+
         object.__setattr__(self, "_deny_substrings_lower", tuple(fragment.lower() for fragment in self.deny_substrings))
 
     def should_remove(self, key: str) -> bool:
@@ -70,6 +73,57 @@ class ConfigRedactionPolicy:
             if fragment in lowered:
                 return True
         return False
+
+
+######## CLI / Path / LLM Stat Helpers ########
+def _normalize_executable_object_arg(executable_object):
+    if isinstance(executable_object, list):
+        executable_object = [item for item in executable_object if item]
+        if len(executable_object) == 1:
+            return executable_object[0]
+        if len(executable_object) == 0:
+            return None
+        return executable_object
+    return executable_object
+
+
+def _slug_for_path(path: str) -> str:
+    rel_path = os.path.relpath(path, os.getcwd())
+    sanitized = rel_path.replace(os.sep, "__")
+    if os.altsep:
+        sanitized = sanitized.replace(os.altsep, "__")
+    sanitized = sanitized.replace("..", "__")
+    digest = hashlib.sha1(rel_path.encode("utf-8")).hexdigest()[:8]
+    return f"{sanitized}__{digest}"
+
+
+def _derive_llm_stat_path(
+    base_path: str,
+    *,
+    slug: str | None = None,
+    stage: str | None = None,
+) -> str:
+    suffix_parts = []
+    if slug:
+        suffix_parts.append(slug)
+    if stage:
+        suffix_parts.append(stage)
+
+    if os.path.isdir(base_path):
+        filename = "llm_stat"
+        if suffix_parts:
+            filename = f"{filename}_{'_'.join(suffix_parts)}"
+        filename = f"{filename}.json"
+        return os.path.join(base_path, filename)
+
+    if not suffix_parts:
+        return base_path
+
+    root, ext = os.path.splitext(base_path)
+    suffix = "_".join(suffix_parts)
+    if ext:
+        return f"{root}_{suffix}{ext}"
+    return f"{base_path}_{suffix}"
 
 def _copy_resource_tree(resource_root, destination: Path) -> None:
     """Recursively copy a Traversable resource tree into the destination path."""

@@ -1,475 +1,23 @@
-import hashlib
-from functools import lru_cache
-import heapq
 import json
 import os
 import shlex
-import shutil
-from dataclasses import dataclass
-from typing import Callable, Optional
 
 from sactor import logging as sactor_logging
 from sactor import thirdparty, utils
 from sactor.c_parser import CParser
 from sactor.c_parser.c_parser_utils import preprocess_source_code
-from sactor.combiner import CombineResult, ProgramCombiner, ProjectCombiner, TuArtifact
+from sactor.c_parser.project_index import build_link_closure, build_nonfunc_def_maps
+from sactor.combiner import CombineResult, ProgramCombiner
 from sactor.divider import Divider
 from sactor.llm import llm_factory
 from sactor.thirdparty import C2Rust, Crown
 from sactor.translator import (IdiomaticTranslator, TranslateResult,
                                Translator, UnidiomaticTranslator)
+from sactor.translator.batch_runner import run_translate_batch
+from sactor.translator.translator_types import TranslateBatchResult
 from sactor.verifier import Verifier
 
 
-@dataclass
-class TranslateBatchResult:
-    entries: list[dict[str, object]]
-    any_failed: bool
-    base_result_dir: str
-    combined_dir: Optional[str]
-
-
-def _normalize_executable_object_arg(executable_object):
-    if isinstance(executable_object, list):
-        executable_object = [item for item in executable_object if item]
-        if len(executable_object) == 1:
-            return executable_object[0]
-        if len(executable_object) == 0:
-            return None
-        return executable_object
-    return executable_object
-
-
-def _slug_for_path(path: str) -> str:
-    rel_path = os.path.relpath(path, os.getcwd())
-    sanitized = rel_path.replace(os.sep, "__")
-    if os.altsep:
-        sanitized = sanitized.replace(os.altsep, "__")
-    sanitized = sanitized.replace("..", "__")
-    digest = hashlib.sha1(rel_path.encode("utf-8")).hexdigest()[:8]
-    return f"{sanitized}__{digest}"
-
-
-def _derive_llm_stat_path(
-    base_path: str,
-    *,
-    slug: str | None = None,
-    stage: str | None = None,
-) -> str:
-    suffix_parts = []
-    if slug:
-        suffix_parts.append(slug)
-    if stage:
-        suffix_parts.append(stage)
-
-    if os.path.isdir(base_path):
-        filename = "llm_stat"
-        if suffix_parts:
-            filename = f"{filename}_{'_'.join(suffix_parts)}"
-        filename = f"{filename}.json"
-        return os.path.join(base_path, filename)
-
-    if not suffix_parts:
-        return base_path
-
-    root, ext = os.path.splitext(base_path)
-    suffix = "_".join(suffix_parts)
-    if ext:
-        return f"{root}_{suffix}{ext}"
-    return f"{base_path}_{suffix}"
-
-
-def _order_translation_units_by_dependencies(
-    translation_units: list[str],
-    compile_commands_file: str,
-) -> list[str]:
-    if not compile_commands_file:
-        return translation_units
-
-    function_usr_to_tu: dict[str, str] = {}
-    tu_called_usrs: dict[str, set[str]] = {}
-    index_lookup = {path: idx for idx, path in enumerate(translation_units)}
-
-    for tu_path in translation_units:
-        commands = utils.load_compile_commands_from_file(
-            compile_commands_file,
-            tu_path,
-        )
-        compile_flags = utils.get_compile_flags_from_commands(commands)
-
-        parser = CParser(tu_path, extra_args=compile_flags, omit_error=True)
-        called_here: set[str] = set()
-
-        for function in parser.get_functions():
-            usr = getattr(function, "usr", "") or ""
-            existing_owner = function_usr_to_tu.get(usr)
-            if usr and existing_owner and existing_owner != tu_path:
-                logger.warning(
-                    "Function USR %s defined in multiple translation units (%s, %s); "
-                    "dependency ordering may be ambiguous.",
-                    usr or function.name,
-                    existing_owner,
-                    tu_path,
-                )
-            else:
-                if usr:
-                    function_usr_to_tu.setdefault(usr, tu_path)
-
-            # collect called usrs from unified refs
-            for ref in getattr(function, "function_dependencies", []) or []:
-                if getattr(ref, "usr", None):
-                    called_here.add(ref.usr)
-
-        tu_called_usrs[tu_path] = called_here
-
-    tu_dependencies: dict[str, set[str]] = {tu: set() for tu in translation_units}
-    for tu_path, called_usrs in tu_called_usrs.items():
-        deps = set()
-        for usr in called_usrs:
-            owner = function_usr_to_tu.get(usr)
-            if not owner:
-                # Non-system unresolved reference: raise with hint
-                raise ValueError(
-                    f"Unresolved reference: <function> (USR={usr}) at {tu_path}. "
-                    f"Hint: ensure defining .c is in compile_commands.json and flags are correct."
-                )
-            if owner != tu_path:
-                deps.add(owner)
-        tu_dependencies[tu_path] = deps
-
-    adjacency: dict[str, set[str]] = {tu: set() for tu in translation_units}
-    indegree: dict[str, int] = {tu: 0 for tu in translation_units}
-    for tu_path, deps in tu_dependencies.items():
-        for dep in deps:
-            adjacency.setdefault(dep, set()).add(tu_path)
-            indegree[tu_path] += 1
-
-    heap: list[tuple[int, str]] = []
-    for tu_path, degree in indegree.items():
-        if degree == 0:
-            heapq.heappush(heap, (index_lookup[tu_path], tu_path))
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-    while heap:
-        _, current = heapq.heappop(heap)
-        if current in seen:
-            continue
-        seen.add(current)
-        ordered.append(current)
-        for dependent in sorted(adjacency.get(current, ()), key=lambda path: index_lookup[path]):
-            indegree[dependent] -= 1
-            if indegree[dependent] == 0:
-                heapq.heappush(heap, (index_lookup[dependent], dependent))
-
-    if len(ordered) != len(translation_units):
-        remaining = [tu for tu in translation_units if tu not in seen]
-        if remaining:
-            logger.warning(
-                "Detected cyclic translation unit dependencies involving: %s; "
-                "preserving input order for the cycle.",
-                ", ".join(remaining),
-            )
-            ordered.extend(remaining)
-
-    return ordered
-
-
-def _build_function_usr_owner_map(
-    translation_units: list[str],
-    compile_commands_file: str,
-) -> dict[str, str]:
-    """Return a map: function USR -> defining TU absolute path.
-
-    Parses each TU with its own compile flags to discover function definitions.
-    """
-    func_usr_to_tu, _, _, _ = _build_project_usr_owner_maps(
-        translation_units,
-        compile_commands_file,
-    )
-    return func_usr_to_tu
-
-
-def _build_project_usr_owner_maps(
-    translation_units: list[str],
-    compile_commands_file: str,
-) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
-    """Return project-wide USR owner maps for symbols visible in the compile DB.
-
-    Returns (func_usr_to_tu, struct_usr_to_tu, enum_usr_to_tu, global_usr_to_tu),
-    where values are the owning translation unit absolute paths.
-
-    Ownership rule:
-    - First writer wins in `translation_units` order (stable).
-    - We warn on conflicting ownership (same USR seen from different TUs).
-    """
-    function_usr_to_tu: dict[str, str] = {}
-    struct_usr_to_tu: dict[str, str] = {}
-    enum_usr_to_tu: dict[str, str] = {}
-    global_usr_to_tu: dict[str, str] = {}
-    for tu_path in translation_units:
-        commands = utils.load_compile_commands_from_file(
-            compile_commands_file,
-            tu_path,
-        )
-        compile_flags = utils.get_compile_flags_from_commands(commands)
-        parser = CParser(tu_path, extra_args=compile_flags, omit_error=True)
-        for function in parser.get_functions() or []:
-            usr = getattr(function, 'usr', '') or ''
-            if not usr:
-                continue
-            existing_owner = function_usr_to_tu.get(usr)
-            if existing_owner and existing_owner != tu_path:
-                logger.warning(
-                    'Function USR %s defined in multiple translation units (%s, %s); owner selection may be ambiguous.',
-                    usr, existing_owner, tu_path,
-                )
-            else:
-                function_usr_to_tu.setdefault(usr, tu_path)
-
-        for struct in parser.get_structs() or []:
-            usr = None
-            try:
-                usr = struct.node.get_usr()  # type: ignore[attr-defined]
-            except Exception:
-                usr = None
-            if not usr:
-                continue
-            existing_owner = struct_usr_to_tu.get(usr)
-            if existing_owner and existing_owner != tu_path:
-                logger.warning(
-                    'Struct USR %s observed in multiple translation units (%s, %s); owner selection may be ambiguous.',
-                    usr, existing_owner, tu_path,
-                )
-            else:
-                struct_usr_to_tu.setdefault(usr, tu_path)
-
-        for enum in parser.get_enums() or []:
-            usr = None
-            try:
-                usr = enum.node.get_usr()  # type: ignore[attr-defined]
-            except Exception:
-                usr = None
-            if not usr:
-                continue
-            existing_owner = enum_usr_to_tu.get(usr)
-            if existing_owner and existing_owner != tu_path:
-                logger.warning(
-                    'Enum USR %s observed in multiple translation units (%s, %s); owner selection may be ambiguous.',
-                    usr, existing_owner, tu_path,
-                )
-            else:
-                enum_usr_to_tu.setdefault(usr, tu_path)
-
-        for g in parser.get_global_vars() or []:
-            usr = None
-            try:
-                usr = g.node.get_usr()  # type: ignore[attr-defined]
-            except Exception:
-                usr = None
-            if not usr:
-                continue
-            existing_owner = global_usr_to_tu.get(usr)
-            if existing_owner and existing_owner != tu_path:
-                logger.warning(
-                    'Global USR %s observed in multiple translation units (%s, %s); owner selection may be ambiguous.',
-                    usr, existing_owner, tu_path,
-                )
-            else:
-                global_usr_to_tu.setdefault(usr, tu_path)
-    return function_usr_to_tu, struct_usr_to_tu, enum_usr_to_tu, global_usr_to_tu
-
-def _build_link_closure(
-    entry_tu_file: Optional[str],
-    compile_commands_file: str,
-) -> list[str]:
-    """Build a minimal set of C translation units required to link the chosen entry.
-
-    - If entry_tu_file is None, discover TU(s) defining `main` and enforce uniqueness.
-    - Edges come from function-level USR references (system headers/inline already excluded upstream).
-    - Returns a stable-ordered list of TU absolute paths, starting from the entry.
-    """
-    if not compile_commands_file:
-        return []
-
-    tus = utils.list_c_files_from_compile_commands(compile_commands_file)
-    if not tus:
-        raise ValueError('No C translation units found in compile_commands.json')
-
-    index_lookup = {path: idx for idx, path in enumerate(tus)}
-    function_usr_to_tu: dict[str, str] = {}
-    tu_called_usrs: dict[str, set[str]] = {}
-    main_tus: list[str] = []
-
-    for tu_path in tus:
-        commands = utils.load_compile_commands_from_file(
-            compile_commands_file,
-            tu_path,
-        )
-        compile_flags = utils.get_compile_flags_from_commands(commands)
-        parser = CParser(tu_path, extra_args=compile_flags, omit_error=True)
-
-        called_here: set[str] = set()
-        for function in parser.get_functions() or []:
-            # detect main
-            try:
-                if function.name == 'main':
-                    main_tus.append(tu_path)
-            except Exception:
-                pass
-
-            usr = getattr(function, 'usr', '') or ''
-            owner = function_usr_to_tu.get(usr)
-            if usr and owner and owner != tu_path:
-                logger.warning(
-                    'Function USR %s defined in multiple translation units (%s, %s); ordering may be ambiguous.',
-                    usr or function.name, owner, tu_path,
-                )
-            else:
-                if usr:
-                    function_usr_to_tu.setdefault(usr, tu_path)
-
-            for ref in getattr(function, 'function_dependencies', []) or []:
-                if getattr(ref, 'usr', None):
-                    called_here.add(ref.usr)
-        tu_called_usrs[tu_path] = called_here
-
-    # Pick entry TU
-    chosen_entry = entry_tu_file
-    if not chosen_entry:
-        unique_mains = sorted(set(main_tus), key=lambda p: index_lookup[p])
-        if len(unique_mains) == 1:
-            chosen_entry = unique_mains[0]
-        elif len(unique_mains) == 0:
-            raise ValueError(
-                'No main function found in project. Please specify --entry-tu-file to select the entry translation unit.'
-            )
-        else:
-            raise ValueError(
-                'Multiple main functions detected. Please specify --entry-tu-file. Candidates: '\
-                + ', '.join(unique_mains)
-            )
-
-    # Validate entry exists in compile database
-    chosen_entry_abs = os.path.realpath(chosen_entry)
-    if chosen_entry_abs not in index_lookup:
-        # Normalize case: try samefile check
-        found = None
-        for tu in tus:
-            try:
-                if os.path.samefile(tu, chosen_entry_abs):
-                    found = tu
-                    break
-            except FileNotFoundError:
-                continue
-        if not found:
-            raise ValueError(
-                f'Entry TU {entry_tu_file} not present in compile_commands.json')
-        chosen_entry_abs = found
-
-    # Build closure via BFS on TU dependency edges (caller -> callee-owner)
-    closure: list[str] = []
-    seen: set[str] = set()
-    queue: list[str] = [chosen_entry_abs]
-    while queue:
-        cur = queue.pop(0)
-        if cur in seen:
-            continue
-        seen.add(cur)
-        closure.append(cur)
-        for usr in tu_called_usrs.get(cur, set()):
-            owner = function_usr_to_tu.get(usr)
-            if not owner:
-                # Unresolved non-system reference; let it surface clearly
-                raise ValueError(
-                    f'Unresolved reference from {cur}: function USR={usr}. '
-                    'Hint: ensure defining .c is in compile_commands.json and flags are correct.'
-                )
-            if owner != cur and owner not in seen:
-                queue.append(owner)
-
-    # Keep stable order by input index
-    closure.sort(key=lambda p: index_lookup[p])
-    return closure
-@lru_cache(maxsize=4)
-def _build_nonfunc_def_maps(compile_commands_file: str) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-    """Build project-wide definition maps for non-function symbols using libclang.
-
-    Returns three dicts: (struct_def_map, enum_def_map, global_def_map)
-    keyed by USR -> defining file absolute path.
-
-    This function enumerates all .c files from the compilation database and
-    parses each with its own compile flags to discover definitions visible
-    to those TUs. Duplicates are tolerated (first writer wins); we warn on
-    conflicting ownerships.
-    """
-    struct_def_map: dict[str, str] = {}
-    enum_def_map: dict[str, str] = {}
-    global_def_map: dict[str, str] = {}
-
-    if not compile_commands_file:
-        return struct_def_map, enum_def_map, global_def_map
-
-    try:
-        tus = utils.list_c_files_from_compile_commands(compile_commands_file)
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Failed to enumerate translation units for backfill: %s", exc)
-        return struct_def_map, enum_def_map, global_def_map
-
-    for tu_path in tus:
-        try:
-            commands = utils.load_compile_commands_from_file(
-                compile_commands_file,
-                tu_path,
-            )
-            flags = utils.get_compile_flags_from_commands(commands)
-            parser = CParser(tu_path, extra_args=flags, omit_error=True)
-
-            # Structs/Unions
-            for struct in parser.get_structs() or []:
-                try:
-                    usr = struct.node.get_usr()  # type: ignore[attr-defined]
-                except Exception:
-                    usr = None
-                if not usr:
-                    continue
-                owner = struct_def_map.get(usr)
-                if owner and owner != tu_path:
-                    logger.warning("Struct USR %s observed from multiple files (%s, %s)", usr, owner, tu_path)
-                else:
-                    struct_def_map.setdefault(usr, getattr(struct.node.location.file, 'name', tu_path))
-
-            # Enums
-            for enum in parser.get_enums() or []:
-                try:
-                    usr = enum.node.get_usr()  # type: ignore[attr-defined]
-                except Exception:
-                    usr = None
-                if not usr:
-                    continue
-                owner = enum_def_map.get(usr)
-                if owner and owner != tu_path:
-                    logger.warning("Enum USR %s observed from multiple files (%s, %s)", usr, owner, tu_path)
-                else:
-                    enum_def_map.setdefault(usr, getattr(enum.node.location.file, 'name', tu_path))
-
-            # Global variables
-            for g in parser.get_global_vars() or []:
-                try:
-                    usr = g.node.get_usr()  # type: ignore[attr-defined]
-                except Exception:
-                    usr = None
-                if not usr:
-                    continue
-                owner = global_def_map.get(usr)
-                if owner and owner != tu_path:
-                    logger.warning("Global USR %s observed from multiple files (%s, %s)", usr, owner, tu_path)
-                else:
-                    global_def_map.setdefault(usr, getattr(g.node.location.file, 'name', tu_path))
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.warning("Skipping %s during backfill indexing due to error: %s", tu_path, exc)
-
-    return struct_def_map, enum_def_map, global_def_map
 logger = sactor_logging.get_logger(__name__)
 
 
@@ -508,7 +56,7 @@ class Sactor:
         else:
             is_executable = bool(target_type)
 
-        normalized_executable_object = _normalize_executable_object_arg(executable_object)
+        normalized_executable_object = utils._normalize_executable_object_arg(executable_object)
         if not is_executable and not normalized_executable_object:
             raise ValueError("Executable object must be provided for library targets")
 
@@ -549,7 +97,7 @@ class Sactor:
             entry = {
                 "input": input_file,
                 "result_dir": getattr(runner, "result_dir", base_result_dir),
-                "slug": _slug_for_path(input_file),
+                "slug": utils._slug_for_path(input_file),
                 "status": "success",
                 "error": None,
             }
@@ -560,249 +108,24 @@ class Sactor:
                 combined_dir=None,
             )
 
-        translation_units = utils.list_c_files_from_compile_commands(compile_commands_file)
-        translation_units = _order_translation_units_by_dependencies(
-            translation_units,
-            compile_commands_file,
-        )
-        if not translation_units:
-            raise ValueError('No C translation units found in compile_commands.json')
-
-        combined_root = os.path.join(base_result_dir, "combined")
-        if compile_commands_file:
-            tu_dirs = [os.path.dirname(os.path.realpath(tu)) for tu in translation_units]
-            if tu_dirs:
-                project_root = os.path.commonpath(tu_dirs)
-                if os.path.basename(project_root) == "src":
-                    project_root = os.path.dirname(project_root)
-                legacy_crate_dir = os.path.join(combined_root, os.path.basename(project_root))
-                if os.path.isdir(legacy_crate_dir) and os.path.isfile(os.path.join(legacy_crate_dir, "Cargo.toml")):
-                    shutil.rmtree(legacy_crate_dir)
-
-        # Clean up legacy flat per-TU combined copies under combined/{unidiomatic,idiomatic}/*.rs.
-        for variant in ("unidiomatic", "idiomatic"):
-            variant_dir = os.path.join(combined_root, variant)
-            if not os.path.isdir(variant_dir):
-                continue
-            for entry in os.listdir(variant_dir):
-                if entry.endswith(".rs"):
-                    os.remove(os.path.join(variant_dir, entry))
-        any_failed = False
-        run_unidiomatic_phase = not idiomatic_only
-        run_idiomatic_phase = not unidiomatic_only
-        # Pre-create per-TU result slots
-        per_tu: dict[str, dict[str, object]] = {}
-        for tu_path in translation_units:
-            slug = _slug_for_path(tu_path)
-            unit_result_dir = os.path.join(base_result_dir, slug)
-            os.makedirs(unit_result_dir, exist_ok=True)
-            per_tu[tu_path] = {
-                "input": tu_path,
-                "result_dir": unit_result_dir,
-                "slug": slug,
-                "status": "success",
-                "error": None,
-                "_uni_success": False,
-                "_ido_success": False,
-            }
-
-        # Build function USR -> result_dir mapping for precise dependency resolution
-        project_usr_to_result_dir: dict[str, str] = {}
-        project_struct_usr_to_result_dir: dict[str, str] = {}
-        project_enum_usr_to_result_dir: dict[str, str] = {}
-        project_global_usr_to_result_dir: dict[str, str] = {}
-        if compile_commands_file:
-            (
-                func_usr_owner,
-                struct_usr_owner,
-                enum_usr_owner,
-                global_usr_owner,
-            ) = _build_project_usr_owner_maps(translation_units, compile_commands_file)
-
-            for usr, tu in func_usr_owner.items():
-                meta = per_tu.get(tu)
-                if meta:
-                    project_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
-            for usr, tu in struct_usr_owner.items():
-                meta = per_tu.get(tu)
-                if meta:
-                    project_struct_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
-            for usr, tu in enum_usr_owner.items():
-                meta = per_tu.get(tu)
-                if meta:
-                    project_enum_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
-            for usr, tu in global_usr_owner.items():
-                meta = per_tu.get(tu)
-                if meta:
-                    project_global_usr_to_result_dir[usr] = str(meta["result_dir"])  # type: ignore[index]
-
-        # Helper to build per-TU runner
-        def _make_runner(tu_path: str, unit_build_dir: str | None, unit_llm_stat: str | None, *, uni: bool, ido: bool):
-            return cls(
-                input_file=tu_path,
-                test_cmd_path=test_cmd_path,
-                build_dir=unit_build_dir,
-                result_dir=per_tu[tu_path]["result_dir"],
-                config_file=config_file,
-                no_verify=no_verify,
-                unidiomatic_only=uni,
-                llm_stat=unit_llm_stat,
-                extra_compile_command=extra_compile_command,
-                is_executable=is_executable,
-                executable_object=normalized_executable_object,
-                link_args=link_args,
-                compile_commands_file=compile_commands_file,
-                entry_tu_file=entry_tu_file,
-                idiomatic_only=ido,
-                continue_run_when_incomplete=continue_run_when_incomplete,
-                project_usr_to_result_dir=project_usr_to_result_dir,
-                project_struct_usr_to_result_dir=project_struct_usr_to_result_dir,
-                project_enum_usr_to_result_dir=project_enum_usr_to_result_dir,
-                project_global_usr_to_result_dir=project_global_usr_to_result_dir,
-            )
-
-        # Detect stubbed runner in tests (e.g., tests/test_translate_batch.py)
-        is_stub_mode = hasattr(cls, 'instances') and isinstance(getattr(cls, 'instances'), list)
-
-        def _run_project_combiner(*, variant: str, tu_ok_flag: str) -> Optional[str]:
-            nonlocal any_failed
-            if not compile_commands_file or is_stub_mode:
-                return None
-            if variant not in {"unidiomatic", "idiomatic"}:
-                raise ValueError(f"Unsupported project combine variant: {variant}")
-
-            output_root = os.path.join(combined_root, variant)
-            if os.path.isdir(output_root):
-                for entry in os.listdir(output_root):
-                    if not entry.endswith(".rs"):
-                        continue
-                    path = os.path.join(output_root, entry)
-                    if os.path.isfile(path):
-                        os.remove(path)
-
-            tu_artifacts: list[TuArtifact] = []
-            for tu_path, meta in per_tu.items():
-                if not meta.get(tu_ok_flag):
-                    continue
-                tu_artifacts.append(TuArtifact(tu_path=tu_path, result_dir=str(meta["result_dir"])))  # type: ignore[index]
-
-            if not tu_artifacts:
-                return None
-
-            logger.info("Combining project artefacts into a single Rust crate (%s) and running project-level tests", variant)
-            pc = ProjectCombiner(
-                config=config,
-                test_cmd_path=test_cmd_path,
-                output_root=output_root,
-                compile_commands_file=compile_commands_file,
-                entry_tu_file=entry_tu_file,
-                tu_artifacts=tu_artifacts,
-                variant=variant,
-            )
-            ok, crate_dir, _bin_path = pc.combine_and_build()
-            if not ok:
-                any_failed = True
-            return crate_dir
-
-        # Phase 1: unidiomatic for all TUs (unless idiomatic_only)
-        if run_unidiomatic_phase:
-            for tu_path in translation_units:
-                meta = per_tu[tu_path]
-                slug = meta["slug"]  # type: ignore[index]
-                unit_result_dir = meta["result_dir"]  # type: ignore[index]
-                unit_build_dir = os.path.join(build_dir, slug) if build_dir else None
-                if unit_build_dir:
-                    os.makedirs(unit_build_dir, exist_ok=True)
-                unit_llm_stat = None
-                if llm_stat:
-                    unit_llm_stat = _derive_llm_stat_path(llm_stat, slug=slug)
-                    llm_stat_dir = os.path.dirname(unit_llm_stat)
-                    if llm_stat_dir:
-                        os.makedirs(llm_stat_dir, exist_ok=True)
-
-                logger.info("Translating (unidiomatic) %s (result dir: %s)", tu_path, unit_result_dir)
-                try:
-                    runner = _make_runner(tu_path, unit_build_dir, unit_llm_stat, uni=True, ido=False)
-                    runner.run()
-                    meta["_uni_success"] = True
-                except Exception as exc:  # pylint: disable=broad-except
-                    meta["status"] = "failed"
-                    meta["error"] = str(exc)
-                    any_failed = True
-                    logger.error("Unidiomatic translation failed for %s: %s", tu_path, exc, exc_info=True)
-
-            try:
-                _run_project_combiner(variant="unidiomatic", tu_ok_flag="_uni_success")
-            except Exception as exc:  # pylint: disable=broad-except
-                any_failed = True
-                logger.error("Unidiomatic ProjectCombiner failed: %s", exc, exc_info=True)
-
-            # If phase 1 had failures and continue flag is not set, stop here
-            if any_failed and not continue_run_when_incomplete:
-                summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
-                summary_path = os.path.join(base_result_dir, "batch_summary.json")
-                with open(summary_path, "w", encoding="utf-8") as handle:
-                    json.dump(summary, handle, indent=2)
-                logger.info("Batch summary written to %s", summary_path)
-                return TranslateBatchResult(entries=summary, any_failed=True, base_result_dir=base_result_dir, combined_dir=combined_root)
-
-        # Phase 2: idiomatic (unless unidiomatic_only)
-        if run_idiomatic_phase:
-            if is_stub_mode and run_unidiomatic_phase:
-                # In stub mode, the unidiomatic pass already created both artefacts.
-                summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
-                summary_path = os.path.join(base_result_dir, "batch_summary.json")
-                with open(summary_path, "w", encoding="utf-8") as handle:
-                    json.dump(summary, handle, indent=2)
-                logger.info("Batch summary written to %s", summary_path)
-                return TranslateBatchResult(entries=summary, any_failed=any_failed, base_result_dir=base_result_dir, combined_dir=combined_root)
-
-            eligible_units = translation_units
-            if run_unidiomatic_phase:
-                eligible_units = [tu for tu in translation_units if per_tu[tu].get("_uni_success")]
-
-            for tu_path in eligible_units:
-                meta = per_tu[tu_path]
-                slug = meta["slug"]  # type: ignore[index]
-                unit_result_dir = meta["result_dir"]  # type: ignore[index]
-                unit_build_dir = os.path.join(build_dir, slug) if build_dir else None
-                if unit_build_dir:
-                    os.makedirs(unit_build_dir, exist_ok=True)
-                unit_llm_stat = None
-                if llm_stat:
-                    unit_llm_stat = _derive_llm_stat_path(llm_stat, slug=slug)
-                    llm_stat_dir = os.path.dirname(unit_llm_stat)
-                    if llm_stat_dir:
-                        os.makedirs(llm_stat_dir, exist_ok=True)
-
-                logger.info("Translating (idiomatic) %s (result dir: %s)", tu_path, unit_result_dir)
-                try:
-                    runner = _make_runner(tu_path, unit_build_dir, unit_llm_stat, uni=False, ido=True)
-                    runner.run()
-                    meta["_ido_success"] = True
-                except Exception as exc:  # pylint: disable=broad-except
-                    meta["status"] = "failed"
-                    meta["error"] = str(exc)
-                    any_failed = True
-                    logger.error("Idiomatic translation failed for %s: %s", tu_path, exc, exc_info=True)
-
-            try:
-                _run_project_combiner(variant="idiomatic", tu_ok_flag="_ido_success")
-            except Exception as exc:  # pylint: disable=broad-except
-                any_failed = True
-                logger.error("Idiomatic ProjectCombiner failed: %s", exc, exc_info=True)
-
-        summary = [{k: v for k, v in meta.items() if not str(k).startswith("_")} for meta in per_tu.values()]
-        summary_path = os.path.join(base_result_dir, "batch_summary.json")
-        with open(summary_path, "w", encoding="utf-8") as handle:
-            json.dump(summary, handle, indent=2)
-        logger.info("Batch summary written to %s", summary_path)
-
-        return TranslateBatchResult(
-            entries=summary,
-            any_failed=any_failed,
+        return run_translate_batch(
+            runner_cls=cls,
             base_result_dir=base_result_dir,
-            combined_dir=combined_root,
+            config=config,
+            test_cmd_path=test_cmd_path,
+            compile_commands_file=compile_commands_file,
+            entry_tu_file=entry_tu_file,
+            build_dir=build_dir,
+            config_file=config_file,
+            no_verify=no_verify,
+            unidiomatic_only=unidiomatic_only,
+            idiomatic_only=idiomatic_only,
+            continue_run_when_incomplete=continue_run_when_incomplete,
+            extra_compile_command=extra_compile_command,
+            is_executable=is_executable,
+            executable_object=normalized_executable_object,
+            link_args=link_args,
+            llm_stat=llm_stat,
         )
 
     def __init__(
@@ -927,7 +250,7 @@ class Sactor:
         # Project-wide backfill for non-function refs when a compilation database is provided
         if self.compile_commands_file:
             try:
-                struct_map, enum_map, global_map = _build_nonfunc_def_maps(self.compile_commands_file)
+                struct_map, enum_map, global_map = build_nonfunc_def_maps(self.compile_commands_file)
                 self.c_parser.backfill_nonfunc_refs(struct_map, enum_map, global_map)
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("Non-function reference backfill failed: %s", exc)
@@ -937,7 +260,7 @@ class Sactor:
         # Build project-wide link closure once per runner (used by verifier when relinking)
         if self.compile_commands_file:
             try:
-                self.project_link_closure = _build_link_closure(self.entry_tu_file, self.compile_commands_file)
+                self.project_link_closure = build_link_closure(self.entry_tu_file, self.compile_commands_file)
                 logger.info("Project link closure size: %d", len(self.project_link_closure))
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("Failed to build project link closure: %s", exc)
@@ -985,7 +308,7 @@ class Sactor:
 
     def run(self):
         def _stage_stat_path(stage: str) -> str:
-            return _derive_llm_stat_path(self.llm_stat, stage=stage)
+            return utils._derive_llm_stat_path(self.llm_stat, stage=stage)
 
         if not self.idiomatic_only:
             self.llm.reset_statistics()

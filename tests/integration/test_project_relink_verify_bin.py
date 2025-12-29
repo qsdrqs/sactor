@@ -2,7 +2,7 @@ from pathlib import Path
 
 from sactor import utils
 from sactor.c_parser import CParser
-from sactor.sactor import _build_link_closure
+from sactor.c_parser.project_index import build_link_closure
 from sactor.verifier.idiomatic_verifier import IdiomaticVerifier
 from sactor.verifier.unidiomatic_verifier import UnidiomaticVerifier
 from sactor.verifier.verifier_types import VerifyResult
@@ -72,7 +72,7 @@ def _run_project_relink(verifier, function_info, rust_code, idiomatic: bool):
 def test_project_relink_verify_bin_unidiomatic(tmp_path):
     base, cc_path, entry_tu, test_cmd = _project_paths()
     target_tu = base / "src" / "math_utils.c"
-    link_closure = _build_link_closure(str(entry_tu), str(cc_path))
+    link_closure = build_link_closure(str(entry_tu), str(cc_path))
     assert link_closure
 
     function_info = _load_function_info(cc_path, target_tu, "dot_product")
@@ -95,7 +95,7 @@ def test_project_relink_verify_bin_unidiomatic(tmp_path):
 def test_project_relink_verify_bin_idiomatic(tmp_path):
     base, cc_path, entry_tu, test_cmd = _project_paths()
     target_tu = base / "src" / "stats.c"
-    link_closure = _build_link_closure(str(entry_tu), str(cc_path))
+    link_closure = build_link_closure(str(entry_tu), str(cc_path))
     assert link_closure
 
     function_info = _load_function_info(cc_path, target_tu, "average")

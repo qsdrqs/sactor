@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from sactor.c_parser import CParser
-from sactor import sactor as sactor_mod
+from sactor.c_parser.project_index import build_nonfunc_def_maps
 
 
 def _write_compile_commands(path: Path, entries: list[dict]) -> Path:
@@ -60,7 +60,7 @@ extern int g;
     _write_compile_commands(cc, entries)
 
     # Build project-wide definition maps (struct/enum/global)
-    struct_map, enum_map, global_map = sactor_mod._build_nonfunc_def_maps(str(cc))  # noqa: SLF001 (testing internal helper)
+    struct_map, enum_map, global_map = build_nonfunc_def_maps(str(cc))
     assert struct_map and enum_map and global_map
 
     # Parse the user TU and collect non-function refs, then backfill

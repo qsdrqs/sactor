@@ -4,7 +4,7 @@ from pathlib import Path
 import textwrap
 import pytest
 
-from sactor.sactor import _build_link_closure
+from sactor.c_parser.project_index import build_link_closure
 
 
 def _write(tmp: Path, rel: str, content: str) -> str:
@@ -38,9 +38,8 @@ def test_multiple_main_requires_entry(tmp_path: Path):
     cc_path.write_text(json.dumps(cc, indent=2), encoding='utf-8')
 
     with pytest.raises(ValueError) as excinfo:
-        _build_link_closure(None, str(cc_path))
+        build_link_closure(None, str(cc_path))
 
     msg = str(excinfo.value)
     assert 'Multiple main functions' in msg
     assert '--entry-tu-file' in msg
-

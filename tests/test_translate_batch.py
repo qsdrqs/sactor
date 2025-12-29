@@ -8,7 +8,7 @@ import pytest
 from sactor import Sactor
 from sactor import __main__ as cli
 from sactor import sactor as sactor_module
-from sactor import sactor as sactor_module
+from sactor.translator import batch_runner as batch_runner_module
 
 
 class StubSactor(Sactor):
@@ -145,6 +145,14 @@ def test_translate_batch_creates_two_project_crates(tmp_path, monkeypatch):
             self.output_root = output_root
             self.variant = variant
 
+        @staticmethod
+        def cleanup_combined_root(_combined_root, _translation_units):
+            return None
+
+        @staticmethod
+        def cleanup_variant_root(_output_root):
+            return None
+
         def combine_and_build(self):
             combiner_calls.append((self.variant, self.output_root))
             crate_dir = Path(self.output_root) / "proj"
@@ -155,7 +163,7 @@ def test_translate_batch_creates_two_project_crates(tmp_path, monkeypatch):
             )
             return True, str(crate_dir), None
 
-    monkeypatch.setattr(sactor_module, "ProjectCombiner", FakeProjectCombiner)
+    monkeypatch.setattr(batch_runner_module, "ProjectCombiner", FakeProjectCombiner)
 
     class MinimalSactor(Sactor):
         def __init__(
@@ -313,7 +321,7 @@ def test_translate_batch_creates_variant_projects_without_flat_rs(tmp_path, monk
         (crate_dir / "src" / "main.rs").write_text(f"// combined {self.variant}\n", encoding="utf-8")
         return True, str(crate_dir), str(crate_dir / "target" / "debug" / "proj")
 
-    monkeypatch.setattr(sactor_module.ProjectCombiner, "combine_and_build", fake_combine_and_build)
+    monkeypatch.setattr(batch_runner_module.ProjectCombiner, "combine_and_build", fake_combine_and_build)
 
     out_dir = tmp_path / "out"
     res = MinimalSactor.translate(

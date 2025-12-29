@@ -56,6 +56,37 @@ class ProjectCombiner:
         self.variant = variant
 
     # --------------- helpers ---------------
+    @staticmethod
+    def cleanup_variant_root(output_root: str) -> None:
+        if os.path.isdir(output_root):
+            for entry in os.listdir(output_root):
+                if not entry.endswith(".rs"):
+                    continue
+                path = os.path.join(output_root, entry)
+                if os.path.isfile(path):
+                    os.remove(path)
+
+    @staticmethod
+    def cleanup_combined_root(combined_root: str, translation_units: list[str]) -> None:
+        if translation_units:
+            tu_dirs = [os.path.dirname(os.path.realpath(tu)) for tu in translation_units]
+            if tu_dirs:
+                project_root = os.path.commonpath(tu_dirs)
+                if os.path.basename(project_root) == "src":
+                    project_root = os.path.dirname(project_root)
+                legacy_crate_dir = os.path.join(combined_root, os.path.basename(project_root))
+                if os.path.isdir(legacy_crate_dir) and os.path.isfile(os.path.join(legacy_crate_dir, "Cargo.toml")):
+                    shutil.rmtree(legacy_crate_dir)
+
+        # Clean up legacy flat per-TU combined copies under combined/{unidiomatic,idiomatic}/*.rs.
+        for variant in ("unidiomatic", "idiomatic"):
+            variant_dir = os.path.join(combined_root, variant)
+            if not os.path.isdir(variant_dir):
+                continue
+            for entry in os.listdir(variant_dir):
+                if entry.endswith(".rs"):
+                    os.remove(os.path.join(variant_dir, entry))
+
     def _project_root_dir(self) -> str:
         tus = self._list_translation_units()
         if tus:

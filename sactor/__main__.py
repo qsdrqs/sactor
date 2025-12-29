@@ -153,17 +153,6 @@ def parse_translate(parser):
     )
 
 
-def _normalize_executable_object_arg(executable_object):
-    if isinstance(executable_object, list):
-        executable_object = [item for item in executable_object if item]
-        if len(executable_object) == 1:
-            return executable_object[0]
-        if len(executable_object) == 0:
-            return None
-        return executable_object
-    return executable_object
-
-
 def parse_run_tests(parser):
     parser.add_argument(
         'test_samples_path',
@@ -314,7 +303,7 @@ def translate(parser, args):
         parser.error('test_command_path is required')
 
     try:
-        exec_obj = _normalize_executable_object_arg(args.executable_object)
+        exec_obj = utils._normalize_executable_object_arg(args.executable_object)
         result = Sactor.translate(
             target_type=args.type,
             test_cmd_path=args.test_command_path,
